@@ -69,7 +69,7 @@ class TestCatalogWorkflow:
 
     async def test_search_failed_run_reuse_full_config_and_confirm_frozen_resume(self):
         root = self.fixture.root
-        path = self.fixture.record('batch-18', status='failed')
+        path = self.fixture.record('batch-18', status='failed', tasks='summarization')
         (path / 'result_layers.json').unlink()
         (path / 'runtime_failures.json').write_text(json.dumps({'failures': [{'reason_code': 'resource_limit', 'detail': '4 GiB'}]}))
         for i in range(24):
@@ -106,13 +106,14 @@ class TestCatalogWorkflow:
             assert not (reused.resume)
             assert (reused.extra_options['matrix_seed']) == (71)
             assert (reused.revision) == ('a' * 40)
+            assert reused.tasks == 'summarization'
             assert (reused.output_dir) != (str(path.parent))
             assert not app.query('#run-preset')
             assert ('--matrix-seed 71') in (str(app.query_one('#command-preview', Static).content))
             app.query_one('#model-source', Select).value = 'modelscope'
             await pilot.pause()
             switched = app.configuration.collect_config()
-            assert (switched.model_source, switched.revision) == ('modelscope', '')
+            assert (switched.model_source, switched.revision, switched.tasks) == ('modelscope', '', '')
             with patch.object(app, 'launch') as launch:
                 app.catalog.experiment_selected('experiment-source', ('resume', record))
                 # push_screen makes the screen current before its buttons have
@@ -135,6 +136,7 @@ class TestCatalogWorkflow:
                 pending = launch.call_args.args[0]
                 parsed = build_parser().parse_args(pending.command[pending.command.index('--model'):])
                 assert (parsed.matrix_seed) == (71)
+                assert parsed.tasks == 'summarization'
                 assert (parsed.output_dir) == (str(path.parent))
                 assert (parsed.resume)
 

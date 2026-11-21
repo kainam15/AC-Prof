@@ -61,10 +61,10 @@ class AppEventRoutes(BarCursorApp):
     def on_models_open_model_candidates(self) -> None:
         self.models.open_model_candidates()
 
-    @on(Input.Changed, '#model')
+    @on(Input.Changed, '#model, #revision, #tasks')
     @on(Select.Changed, '#model-source')
-    def on_models_candidate_identity_changed(self, event: TextualInput.Changed | Select.Changed) -> None:
-        self.models.candidate_identity_changed(event)
+    def on_configuration_model_fields_changed(self) -> None:
+        self.configuration.sync_model_fields()
 
     @on(Button.Pressed, '.experiment-picker')
     def on_catalog_select_experiment(self, event: Button.Pressed) -> None:

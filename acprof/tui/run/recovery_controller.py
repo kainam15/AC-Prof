@@ -173,7 +173,7 @@ class RecoveryController:
             if launch is None or launch.config is None:
                 self.app.notify(message_id("run.recovery.missing_config"), severity="error", timeout=10)
                 return
-            self.app.configuration.apply_config(launch.config)
+            self.app.configuration.apply_config(launch.config, preserve_model_edits=review is None)
             if self.app.preflight.preflight_run_reason():
                 self.recovery_after_check = (launch, review.record if review else None)
                 self.app.preflight.quick_check()

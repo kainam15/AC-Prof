@@ -14,12 +14,12 @@ class CatalogFixture:
         self.temporary = tmp_path
         self.root = Path(str(self.temporary))
 
-    def record(self, name, *, run_id='run-a', status='interrupted', model='demo/model', revision='a' * 40):
+    def record(self, name, *, run_id='run-a', status='interrupted', model='demo/model', revision='a' * 40, tasks=''):
         path = self.root / name / model.replace('/', '--')
         path.mkdir(parents=True)
         args = build_parser().parse_args(['--model', model, '--cpus', '1', '--mems', '4', '--gpus', 'off',
             '--matrix-order', 'declared', '--matrix-seed', '71', '--latency-slo', 'default=3',
-            '--no-prune-startup-oom', '--revision', revision])
+            '--no-prune-startup-oom', '--revision', revision, '--tasks', tasks])
         for key, value in asdict(RunConfig.from_namespace(args).validate(project_dir=self.root)).items():
             setattr(args, key, value)
         options = run_options(args)

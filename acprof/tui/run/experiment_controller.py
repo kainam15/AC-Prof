@@ -42,7 +42,7 @@ class ExperimentController:
         except RunConfigError as exc:
             self.app.configuration.show_config_error(exc)
             return
-        self.app.configuration.apply_config(config)
+        self.app.configuration.apply_config(config, preserve_model_edits=True)
         self.app.notify("已应用基础 CPU Smoke 预设" if preset == "smoke" else "已应用主矩阵预设（分析器关闭）", timeout=3)
 
     def start_run_button(self) -> None:

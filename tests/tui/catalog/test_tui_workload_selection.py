@@ -3,7 +3,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from textual.widgets import ContentSwitcher, Input, Label, Static
+from textual.widgets import ContentSwitcher, Input, Label, Select, Static
 
 from acprof.experiments.configuration import RunConfig
 from acprof.tui.settings.preferences import TuiSettings, UiPreferences, load_settings, save_settings
@@ -84,3 +84,73 @@ def test_recent_model_respects_the_scope_of_saved_workloads(tmp_path, saved_mode
     assert config.model == "example/new"
     assert config.tasks == expected
     assert load_settings(path, tmp_path)[0].run_defaults == defaults
+
+
+@pytest.mark.parametrize(("saved_model", "switch", "edit", "expected_revision", "expected_tasks"), [
+    ("demo/original", "source", {}, "", ""),
+    ("demo/original", "model", {"#revision": "my-branch"}, "my-branch", ""),
+    ("demo/original", "source", {"#tasks": "translation_en_to_fr"}, "", "translation_en_to_fr"),
+    ("demo/original", "model", {"#tasks": "summarization"}, "", "summarization"),
+    ("", "model", {}, "", "summarization"),
+])
+async def test_switching_repository_in_the_open_form_scopes_restored_fields(
+    tmp_path, saved_model, switch, edit, expected_revision, expected_tasks,
+):
+    path = tmp_path / "tui.json"
+    defaults = replace(RunConfig.smoke(saved_model), revision="release-v1", tasks="summarization")
+    save_settings(path, TuiSettings(run_defaults=defaults, last_model="demo/original"), tmp_path)
+    original = path.read_bytes()
+    app = AcprofTui(settings_path=path)
+    async with app.run_test(size=(100, 32)) as pilot:
+        before = app.configuration.collect_config()
+        assert (before.model, before.revision, before.tasks) == (
+            "demo/original", "release-v1" if saved_model else "", "summarization",
+        )
+        if edit:
+            await pilot.press("f3")
+            await fill_form(pilot, edit)
+            app.experiments.apply_preset("main")
+            await pilot.press("f3")
+        if switch == "model":
+            await fill_form(pilot, {"#model": "demo/second"})
+            command_fragment = "--model demo/second"
+        else:
+            app.query_one("#model-source", Select).focus()
+            await pilot.press("enter", "end", "enter")
+            command_fragment = "--model-source modelscope"
+        preview = app.query_one("#command-preview", Static)
+        await wait_for_condition(pilot, lambda: command_fragment in str(preview.content),
+                                 description="run preview for the new repository", timeout=5)
+        effective = app.configuration.collect_config()
+        assert (effective.revision, effective.tasks) == (expected_revision, expected_tasks)
+        await pilot.press("f3")
+        assert await pilot.click("#probe-largest")
+        await wait_for_condition(pilot, lambda: isinstance(app.screen, ConfirmActionScreen),
+                                 description="probe confirmation for the new repository", timeout=3)
+        pending = app.experiments.pending_launch
+        assert pending is not None
+        assert pending.kind == "probe"
+        for option, value in (("--revision", expected_revision), ("--tasks", expected_tasks)):
+            if value:
+                assert f"{option} {value}" in str(preview.content)
+                assert pending.command[pending.command.index(option) + 1] == value
+            else:
+                assert option not in str(preview.content)
+                assert option not in pending.command
+        await pilot.press("escape")
+    assert path.read_bytes() == original
+
+
+async def test_probe_reads_a_source_switch_before_textual_delivers_the_change(tmp_path):
+    config = replace(RunConfig.smoke("demo/model"), model_source="modelscope", revision="v1", tasks="summarization")
+    app = AcprofTui(config, settings_path=tmp_path / "tui.json")
+    async with app.run_test() as pilot:
+        app.query_one("#model-source", Select).value = "huggingface"
+        app.experiments.request_probe()
+        pending = app.experiments.pending_launch
+        assert pending is not None
+        assert pending.config is not None
+        assert pending.config.model_source == "huggingface"
+        assert "--tasks" not in pending.command
+        assert "--revision" not in pending.command
+        await pilot.press("escape")

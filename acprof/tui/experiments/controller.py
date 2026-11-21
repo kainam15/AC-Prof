@@ -98,7 +98,6 @@ class CatalogController:
             try:
                 config = config_from_record(record, reuse=True)
                 self.app.configuration.apply_config(config)
-                self.app.models.remember_recorded_revision(config.model, config.model_source, record.revision)
                 self.app.configuration.show_run_form('run-form')
                 self.app.notify('已复用冻结配置；开始采集会创建新实验身份。')
             except ValueError as exc:

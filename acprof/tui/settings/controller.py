@@ -56,6 +56,7 @@ class ConfigurationController:
         self.preferences = self.saved_settings.ui
         self.initial_config = (run_form.runtime_form_config(initial_config)
                                if initial_config is not None else self.startup_config())
+        self._remember_model_fields(initial_config or self.saved_settings.run_defaults or self.initial_config)
         self.recovery_policy = self.initial_config.profiling_mode if self.initial_config.resume else "best_effort"
         self.extra_options = dict(self.initial_config.extra_options)
         self.planned_input: dict | None = None
@@ -79,6 +80,36 @@ class ConfigurationController:
             config = replace(config, model=model, model_source=source, revision="",
                              tasks="" if config.model else config.tasks)
         return run_form.runtime_form_config(config)
+
+    def _remember_model_fields(self, config: RunConfig) -> None:
+        repository = (config.model, config.model_source)
+        values = {"revision": config.revision, "tasks": config.tasks if config.model else ""}
+        self._inherited_model_fields = {field: (repository, value) for field, value in values.items() if value}
+
+    def sync_model_fields(self) -> None:
+        """Release edited fields and clear inherited values when their repository changes."""
+        if not self._inherited_model_fields or not self.app.is_running or not self.app.form_ready or self.app.ui_closing:
+            return
+        repository = (self.input("model"), self.select("model-source"))
+        for field, (owner, inherited) in self._inherited_model_fields.copy().items():
+            widget = self.app.query_one(f"#{field}", Input)
+            if widget.value.strip() != inherited:
+                del self._inherited_model_fields[field]
+            elif owner != repository:
+                del self._inherited_model_fields[field]
+                widget.value = ""
+
+    def select_model_candidate(self, model: str, source: str, revision: str) -> None:
+        with self.app.prevent(Input.Changed, Select.Changed):
+            self.app.query_one("#model", Input).value = model
+            self.app.query_one("#model-source", Select).value = source
+            self.sync_model_fields()
+            self.app.query_one("#revision", Input).value = revision
+            if revision:
+                self._inherited_model_fields["revision"] = ((model, source), revision)
+            else:
+                self._inherited_model_fields.pop("revision", None)
+        self.refresh_command_preview()
 
     def use_process_inherited_resources(self) -> None:
         if self.app.is_busy() or self.app.preflight.check_running or self.app.execution.session.snapshot.measurement_active:
@@ -438,6 +469,8 @@ class ConfigurationController:
         self.refresh_command_preview(notify=False)
 
     def collect_config(self, *, allow_empty_model: bool = False) -> RunConfig:
+        # A launch can read the inputs before Textual delivers their Changed messages.
+        self.sync_model_fields()
         return run_form.collect_config(
             {key: self.input(key) for key in run_form.INPUT_FIELDS},
             {key: self.select(key) for key in run_form.SELECT_FIELDS},
@@ -456,7 +489,7 @@ class ConfigurationController:
             self.recovery_policy,
         )
 
-    def apply_config(self, config: RunConfig) -> None:
+    def apply_config(self, config: RunConfig, *, preserve_model_edits: bool = False) -> None:
         config = run_form.runtime_form_config(config)
         self.cancel_preview_timer()
         self.applying_config = True
@@ -476,6 +509,8 @@ class ConfigurationController:
                         self.app.query_one(f"#{widget_id}", Checkbox).value = checked_value
         finally:
             self.applying_config = False
+        if not preserve_model_edits:
+            self._remember_model_fields(config)
         if self.app.form_ready:
             self.refresh_command_preview(notify=False)
 

@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from textual.suggester import SuggestFromList
-from textual.widgets import Input as TextualInput, Select
 
 from acprof.experiments.configuration import RunConfigError
 from acprof.models.evidence import pinned_revision
@@ -23,7 +22,6 @@ class ModelController:
 
     def __init__(self, app: AcprofTui) -> None:
         self.app = app
-        self.candidate_pin: tuple[str, str, str] | None = None
 
     def open_model_candidates(self) -> None:
         if not self.app.allow_operation('catalog'):
@@ -99,24 +97,11 @@ class ModelController:
         self.app.query_one('#model', Input).suggester = SuggestFromList(sorted(models), case_sensitive=False)
         action, candidate = choice
         if action == 'use':
-            self.remember_recorded_revision(candidate.model_id, candidate.model_source, candidate.revision)
-            self.app.query_one('#model', Input).value = candidate.model_id
-            self.app.query_one('#model-source', Select).value = candidate.model_source
-            self.app.query_one('#revision', Input).value = candidate.revision if pinned_revision(candidate.revision) else ''
-            self.app.configuration.refresh_command_preview()
+            revision = candidate.revision if pinned_revision(candidate.revision) else ''
+            self.app.configuration.select_model_candidate(candidate.model_id, candidate.model_source, revision)
             self.app.notify(message_id('models.candidates.selected_notice', candidate.reason))
         elif action == 'view' and candidate.record:
             self.app.catalog.view_experiment(candidate.record)
         elif action == 'view' and candidate.report:
             self.app.activate_tab('results-tab')
             self.app.results.open_report(str(candidate.report))
-
-    def remember_recorded_revision(self, model: str, source: str, revision: str) -> None:
-        self.candidate_pin = (model, source, revision) if pinned_revision(revision) else None
-
-    def candidate_identity_changed(self, event: TextualInput.Changed | Select.Changed) -> None:
-        selected = self.candidate_pin
-        if selected and (self.app.configuration.input('model'), self.app.configuration.select('model-source')) != selected[:2]:
-            if self.app.configuration.input('revision') == selected[2]:
-                self.app.query_one('#revision', Input).value = ''
-            self.candidate_pin = None
