@@ -7,6 +7,7 @@ import pytest
 
 from acprof.analysis.model import load_analysis
 from acprof.analysis.resource_comparison import resource_qualification
+from acprof.results.metrics import CSV_FIELDS
 from tests.analysis.reporting.test_report_import import (
     browser as browser,
     download_json,
@@ -42,6 +43,26 @@ def csv_content(changes, recorded):
     for row, latency in zip(changes, ("3", "7"), strict=False):
         writer.writerow({**base, **row, "latency_app_s": latency})
     return output.getvalue()
+
+
+@pytest.mark.parametrize("axis", ["input_scale", "cpu_cores", "mem_cap_gb"])
+@pytest.mark.parametrize("value", ["1e400", "1e-400"])
+def test_registered_axis_outside_chart_range_is_rejected_before_grouping(tmp_path, axis, value):
+    path = tmp_path / "complete.csv"
+    first = dict(cpu_cores="2", mem_cap_gb="4", gpu_mode="off", input_scale="2",
+                 warmup="0", repeat_idx="0", status="ok", latency_app_s="3")
+    if axis == "cpu_cores":
+        first["runtime_kind"] = "process"
+    with path.open("w", newline="") as stream:
+        writer = csv.DictWriter(stream, CSV_FIELDS)
+        writer.writeheader()
+        writer.writerows([first, {**first, "repeat_idx": "1", axis: value}])
+
+    with pytest.raises(ValueError, match="outside the positive report axis range") as error:
+        load_analysis([path])
+    assert f"{path}:3:" in str(error.value)
+    assert axis in str(error.value)
+    assert value in str(error.value)
 
 
 @pytest.mark.parametrize("recorded", [False, True], ids=["anonymous", "recorded"])

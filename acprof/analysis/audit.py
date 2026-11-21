@@ -404,7 +404,11 @@ def _audit_process_row(report, runtime, metadata, hardware, index, row, status, 
         issue("resource_scope", "Process 指标必须标记 observed_process_tree", row=index)
     if status not in {"ok", "warn"}:
         return
-    case_id = resource_case_id(row["cpu_cores"], row["mem_cap_gb"], row["gpu_mode"])
+    try:
+        case_id = resource_case_id(row["cpu_cores"], row["mem_cap_gb"], row["gpu_mode"])
+    except (ValueError, OverflowError) as error:
+        issue("resource_enforcement", f"无法匹配已记录的资源配置: {error}", row=index)
+        return
     record = hardware.get(case_id, {})
     plan = record.get("resource_plan", {}) if isinstance(record, dict) else {}
     if not isinstance(plan, dict) or plan.get("verified") is not True:

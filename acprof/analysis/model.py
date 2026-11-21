@@ -20,6 +20,7 @@ from acprof.gpu_mode import normalize_gpu_mode
 from acprof.platform import recorded_identity
 from acprof.quality import QUALITY_FIELDS, read_quality
 from acprof.results.csv import (
+    KEY_FIELDS,
     MISSING_CSV_TEXT,
     ResultValidationError,
     is_measured_success,
@@ -32,7 +33,7 @@ from acprof.results.csv import (
 from acprof.results.layout import expand_result_sources, resolve_result_file
 from acprof.results.measurement_plan import decimal_coordinate, decimal_key_text
 from acprof.results.metadata import ResultMetadataSnapshot
-from acprof.results.metrics import ANALYSIS_METRICS, METRICS, VIEW_METRICS
+from acprof.results.metrics import ANALYSIS_METRICS, METRICS, VIEW_METRICS, supported_csv_header
 from acprof.results.profile import (
     USABLE_QUALITIES,
     metric_observation,
@@ -81,25 +82,43 @@ def _exact_coordinate(raw, display):
     return None
 
 
-def _optional_window_coordinate(row, name):
-    raw = row.get(name, "")
-    if raw.lower() in MISSING_CSV_TEXT:
+def _report_window_coordinate(row, name, *, recorded):
+    if name not in row:
+        return None
+    raw = row[name]
+    if not recorded and raw.lower() in MISSING_CSV_TEXT:
         return None
     try:
         return numeric_coordinate_key(name, raw)
     except ResultValidationError:
+        if recorded:
+            raise
         # Historical descriptive charts accepted absent and nonnumeric labels.
         # Finite protocol coordinates still have to satisfy their integer domain.
         try:
-            recorded = decimal_coordinate(raw)
+            coordinate = decimal_coordinate(raw)
         except InvalidOperation:
             return None
-        if recorded.is_finite():
+        if coordinate.is_finite():
             raise
         return None
 
 
-def _identity(row, meta, run_id, batch):
+def _report_window_coordinates(row, *, run_id, recorded_source, complete_key):
+    if (recorded_source and complete_key) or (run_id is not None and "repeat_idx" in row):
+        mode = row.get("gpu_mode")
+        if mode and mode not in ("on", "off"):
+            # Descriptive exports use GPU/CPU aliases. Preserve the original cells.
+            row = {**row, "gpu_mode": normalize_gpu_mode(mode)}
+        coordinates = measurement_key(row)
+        return coordinates, coordinates[-2], coordinates[-1]
+    recorded = recorded_source or run_id is not None
+    warmup = _report_window_coordinate(row, "warmup", recorded=recorded)
+    repeat = _report_window_coordinate(row, "repeat_idx", recorded=recorded)
+    return None, warmup, repeat
+
+
+def _identity(row, meta, run_id, batch, *, coordinates):
     environment = recorded_identity(meta)["environment_class"]
     recorded = _text(row.get("environment_class"))
     if recorded not in {"native_linux", "wsl2", "vm", "cloud", "container_host"}:
@@ -109,7 +128,15 @@ def _identity(row, meta, run_id, batch):
     mode = _text(row.get("gpu_mode"), default="")
     # Historical analysis tables may contain only a device label, with no mode.
     device = {"off": "CPU", "on": "GPU"}[normalize_gpu_mode(mode)] if mode else _text(row.get("device"))
-    scale = number(row.get("input_scale"))
+    axes = {name: number(row.get(name)) for name in ("cpu_cores", "mem_cap_gb", "input_scale")}
+    if coordinates is not None:
+        for field, key in zip(KEY_FIELDS, coordinates, strict=True):
+            if field not in axes or key == "inherited":
+                continue
+            display = axes[field]
+            if display is None or display <= 0:
+                raise ResultValidationError(f"{field} is outside the positive report axis range: {row[field]!r}")
+    scale = axes["input_scale"]
     input_case = {
         "scale": _exact_coordinate(row.get("input_scale"), scale) or scale, "type": meta.get("input_scale_type", "unknown"),
         "task_param": _text(row.get("task_param")),
@@ -122,7 +149,7 @@ def _identity(row, meta, run_id, batch):
         run_id,
         _text(row.get("model") or row.get("model_name") or meta.get("model_name")),
         _text(row.get("runtime") or row.get("runtime_backend") or meta.get("runtime_backend")),
-        device, number(row.get("cpu_cores")), number(row.get("mem_cap_gb")),
+        device, axes["cpu_cores"], axes["mem_cap_gb"],
         _text(row.get("gpu_device_uuid") or meta.get("gpu")) if device == "GPU" else "n/a",
         number(row.get("concurrency", meta.get("concurrency"))),
         recorded if recorded != "unknown" else environment,
@@ -291,7 +318,7 @@ def verify_analysis_sources(model: AnalysisModel) -> None:
             verify_result_source(Path(path), digest)
 
 
-def _validated_csv_fields(path: Path, raw_fields: list[str]) -> tuple[bool, tuple[str, ...]]:
+def _validated_csv_fields(path: Path, raw_fields: list[str]) -> tuple[bool, tuple[str, ...], set[str]]:
     fields = [name.strip() for name in raw_fields]
     field_names = set(fields)
     if not fields or any(not name for name in fields) or len(fields) != len(field_names):
@@ -300,7 +327,7 @@ def _validated_csv_fields(path: Path, raw_fields: list[str]) -> tuple[bool, tupl
         name for name, metric in ANALYSIS_METRICS.items()
         if metric.kind == "number" and name in field_names
     )
-    return fields != raw_fields, numeric_fields
+    return fields != raw_fields, numeric_fields, field_names
 
 
 def _build_analysis_configs(
@@ -356,12 +383,16 @@ def load_analysis(sources) -> AnalysisModel:
         seen_paths.add(path)
         metadata_snapshot = ResultMetadataSnapshot(path)
         result_snapshot = read_result_csv_snapshot(path, validate_measurements=False)
-        normalize_fields, numeric_fields = _validated_csv_fields(path, result_snapshot.fields)
+        normalize_fields, numeric_fields, fields = _validated_csv_fields(path, result_snapshot.fields)
         digest = result_snapshot.sha256
         meta, state = (metadata_snapshot.read(name, label="analysis metadata").payload
                        if metadata_snapshot.exists(name) else {}
                        for name in ("static_meta.json", "run_state.json"))
         run_id = recorded_run_id(state.get("run_id"))
+        complete_key = fields.issuperset(KEY_FIELDS)
+        # Reports allow reordered columns and extensions on an exported protocol table.
+        recorded_source = (path.name == "result_layers.json" or "status" in state or "runtime" in state
+                           or supported_csv_header([name for name in METRICS if name in fields]))
         snapshot = load_comparison_snapshot(path, result_snapshot=result_snapshot,
                                             metadata_snapshot=metadata_snapshot,
                                             verify_result_snapshot=False)
@@ -378,17 +409,20 @@ def load_analysis(sources) -> AnalysisModel:
             raw = ({name.strip(): value for name, value in original.items()}
                    if normalize_fields else original)
             row = {key: value.strip() for key, value in raw.items()}
-            row_run_id = recorded_run_id(row.get("run_id"))
-            identity = _identity(row, meta, row_run_id or run_id or "unknown", "unknown")
+            row_run_id = recorded_run_id(row.get("run_id")) or run_id
+            try:
+                coordinates, warmup, repeat = _report_window_coordinates(
+                    row, run_id=row_run_id, recorded_source=recorded_source, complete_key=complete_key)
+                identity = _identity(row, meta, row_run_id or "unknown", "unknown", coordinates=coordinates)
+            except ValueError as error:
+                raise ResultValidationError(f"{path}:{line}: {error}") from error
             # A batch label and artifact location are presentation, not recorded
             # experimental conditions. Moving a result must not create a run.
             stable_identity = {key: value for key, value in identity.items() if key != "experiment_batch"}
             source_id = "source-" + digest[:16]
             config_id = (identity["run_id"] if identity["run_id"] != "unknown" else source_id) + ":" + _digest(stable_identity)
-            repeat = _optional_window_coordinate(row, "repeat_idx")
-            warmup = _optional_window_coordinate(row, "warmup")
             if repeat is not None:
-                key = ((identity["run_id"], measurement_key(row)) if identity["run_id"] != "unknown"
+                key = ((row_run_id, coordinates) if row_run_id is not None and coordinates is not None
                        else (config_id, warmup, repeat))
                 signature = _digest({"row": row, "identity": stable_identity})
                 if key in seen_keys:

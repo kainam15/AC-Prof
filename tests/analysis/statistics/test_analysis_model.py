@@ -395,6 +395,101 @@ class TestAnalysisModel:
         with pytest.raises(ValueError, match="inconsistent run_id"):
             load_analysis([source])
 
+    @pytest.mark.parametrize(("evidence", "field", "bad"), [
+        ("recorded-row", "repeat_idx", "bad"),
+        ("recorded-run", "repeat_idx", ""),
+        ("run-state", "warmup", "N/A"),
+        ("registered", "repeat_idx", "Infinity"),
+        ("older-registered", "repeat_idx", "bad"),
+    ])
+    def test_report_rejects_invalid_recorded_window_before_publication(self, evidence, field, bad, capsys):
+        from acprof.cli.report import main
+        from acprof.results.metrics import CSV_FIELDS
+
+        row = self.row()
+        if evidence in {"registered", "older-registered"}:
+            fields = list(CSV_FIELDS)
+            if evidence == "older-registered":
+                fields.remove("throughput_app_samples_per_s")
+                fields.remove("throughput_app_samples_per_s_per_cpu_core")
+            # Exports may reorder the same registered fields and add a label.
+            row = {**dict.fromkeys(reversed(fields), ""), **row, "label": "export"}
+        if evidence == "recorded-row":
+            row["run_id"] = "stable-run"
+        source = self.source([row, {**row, "repeat_idx": "1", field: bad}])
+        if evidence in {"recorded-run", "run-state"}:
+            state = {"run_id": "stable-run"} if evidence == "recorded-run" else {"status": "complete"}
+            (source.parent / "run_state.json").write_text(json.dumps(state))
+
+        output = self.root / "report.html"
+        with pytest.raises(SystemExit) as raised:
+            main([str(source), "--output", str(output), "--resamples", "1"])
+        assert raised.value.code == 1
+        assert f"{source}:3: invalid {field}: {bad!r}" in capsys.readouterr().err
+        assert not output.exists()
+
+    def test_report_preserves_historical_table_without_repeat_column(self):
+        from acprof.analysis.model import load_analysis
+
+        row = self.row(gpu_mode="CPU", run_id="stable-run")
+        del row["repeat_idx"]
+        source = self.source([row])
+        model = load_analysis([source])
+        assert model.configs[0]["valid_windows"] == 1
+        assert model.configs[0]["metrics"]["latency_app_p95_s"]["value"] == .04
+        assert "repeat_idx" not in model.raw_rows[0]["row"]
+
+    @pytest.mark.parametrize("missing", ["cpu_cores", "warmup"])
+    def test_recorded_repeat_still_requires_its_measurement_key(self, missing):
+        from acprof.analysis.model import load_analysis
+
+        row = self.row(run_id="stable-run")
+        del row[missing]
+        source = self.source([row])
+        with pytest.raises(ValueError, match=f"invalid {missing}") as raised:
+            load_analysis([source])
+        assert f"{source}:2:" in str(raised.value)
+
+    def test_recorded_process_repeat_can_inherit_absent_resource_axes(self):
+        from acprof.analysis.model import load_analysis
+
+        row = self.row(run_id="stable-run", runtime_kind="process")
+        del row["cpu_cores"], row["mem_cap_gb"]
+        config, = load_analysis([self.source([row])]).configs
+        assert (config["valid_windows"], config["cpu"], config["memory"]) == (1, None, None)
+
+    @pytest.mark.parametrize(("field", "bad"), [
+        ("cpu_cores", "bad"), ("mem_cap_gb", ""), ("gpu_mode", "not-a-mode"), ("input_scale", "Infinity"),
+    ])
+    def test_anonymous_registered_window_requires_its_resource_coordinates(self, field, bad):
+        from acprof.analysis.model import load_analysis
+        from acprof.results.metrics import CSV_FIELDS
+
+        row = {**dict.fromkeys(CSV_FIELDS, ""), **self.row()}
+        source = self.source([row, {**row, "repeat_idx": "1", field: bad}])
+        with pytest.raises(ValueError, match=field) as raised:
+            load_analysis([source])
+        assert f"{source}:3:" in str(raised.value)
+
+    def test_anonymous_registered_process_windows_keep_inherited_axes_and_exact_repeat_identity(self):
+        from acprof.analysis.model import load_analysis
+        from acprof.results.metrics import CSV_FIELDS
+
+        row = {**dict.fromkeys(CSV_FIELDS, ""),
+               **self.row(runtime_kind="process", cpu_cores="", mem_cap_gb="nan", gpu_mode="CPU",
+                          repeat_idx="9007199254740992")}
+        next_row = {**row, "repeat_idx": "9007199254740993"}
+        source = self.source([row, next_row])
+        config, = load_analysis([source]).configs
+        assert (config["valid_windows"], config["cpu"], config["memory"], config["device"]) == (2, None, None, "CPU")
+
+        duplicate = self.source([row, next_row, {**next_row, "repeat_idx": "9007199254740993.00"}],
+                                directory="duplicate")
+        with pytest.raises(ValueError, match="conflicting measurement") as raised:
+            load_analysis([duplicate])
+        assert f"{duplicate}:4" in str(raised.value)
+        assert f"{duplicate}:3" in str(raised.value)
+
     @pytest.mark.parametrize("narrow", [False, True], ids=["protocol-csv", "legacy-no-repeat-index"])
     def test_report_refuses_foreign_warmup_before_publication(self, narrow, capsys):
         from acprof.cli.report import main

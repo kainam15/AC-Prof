@@ -352,7 +352,7 @@ def _resolve_actual_workload_and_cases(
             resource_case_id(row["cpu_cores"], row["mem_cap_gb"], row["gpu_mode"])
             for row in rows if result_row_status(row) in {"ok", "warn"}
         }
-    except (OSError, ValueError, TypeError, AttributeError) as error:
+    except (OSError, ValueError, TypeError, AttributeError, OverflowError) as error:
         issues.append(f"actual workload: {error}")
         return [], None, set()
     try:
