@@ -119,6 +119,43 @@ class TestReportBrowser:
         assert (self.remote_requests) == ([])
         assert (self.page.locator("#error").is_hidden())
 
+    @pytest.mark.parametrize("width", [390, 1280])
+    def test_results_precede_optional_controls(self, width):
+        self.page.set_viewport_size({"width": width, "height": 800})
+        first_row = self.page.locator("#matrix tbody tr").first
+        assert first_row.evaluate("row => row.getBoundingClientRect().bottom <= innerHeight")
+        assert "fixture/model" not in first_row.inner_text()
+        assert "fixture/model" in self.page.locator("#matrix-context").inner_text()
+        assert self.page.locator("#filter-memory").is_hidden()
+        assert self.page.locator("#experiment-list").is_hidden()
+        assert self.page.locator("#quality-evidence").is_hidden()
+        self.page.select_option("#language", "en")
+        self.settled()
+        filters = self.page.get_by_text("Filters and comparison", exact=True)
+        filters.focus()
+        filters.press("Enter")
+        assert self.page.locator("#filter-model").is_hidden()
+        self.page.get_by_text("Fixed conditions", exact=True).click()
+        assert self.page.locator("#filter-model").is_visible()
+        self.page.select_option("#filter-memory", "4")
+        self.settled()
+        filters.press("Enter")
+        assert self.page.locator("#filter-memory").is_hidden()
+        assert self.page.locator("#matrix tbody tr").count() == 3
+        assert self.page.locator("#counts").inner_text().split() == ["3", "/", "5", "Configurations"]
+        first_row.press("Enter")
+        self.settled()
+        self.page.locator("#quality-evidence > summary").click()
+        assert "measurement_status" in json.loads(self.page.locator("#quality-detail").inner_text())
+        assert self.page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+
+    def test_matrix_cell_divider_selects_its_row(self):
+        row = self.page.locator("#matrix tbody tr").first
+        left, right = (row.locator("td").nth(index).bounding_box() for index in (0, 1))
+        self.page.mouse.click((left["x"] + left["width"] + right["x"]) / 2, left["y"] + left["height"] / 2)
+        self.settled()
+        assert self.page.locator("#matrix tr.selected").get_attribute("data-config-id") == row.get_attribute("data-config-id")
+
     def test_imported_process_quality_and_scope_survive_display(self):
         import io
         fields = ['cpu_cores', 'mem_cap_gb', 'gpu_mode', 'input_scale', 'repeat_idx', 'warmup',
@@ -144,6 +181,7 @@ class TestReportBrowser:
         from tests.analysis.reporting.test_report_import import import_file
         import_file(self.page, 'process.csv', stream.getvalue())
         self.page.click('[data-view=matrix]')
+        self.page.click('#report-filters > summary')
         self.page.select_option('#preset', 'Memory')
         self.settled()
         target = self.page.locator('#matrix tbody tr').filter(has_text='process.csv')
@@ -473,6 +511,7 @@ class TestReportBrowser:
         self.settled()
         assert self.page.locator(f'#matrix tr[data-config-id="{config}"]').get_attribute("class") == "selected"
         self.page.click("[data-view=statistics]")
+        self.page.click("#report-filters > summary")
         self.page.select_option("#filter-memory", "4")
         self.settled()
         assert self.page.locator("#statistics tbody tr").count() == 9
@@ -488,6 +527,7 @@ class TestReportBrowser:
         import io
         configs = self.page.evaluate("JSON.parse(document.getElementById('report-data').textContent).configs")
         baseline = next(config for config in configs if config["cpu"] == 2 and config["memory"] == 4)
+        self.page.click("#report-filters > summary")
         self.page.select_option("#baseline", baseline["config_id"])
         self.page.select_option("#filter-memory", "4")
         self.settled()
@@ -558,6 +598,7 @@ class TestReportBrowser:
         row = self.page.locator("#matrix tbody tr").first
         config = row.get_attribute("data-config-id") or ""
         assert (config)
+        self.page.click("#report-filters > summary")
         self.page.select_option("#baseline", config)
         self.settled()
         assert ("Δ 0 s · 0%") in (row.inner_text())
@@ -630,10 +671,11 @@ class TestReportBrowser:
         self.page.reload()
         self.settled()
         baseline = self.page.locator("#baseline option").nth(1).get_attribute("value")
+        self.page.click("#report-filters > summary")
         self.page.select_option("#baseline", baseline)
         self.page.select_option("#preset", "Custom")
         self.settled()
-        self.page.locator("details:has(#metrics) summary").click()
+        self.page.locator("#custom-metrics > summary").click()
         metrics = self.page.locator("#metrics option").evaluate_all("options => options.map(item => item.value)")
         reads = {}
         for name, selected in (("one_metric", metrics[:1]), ("all_metrics", metrics)):
@@ -656,6 +698,7 @@ class TestReportBrowser:
         baseline = next(config for config in configs if config["cpu"] == 2 and config["memory"] == 4)
         target = next(config for config in configs if config["cpu"] == 4 and config["memory"] == 4)
         row = self.page.locator(f'tr[data-config-id="{target["config_id"]}"]')
+        self.page.click("#report-filters > summary")
         self.page.select_option("#baseline", baseline["config_id"])
         self.settled()
         assert "Δ -0.06 s" in row.inner_text()
@@ -805,6 +848,7 @@ class TestReportBrowser:
 
         # The CSV energy columns already store J/request, not a window total.
         assert coordinates() == [[.03, 5], [.09, 4]]
+        self.page.click("#report-filters > summary")
         self.page.select_option("#filter-memory", "4")
         self.settled()
         assert coordinates() == [[.04, 5], [.1, 4]]
@@ -869,6 +913,7 @@ class TestReportBrowser:
         assert ("吞吐量") in (self.page.evaluate("document.getElementById('pareto-chart').layout.xaxis.title.text"))
         sizes: list[float] = self.page.evaluate("document.getElementById('pareto-chart').data[0].marker.size")
         assert (max(sizes)) > (min(sizes))
+        self.page.click("#report-filters > summary")
         self.page.select_option("#filter-memory", "8")
         self.page.select_option("#filter-cpu", "8")
         self.settled()
@@ -902,6 +947,7 @@ class TestReportBrowser:
         evidence = self.page.locator("#quality-detail").inner_text()
         assert ("fixture-loader") in (evidence)
         assert ('"quality_status": "blocked"') in (evidence)
+        self.page.click("#report-filters > summary")
         self.page.select_option("#quality-filter", "eligible")
         self.settled()
         assert (self.page.locator("#matrix tbody tr").count()) == (5)
@@ -938,10 +984,10 @@ class TestReportBrowser:
         self.page.goto(output.as_uri())
         self.settled()
         row = self.page.locator(f'tr[data-config-id="{model.configs[1]["config_id"]}"]')
-        assert ("planned_inputs") in (row.inner_text())
+        assert row.inner_text().count("planned_inputs") == 1
         assert ("-50%") not in (row.inner_text())
         assert ("Δ") not in (row.inner_text())
-        assert ("incompatible: 1") in (self.page.locator("#comparison-note").inner_text())
+        assert "不可比 1" in self.page.locator("#comparison-note").inner_text()
         self.page.click("[data-view=pareto]")
         self.settled()
         assert ("2 个有效点") in (self.page.locator("#pareto-note").inner_text())
@@ -1028,6 +1074,7 @@ class TestReportBrowser:
             sorted_ms = self.page.evaluate("performance.now()") - started
             assert (row.evaluate("cell => getComputedStyle(cell).backgroundColor")) == (original_color)
             assert (row.inner_text()) == ("0.03")
+            self.page.click("#report-filters > summary")
             started = self.page.evaluate("performance.now()")
             self.page.select_option("#filter-experiment_batch", "even")
             self.settled()

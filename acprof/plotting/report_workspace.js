@@ -150,7 +150,7 @@ window.ACProfExperimentManager = ({workspace, $, element, option, refresh, sched
     $("experiment-list").tBodies[0].replaceChildren();
     const left = $("active-experiment-left").value, right = $("active-experiment-right").value;
     for (const id of ["active-experiment-left", "active-experiment-right"]) {
-      $(id).replaceChildren(); option($(id), "", "全部 / All");
+      $(id).replaceChildren(); option($(id), "", "全部");
     }
     for (const entry of workspace.entries()) {
       const row = element("tr"), identity = element("td", entry.name);
@@ -161,9 +161,9 @@ window.ACProfExperimentManager = ({workspace, $, element, option, refresh, sched
         element("td", entry.source.original_path || entry.source.path), element("td", entry.configs.length),
         element("td", [...new Set(entry.configs.map(config => config.quality_status))].join(", ")));
       const action = element("td");
-      if (entry.original) action.append(element("span", "原始内嵌 / Embedded"));
+      if (entry.original) action.append(element("span", "原始内嵌"));
       else {
-        const remove = element("button", "删除 / Remove"); remove.dataset.remove = entry.id;
+        const remove = element("button", "删除"); remove.dataset.remove = entry.id;
         remove.onclick = () => { workspace.remove(entry.id); if (!data.configs.some(config => config.config_id === state.selected)) state.selected = null; render(); refresh(); schedule(); };
         action.append(remove);
       }
@@ -175,6 +175,7 @@ window.ACProfExperimentManager = ({workspace, $, element, option, refresh, sched
   }
   async function importFiles(files) {
     if (controller || !files.length) return;
+    $("experiment-manager").open = true;
     controller = new AbortController(); document.body.dataset.importing = "true";
     $("cancel-import").hidden = false; $("add-experiment").disabled = true; $("import-progress").hidden = false;
     const messages = [];

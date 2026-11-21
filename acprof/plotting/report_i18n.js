@@ -2,15 +2,15 @@
 "use strict";
 window.ACProfI18n = (() => {
   const labels = {
-    "实验管理 / Experiments":"Experiments", "添加实验 / Add experiment":"Add experiment", "取消 / Cancel":"Cancel",
-    "另存自包含 HTML / Save HTML":"Save self-contained HTML", "恢复默认基线 / Reset baseline":"Reset baseline",
-    "实验 / Experiment":"Experiment", "模型 / Model":"Model", "来源 / Source":"Source", "配置 / Configurations":"Configurations",
-    "质量 / Quality":"Quality", "操作 / Actions":"Actions", "删除 / Remove":"Remove", "原始内嵌 / Embedded":"Embedded",
-    "基线实验 / Baseline experiment":"Baseline experiment", "对照实验 / Comparison experiment":"Comparison experiment",
-    "全部 / All":"All", "实验名称 / Experiment":"Experiment name",
-    "/ 实验分析":"/ Experiment analysis", "离线报告":"Offline report", "性能、资源与能耗":"Performance, resources and energy",
-    "比较已有实验，查看配置取舍、窗口统计与数据质量。":"Compare experiments, configuration trade-offs, window statistics and data quality.",
-    "筛选实验":"Filter experiments", "重置筛选":"Reset filters", "环境":"Environment", "质量状态":"Quality status", "全部":"All",
+    "实验管理":"Experiments", "添加实验":"Add experiment", "取消":"Cancel",
+    "另存 HTML":"Save HTML", "恢复默认基线":"Reset baseline", "基线配置":"Baseline configuration",
+    "实验":"Experiment", "模型":"Model", "来源":"Source", "配置":"Configurations",
+    "质量":"Quality", "操作":"Actions", "删除":"Remove", "原始内嵌":"Embedded",
+    "基线实验":"Baseline experiment", "对照实验":"Comparison experiment", "实验对照":"Experiment comparison",
+    "实验名称":"Experiment name", "离线报告":"Offline report", "性能、资源与能耗":"Performance, resources and energy",
+    "筛选与比较":"Filters and comparison", "固定条件":"Fixed conditions", "重置筛选":"Reset filters", "环境":"Environment", "质量状态":"Quality status", "全部":"All",
+    "仅描述":"Descriptive only", "可比":"Comparable", "不可比":"Incompatible", "可比性未知":"Comparability unknown",
+    "允许 CPU / memory 配额变化；双轴同时变化不能归因某一个轴。":"CPU and memory quotas may differ; changing both does not isolate either effect.",
     "比较用途":"Comparison purpose", "单次实验资源比较":"Within-experiment resources", "相同硬件":"Same hardware", "跨硬件":"Cross hardware",
     "资源扩容（CPU / 内存）":"Resource scaling (CPU / memory)", "质量范围":"Quality filter", "全部观测":"All observations",
     "满足质量要求的候选":"Quality-eligible candidates", "指标预设":"Metric preset", "自定义指标":"Custom metrics",
@@ -18,7 +18,7 @@ window.ACProfI18n = (() => {
     "导出当前视图及筛选数据；浏览器描述性结果与 Python 统计分别标记":"Export this view and selection; browser descriptions and Python statistics are labeled separately.",
     "导出 JSON":"Export JSON", "导出 CSV":"Export CSV", "所选配置的质量证据":"Selected configuration evidence",
     "选择配置后查看状态、原因和原始证据。":"Select a configuration to inspect status, reasons and recorded evidence.",
-    "点击表格行或图中数据点，可在各视图中定位同一配置。":"Select a table row or chart point to locate that configuration across views.",
+    "点击列名排序，选择配置查看证据。":"Sort by a column header. Select a configuration to inspect its evidence.",
     "模型、硬件与采集规模":"Models, hardware and collection size", "配置比较":"Configuration comparison",
     "点击列名排序 · 浅红 → 浅绿：由差到好 · 灰色：无方向或缺失":"Click column headers to sort. Red to green: worse to better. Gray: neutral or missing.",
     "没有匹配的配置。请调整筛选条件。":"No matching configurations. Adjust the filters.", "指标取舍":"Metric trade-offs",
@@ -72,7 +72,7 @@ window.ACProfI18n = (() => {
   };
   Object.assign(labels, reasonLabels);
   Object.assign(labels, {
-  "选择或拖放 result_all.csv、AC-Prof HTML、分析 JSON。CSV 缺少完整元数据时仅作描述性展示；严格统计未计算。 / Drop CSV, AC-Prof HTML or analysis JSON. CSV-only comparisons are descriptive; strict statistics are not computed.": "Choose or drop result_all.csv, AC-Prof HTML or analysis JSON. CSV files without complete metadata support descriptive comparisons only; strict statistics are not computed.",
+  "选择或拖入 CSV、AC-Prof HTML 或分析 JSON。CSV 缺少完整元数据时，仅作描述性比较。": "Choose or drop CSV, AC-Prof HTML or analysis JSON. CSV files without complete metadata support descriptive comparison only.",
   "仅汇总正式成功窗口；缺失值显示 —，失败与推断配置保留状态。P50/P95 为窗口分位数的均值，CPU/GPU 占用率无默认优劣方向。条件检查与严格比较共用规则；变化值仍是描述性比较，不含独立实验置信区间。自动优选暂停使用质量 blocked/unknown 或条件证据不足的配置；告警与证据保留，passed 只表示已记录的检查无问题，不代表模型准确率合格。": "Only successful formal windows are summarized. Missing values display as —; failed and inferred configurations retain their status. P50/P95 are means of window quantiles. CPU/GPU utilization has no default better direction. Changes are descriptive and have no independent-run confidence intervals. Quality blocked/unknown or incomplete condition evidence excludes automatic selection. Passed means recorded checks found no issues, not that model accuracy is acceptable.",
   "均值与样本标准差（ddof=1）按正式成功窗口等权计算；CI 描述本实验内窗口均值的不确定性，置信水平以各来源参数为准。 窗口数不是请求数或独立实验数，区间不证明跨实验重复性。窗口不足或连续块不完整时保留原因，空值显示 —。": "Means and sample standard deviations (ddof=1) weight successful formal windows equally. CI describes uncertainty in this run, at each source confidence level. Windows are not requests or independent experiments; these intervals do not establish repeatability. Insufficient windows or incomplete blocks retain their reasons and missing values.",
   "先对各独立运行的成功窗口求均值，再对运行均值等权统计。每组至少 3 次有效独立运行才估计 Bootstrap CI； 窗口数不能代替独立运行数。筛选只控制整组展示，不改变组内独立样本。不同模型的可比性不代表模型质量相等。": "Successful windows are averaged within each independent run, then run means receive equal weight. Each group needs at least 3 valid independent runs for a Bootstrap CI. Window counts cannot replace run counts. Filters control whole-group visibility without changing independent samples. Model comparability does not establish equal model quality.",
@@ -117,12 +117,11 @@ window.ACProfI18n = (() => {
     // Bilingual controls are intentionally identical in both modes.
     if (stripped.includes(" / ") && /[a-zA-Z]/.test(stripped)) return value;
     return value.replace(/(\d+(?:\.\d+)?(?: \/ \d+(?:\.\d+)?)*)% 置信区间/g, "$1% confidence interval")
-      .replace(/^\/ (\d+) 配置$/, "/ $1 configurations")
       .replace(/^用途：/, "Purpose: ")
-      .replace(/。允许 CPU \/ memory 配额变化；双轴同时变化不能归因某一个轴。/g, ". CPU / memory quotas may differ; changing both axes does not isolate either effect. ")
       .replace(/同一来源、任务及输入条件的描述性比较；历史元数据缺失不证明实验独立性。多资源变化不能单独归因。/g, "Descriptive comparison within source, task and input conditions. Missing historical metadata does not establish independence or causality. ")
       .replace(/比值=当前\/基线；性能比按指标方向计算，>1 表示改善，neutral 不评级。/g, "Ratio=current/baseline. Direction-aware performance ratios above 1 indicate improvement; neutral metrics are not ranked. ")
       .replace(/选择 baseline 后显示成对检查原因。/g, "Choose a baseline to see pairwise condition checks. ").replace(/变化资源：/, "Changed resources: ")
+      .replace(/不可单独归因$/, "effects cannot be isolated")
       .replace(/^可比性 /, "Comparability ").replace(/ · 质量 /g, " · Quality ")
       .replace(/^运行 /, "Run ").replace(/ · 完整性 /g, " · Completeness ")
       .replace(/^优选暂停：/, "Selection withheld: ").replace(/^质量可参与优选$/, "Quality eligible")
@@ -134,7 +133,7 @@ window.ACProfI18n = (() => {
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     while (walker.nextNode()) {
       const node = walker.currentNode;
-      if (node.parentElement.closest("script, style, pre, #sources, #experiment-list td:not(:last-child), #import-status, .js-plotly-plot")) continue;
+      if (node.parentElement.closest("script, style, pre, #sources, #matrix-context, .identity-values, #experiment-list td:not(:last-child), #import-status, .js-plotly-plot")) continue;
       const previous = originals.get(node), original = previous && node.nodeValue === previous.rendered ? previous.original : node.nodeValue;
       const rendered = language === "en" ? translate(original) : original;
       originals.set(node, {original, rendered});

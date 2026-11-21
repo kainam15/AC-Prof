@@ -8,47 +8,49 @@
 <style>__STYLE__</style>
 </head>
 <body>
-<header><div class="brand">AC-Prof <span>/ 实验分析</span></div><label>Language<select id="language"><option value="zh">简体中文</option><option value="en">English</option></select></label><span class="tag">离线报告</span></header>
+<header><div class="brand">AC-Prof <span>离线报告</span></div><select id="language" aria-label="Language"><option value="zh">简体中文</option><option value="en">English</option></select></header>
 <main>
-<div class="intro"><div><p class="eyebrow">DOR VISUALIZATION</p><h1>性能、资源与能耗</h1>
-<p>比较已有实验，查看配置取舍、窗口统计与数据质量。</p></div><div id="counts" aria-live="polite"></div></div>
-<section id="experiment-manager" class="card" aria-label="实验管理 / Experiments">
-<div class="section-heading"><h2>实验管理 / Experiments</h2><div class="controls">
-<button id="add-experiment">添加实验 / Add experiment</button><button id="cancel-import" hidden>取消 / Cancel</button>
-<button id="reset-baseline">恢复默认基线 / Reset baseline</button>
-<button id="export-html">另存自包含 HTML / Save HTML</button></div></div>
-<input id="experiment-files" type="file" accept=".csv,.json,.html,.htm" multiple hidden>
-<p class="notice">选择或拖放 result_all.csv、AC-Prof HTML、分析 JSON。CSV 缺少完整元数据时仅作描述性展示；严格统计未计算。 / Drop CSV, AC-Prof HTML or analysis JSON. CSV-only comparisons are descriptive; strict statistics are not computed.</p>
-<progress id="import-progress" max="1" value="0" hidden aria-label="导入进度 / Import progress"></progress>
-<p id="import-status" role="status" aria-live="polite"></p>
-<div class="table-scroll"><table id="experiment-list"><thead><tr><th>实验 / Experiment</th><th>模型 / Model</th><th>Run ID</th><th>来源 / Source</th><th>配置 / Configurations</th><th>质量 / Quality</th><th>操作 / Actions</th></tr></thead><tbody></tbody></table></div>
-<div class="controls"><label>基线实验 / Baseline experiment<select id="active-experiment-left"></select></label>
-<label>对照实验 / Comparison experiment<select id="active-experiment-right"></select></label></div>
-</section>
-<section class="card" aria-label="统一筛选"><div class="section-heading"><h2>筛选实验</h2><button id="reset">重置筛选</button></div><div id="filters" class="filters"></div></section>
-<div class="controls card"><label class="grow">Baseline<select id="baseline" aria-label="Baseline"></select></label>
+<div class="intro"><h1>性能、资源与能耗</h1><div id="counts" aria-live="polite"></div></div>
+<p id="error" role="alert" hidden></p>
+<nav class="tabs" aria-label="分析视图">
+<button data-view="matrix" aria-pressed="true">配置比较</button>
+<button data-view="overview" aria-pressed="false">总览</button>
+<button data-view="pareto" aria-pressed="false">指标取舍</button>
+<button data-view="scaling" aria-pressed="false">资源扩容趋势</button>
+<button data-view="statistics" aria-pressed="false">窗口统计</button>
+<button data-view="experiments" aria-pressed="false">实验对照</button>
+<button data-view="quality" aria-pressed="false">数据质量</button>
+</nav>
+<div class="report-tools">
+<details id="report-filters" class="disclosure"><summary>筛选与比较</summary>
+<div id="filters" class="filters"></div>
+<details id="fixed-conditions" hidden><summary>固定条件</summary><div id="fixed-filters" class="filters"></div></details>
+<div class="controls"><label class="grow">基线配置<select id="baseline"></select></label>
 <label>比较用途<select id="comparison-purpose"><option value="within-experiment">单次实验资源比较</option><option value="same-hardware">相同硬件</option><option value="cross-hardware">跨硬件</option><option value="resource-scaling">资源扩容（CPU / 内存）</option></select></label>
 <label>质量范围<select id="quality-filter"><option value="all">全部观测</option><option value="eligible">满足质量要求的候选</option></select></label>
 <label>指标预设<select id="preset" aria-label="指标预设"></select></label>
-<details><summary>自定义指标</summary><select id="metrics" multiple aria-label="自定义指标"></select></details></div>
-<div class="notice">仅汇总正式成功窗口；缺失值显示 —，失败与推断配置保留状态。P50/P95 为窗口分位数的均值，CPU/GPU 占用率无默认优劣方向。条件检查与严格比较共用规则；变化值仍是描述性比较，不含独立实验置信区间。自动优选暂停使用质量 blocked/unknown 或条件证据不足的配置；告警与证据保留，passed 只表示已记录的检查无问题，不代表模型准确率合格。</div>
-<p id="comparison-note" class="notice" aria-live="polite"></p>
-<nav class="tabs" aria-label="分析视图">
-<button data-view="overview" aria-pressed="false">总览</button>
-<button data-view="matrix" aria-pressed="true">Comparison Matrix</button>
-<button data-view="pareto" aria-pressed="false">Pareto / Trade-off</button>
-<button data-view="scaling" aria-pressed="false">Scaling</button>
-<button data-view="statistics" aria-pressed="false">窗口统计</button>
-<button data-view="experiments" aria-pressed="false">实验对照 / 跨模型</button>
-<button data-view="quality" aria-pressed="false">数据质量</button>
-</nav>
-<div class="controls export-controls"><span class="muted">导出当前视图及筛选数据；浏览器描述性结果与 Python 统计分别标记</span>
-<button id="export-json">导出 JSON</button><button id="export-csv">导出 CSV</button></div>
-<p id="selection" aria-live="polite">点击表格行或图中数据点，可在各视图中定位同一配置。</p>
-<details class="card evidence" id="quality-evidence"><summary>所选配置的质量证据</summary><pre id="quality-detail">选择配置后查看状态、原因和原始证据。</pre></details>
+<details id="custom-metrics"><summary>自定义指标</summary><select id="metrics" multiple aria-label="自定义指标"></select></details></div>
+<div class="controls"><button id="reset">重置筛选</button><button id="reset-baseline">恢复默认基线</button></div>
+</details>
+<details id="experiment-manager" class="disclosure"><summary>实验管理</summary>
+<div class="controls"><button id="add-experiment">添加实验</button><button id="cancel-import" hidden>取消</button></div>
+<input id="experiment-files" type="file" accept=".csv,.json,.html,.htm" multiple hidden>
+<p class="muted">选择或拖入 CSV、AC-Prof HTML 或分析 JSON。CSV 缺少完整元数据时，仅作描述性比较。</p>
+<progress id="import-progress" max="1" value="0" hidden aria-label="导入进度 / Import progress"></progress>
+<p id="import-status" role="status" aria-live="polite"></p>
+<div class="table-scroll"><table id="experiment-list"><thead><tr><th>实验</th><th>模型</th><th>Run ID</th><th>来源</th><th>配置</th><th>质量</th><th>操作</th></tr></thead><tbody></tbody></table></div>
+<div class="controls"><label>基线实验<select id="active-experiment-left"></select></label>
+<label>对照实验<select id="active-experiment-right"></select></label></div>
+</details>
+<div class="export-controls"><button id="export-json">导出 JSON</button><button id="export-csv">导出 CSV</button><button id="export-html">另存 HTML</button></div>
+</div>
+<p id="selection" aria-live="polite"></p>
+<details class="card evidence" id="quality-evidence" hidden><summary>所选配置的质量证据</summary><pre id="quality-detail"></pre></details>
+<p id="comparison-note" class="muted" aria-live="polite"><span id="current-purpose"></span><span id="qualification-counts"></span><span id="current-baseline"></span></p>
 <section id="overview-panel" class="card" hidden><h2>模型、硬件与采集规模</h2><div id="overview-content"></div></section>
 <section id="matrix-panel" class="card">
-<div class="section-heading"><h2>配置比较</h2><span class="muted">点击列名排序 · 浅红 → 浅绿：由差到好 · 灰色：无方向或缺失</span></div>
+<div class="section-heading"><h2>配置比较</h2><span class="muted">点击列名排序，选择配置查看证据。</span></div>
+<p id="matrix-context" class="muted"></p>
 <div class="table-scroll"><table id="matrix"><thead></thead><tbody></tbody></table></div>
 <p id="matrix-empty" hidden>没有匹配的配置。请调整筛选条件。</p>
 </section>
@@ -129,6 +131,9 @@
 <div id="cross-model-charts" class="small-multiples"></div>
 </section>
 <details class="card evidence"><summary>数据来源与分析口径</summary><ul id="sources"></ul>
+<p>仅汇总正式成功窗口；缺失值显示 —，失败与推断配置保留状态。P50/P95 为窗口分位数的均值，CPU/GPU 占用率无默认优劣方向。条件检查与严格比较共用规则；变化值仍是描述性比较，不含独立实验置信区间。自动优选暂停使用质量 blocked/unknown 或条件证据不足的配置；告警与证据保留，passed 只表示已记录的检查无问题，不代表模型准确率合格。</p>
+<p>点击列名排序 · 浅红 → 浅绿：由差到好 · 灰色：无方向或缺失</p>
+<div id="comparison-detail"></div>
 <p>配置状态 ok 只描述已写入的正式窗口，不证明整个实验计划已完成；完成度仍以原始 run state 和 audit 验收为准。</p>
 <p>原始 CSV 保持完整。CPU package + GPU 总能量仅覆盖成功请求窗口；CPU 配置只计 package，GPU 配置须同时具有 package 与所选 GPU 的记录。没有加入 DRAM、启动或 idle 时段，也不等同于整机墙插能耗。</p>
 <p>窗口总能量按每行 energy/request × 实际请求数求和；energy/request 按请求数加权。其他均值等权汇总窗口，峰值取最大值。Cold start 按启动时间去重；缺少启动身份时仅接受一致的复用值。</p>
@@ -136,7 +141,6 @@
 </details>
 <details class="evidence"><summary>Plotly.js 许可</summary><pre>__LICENSE__</pre></details>
 <details class="evidence"><summary>CSV parser / SHA256 · MIT licenses</summary><pre>__IMPORT_LICENSE__</pre></details>
-<p id="error" role="alert" hidden></p>
 <footer>AC-Prof · 只读分析 · 报告生成后不连接服务器</footer>
 </main>
 <script id="report-data" type="application/json">__DATA__</script>

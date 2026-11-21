@@ -15,7 +15,7 @@
   const $ = id => document.getElementById(id);
   const state = {view: "matrix", selected: null, sort: data.default_matrix[0], descending: false};
   const filterFields = [
-    ["experiment_name", "实验名称 / Experiment"], ["hardware", "Hardware"], ["input_scale", "Input scale"],
+    ["experiment_name", "实验名称"], ["hardware", "Hardware"], ["input_scale", "Input scale"],
     ["model", "Model"], ["runtime", "Runtime"], ["device", "CPU / GPU"],
     ["input_case", "Input case"], ["environment_class", "环境"], ["task", "Task"],
     ["cpu", "CPU cores"], ["memory", "Memory (GiB)"], ["concurrency", "Concurrency"],
@@ -65,6 +65,7 @@
   function refreshFilters() {
     const selectedFilters = Object.fromEntries(filterFields.map(([field]) => [field, [...($("filter-" + field)?.selectedOptions || [])].map(item => item.value)]));
     $("filters").replaceChildren();
+    $("fixed-filters").replaceChildren();
     for (const [field, title] of filterFields) {
       const wrapper = element("label", title), select = element("select");
       select.id = "filter-" + field;
@@ -77,8 +78,9 @@
       for (const item of select.options) item.selected = (selectedFilters[field] || [""]).includes(item.value);
       select.onchange = schedule;
       wrapper.append(select);
-      $("filters").append(wrapper);
+      $(values.length === 1 ? "fixed-filters" : "filters").append(wrapper);
     }
+    $("fixed-conditions").hidden = !$("fixed-filters").childElementCount;
     const previousBaseline = $("baseline").value || data.baseline || "";
     $("baseline").replaceChildren();
     option($("baseline"), "", "无 Baseline · 仅显示绝对值");
@@ -168,6 +170,16 @@
     }
     head.append(header);
     const ranges = V.colorRanges(configs, metrics, registry, purpose);
+    const identityFields = ["experiment_name", "model", "runtime", "input_case"];
+    const varies = field => configs.some(config => config[field] !== configs[0][field]);
+    const shared = identityFields.filter(field => !varies(field));
+    const extraFields = ["run_id", "concurrency", "gpu"];
+    const varying = [...identityFields.filter(field => !shared.includes(field)), ...extraFields.filter(varies)];
+    const identityText = (config, fields) => fields.map(field => {
+      if (field === "input_case") return inputLabel(config.input_case);
+      return extraFields.includes(field) ? `${field}=${text(config[field])}` : text(config[field]);
+    }).join(" · ");
+    $("matrix-context").textContent = configs.length ? identityText(configs[0], shared) : "";
     for (const config of V.sort(configs, state.sort, state.descending)) {
       const qualification = comparison.qualification(config);
       const row = element("tr"); row.dataset.configId = config.config_id;
@@ -178,16 +190,21 @@
       const identity = element("td");
       identity.style.borderLeft = `4px solid ${workspace.color(config)}`;
       identity.title = fullLabel(config) + ` · GPU=${config.gpu}`;
-      identity.append(element("strong", `${config.device} · CPU ${text(config.cpu)} · ${text(config.memory)} GiB`),
-        element("small", config.experiment_name),
+      const device = String(config.device).toLowerCase() === "cpu" ? "" : `${config.device} · `;
+      identity.append(element("strong", `${device}CPU ${text(config.cpu)} · ${text(config.memory)} GiB`),
         element("span", config.status, "status"),
-        element("small", `运行 ${config.run_status} · 完整性 ${config.measurement_status}`),
-        element("small", `可比性 ${qualification.status} · 质量 ${config.quality_status}`),
-        element("small", qualification.reasons.join(", ")),
-        element("small", qualification.changed_resources ? `变化资源：${qualification.changed_resources.join(" + ") || "无"} · 描述性比较，不推断因果` : ""),
-        element("small", config.auto_selection_eligible ? "质量可参与优选" : `优选暂停：${config.quality_reasons.join(", ")}`),
-        element("small", `${config.model.split("/").pop()} · ${config.runtime}`),
-        element("small", `${inputLabel(config.input_case)} · n=${config.valid_windows}`));
+        element("span", `n=${config.valid_windows}`, "window-count"));
+      if (varying.length) identity.append(element("small", identityText(config, varying), "identity-values"));
+      identity.append(element("small", `可比性 ${qualification.status} · 质量 ${config.quality_status}`));
+      if (config.measurement_status !== "complete" || config.run_status !== "complete") {
+        identity.append(element("small", `运行 ${config.run_status} · 完整性 ${config.measurement_status}`));
+      }
+      const rowReasons = ["incompatible", "unknown"].includes(qualification.status) ? qualification.reasons : [];
+      if (rowReasons.length) identity.append(element("small", rowReasons.join(", ")));
+      if (qualification.changed_resources?.length > 1) {
+        identity.append(element("small", `变化资源：${qualification.changed_resources.join(" + ")} · 不可单独归因`));
+      }
+      if (!config.auto_selection_eligible) identity.append(element("small", `优选暂停：${config.quality_reasons.join(", ")}`));
       row.append(identity);
       for (const name of metrics) {
         const value = V.value(config, name), cell = element("td", fmt(value));
@@ -199,7 +216,8 @@
         cell.title += ` · ${JSON.stringify(config.metric_observations?.[name] || registry[name].observation_contract || {})}`;
         if (baseline) {
           const change = comparison.delta(config, name);
-          const content = change.delta == null ? (change.reasons ? `${change.reason}: ${change.reasons.join(", ")}` : "— vs baseline") :
+          const metricReasons = (change.reasons || []).filter(reason => !rowReasons.includes(reason));
+          const content = change.delta == null ? (metricReasons.length ? `${change.reason}: ${metricReasons.join(", ")}` : "— vs baseline") :
             `Δ ${signed(change.delta)} ${registry[name].unit} · ${change.percent == null ? "% —" : signed(change.percent) + "%"}` +
             ` · 比值 ${fmt(change.ratio)} · 性能比 ${fmt(change.performance_ratio)}`;
           cell.append(element("small", change.scope === "matched_cross_runtime_metric" ? "跨 Runtime 描述性差值 · " + content : content));
@@ -455,14 +473,26 @@
     const baseline = data.configs.find(config => config.config_id === $("baseline").value);
     const comparison = V.comparisonContext(baseline, purpose, data.baseline_comparisons, registry);
     const qualifications = configs.map(config => comparison.qualification(config));
-    $("comparison-note").textContent = `用途：${purpose} · ` + ["descriptive", "compatible", "incompatible", "unknown"]
-      .map(status => `${status}: ${qualifications.filter(item => item.status === status).length}`).join(" · ") +
-      (purpose === "resource-scaling" ? "。允许 CPU / memory 配额变化；双轴同时变化不能归因某一个轴。" : "。") +
-      (purpose === "within-experiment" ? "同一来源、任务及输入条件的描述性比较；历史元数据缺失不证明实验独立性。多资源变化不能单独归因。" : "") +
-      (baseline ? "比值=当前/基线；性能比按指标方向计算，>1 表示改善，neutral 不评级。" : "选择 baseline 后显示成对检查原因。") +
-      [...new Set(qualifications.flatMap(item => item.reasons))].join(", ");
-    $("counts").replaceChildren(element("strong", String(configs.length)), document.createTextNode(`/ ${data.configs.length} 配置`));
+    const statuses = [["descriptive", "仅描述"], ["compatible", "可比"], ["incompatible", "不可比"], ["unknown", "可比性未知"]].flatMap(([status, title]) => {
+      const count = qualifications.filter(item => item.status === status).length;
+      if (!count) return [];
+      const item = element("span");
+      item.append(element("span", title), ` ${count}`);
+      return [item];
+    });
+    $("qualification-counts").replaceChildren(...statuses);
+    $("comparison-note").hidden = !["matrix", "pareto"].includes(state.view);
+    $("current-baseline").replaceChildren();
+    if (baseline) $("current-baseline").append(element("span", "基线配置"), `: ${label(baseline)} · ${baseline.config_id.slice(-8)}`);
+    const notes = [purpose === "resource-scaling" && "允许 CPU / memory 配额变化；双轴同时变化不能归因某一个轴。",
+      purpose === "within-experiment" && "同一来源、任务及输入条件的描述性比较；历史元数据缺失不证明实验独立性。多资源变化不能单独归因。",
+      baseline ? "比值=当前/基线；性能比按指标方向计算，>1 表示改善，neutral 不评级。" : "选择 baseline 后显示成对检查原因。",
+      [...new Set(qualifications.flatMap(item => item.reasons))].join(", ")];
+    $("comparison-detail").replaceChildren(...notes.filter(Boolean).map(note => element("p", note)));
+    $("counts").replaceChildren(element("strong", String(configs.length)),
+      document.createTextNode(configs.length === data.configs.length ? " " : ` / ${data.configs.length} `), element("span", "配置"));
     const selected = data.configs.find(c => c.config_id === state.selected);
+    $("quality-evidence").hidden = !selected;
     $("quality-detail").textContent = selected ? JSON.stringify({run_status: selected.run_status,
       measurement_status: selected.measurement_status, comparison: comparison.qualification(selected),
       comparison_profile: selected.comparison_profiles[purpose],
@@ -470,7 +500,7 @@
       quality_reasons: selected.quality_reasons, quality_checks: selected.quality_checks,
       metric_observations: selected.metric_observations || "历史结果未记录逐指标质量 / No recorded metric quality"}, null, 2) : "选择配置后查看状态、原因和原始证据。";
     $("selection").textContent = selected ? `已选：${fullLabel(selected)}${configs.includes(selected) ? "" : "（当前筛选隐藏）"}` :
-      "点击表格行或图中数据点，可在各视图中定位同一配置。";
+      "";
     for (const view of ["overview", "matrix", "pareto", "scaling", "statistics", "experiments", "quality"]) $(view + "-panel").hidden = state.view !== view;
     if (state.view === "matrix") drawMatrix(configs, comparison);
     else if (state.view === "pareto") await drawPareto(configs, comparison);
@@ -480,6 +510,7 @@
     else if (state.view === "overview") drawOverview(configs);
     else drawQuality(configs);
     window.ACProfI18n.apply($("language").value);
+    $("current-purpose").textContent = $("comparison-purpose").selectedOptions[0]?.textContent || "";
     document.body.dataset.ready = "true";
   }
   let pending = Promise.resolve();

@@ -179,6 +179,7 @@ def test_named_input_labels_filters_and_scaling_stay_separate(page, tmp_path, wi
         directory = Path(artifacts)
         directory.mkdir(parents=True, exist_ok=True)
         page.screenshot(path=str(directory / f"named-input-{width}.png"), full_page=True)
+    page.click("#report-filters > summary")
     page.select_option("#filter-input_case", index=1)
     page.click("[data-view=matrix]")
     settled(page)
@@ -191,6 +192,7 @@ def test_csv_import_compare_export_remove_preserves_embedded_data(page, source):
     import_file(page, "second.csv", source.read_text().replace("original", "second").replace(",2,2,5,", ",1,1,5,"))
     assert page.locator("#experiment-list tbody tr").count() == 2
     assert page.locator("#matrix tbody tr").count() == 2
+    page.click("#report-filters > summary")
     page.select_option("#baseline", index=1)
     page.select_option("#comparison-purpose", "same-hardware")
     settled(page)
@@ -268,6 +270,7 @@ def test_bundle_source_links_reject_before_changing_workspace(page, linked_bundl
 
 def test_bundle_source_links_survive_filter_export_remove_and_html_restore(page, linked_bundle, tmp_path):
     import_file(page, "valid.json", json.dumps(linked_bundle))
+    page.click("#report-filters > summary")
     page.select_option("#filter-cpu", "2")
     settled(page)
     exported = download_json(page)["analysis_bundle"]
@@ -338,8 +341,10 @@ def test_chunked_csv_summaries_match_python_including_failures_and_lifecycle(pag
 
 def test_html_and_json_restore_filtered_comparison_offline(page, source, tmp_path):
     import_file(page, "second.csv", source.read_text().replace("original", "second"))
+    page.click("#report-filters > summary")
     page.select_option("#baseline", index=1)
     page.select_option("#comparison-purpose", "cross-hardware")
+    page.click("#fixed-conditions > summary")
     page.select_option("#filter-cpu", "2")
     page.click("[data-view=pareto]")
     settled(page)
@@ -427,6 +432,7 @@ def test_bilingual_narrow_layout_reset_and_filtered_exports(page, source):
         settled(page)
         assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
         assert page.locator("html").get_attribute("lang") == ("en" if language == "en" else "zh-CN")
+    page.click("#report-filters > summary")
     page.select_option("#filter-experiment_name", "second.csv")
     settled(page)
     assert page.locator("#matrix tbody tr").count() == 1
@@ -608,6 +614,7 @@ def test_same_path_runs_compare_export_restore_and_remove(page, same_path_bundle
                    for run in ("left", "right")]
     page.select_option("#active-experiment-left", left["experiment_id"])
     page.select_option("#active-experiment-right", right["experiment_id"])
+    page.click("#report-filters > summary")
     page.select_option("#filter-cpu", "2")
     page.select_option("#comparison-purpose", "same-hardware")
     page.click("[data-view=experiments]")
@@ -625,6 +632,9 @@ def test_same_path_runs_compare_export_restore_and_remove(page, same_path_bundle
     assert comparison["groups"][0]["statistics_status"] == "not_computed"
     page.click("[data-view=matrix]")
     settled(page)
+    for config in (left, right):
+        identity = page.locator(f'#matrix tr[data-config-id="{config["config_id"]}"] td').first
+        assert f"run_id={config['run_id']}" in identity.inner_text()
     page.locator(f'#matrix tr[data-config-id="{right["config_id"]}"]').click()
     settled(page)
     filtered = download_json(page)["analysis_bundle"]
@@ -639,6 +649,7 @@ def test_same_path_runs_compare_export_restore_and_remove(page, same_path_bundle
     assert page.locator("#filter-cpu").input_value() == "2"
     assert page.locator("#matrix tr.selected").get_attribute("data-config-id") == right["config_id"]
     assert download_json(page)["analysis_bundle"] == filtered
+    page.click("#experiment-manager > summary")
     page.locator(f'#experiment-list button[data-remove="{left["experiment_id"]}"]').click()
     settled(page)
     remaining = download_json(page)["analysis_bundle"]
