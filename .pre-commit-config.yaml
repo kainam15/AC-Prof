@@ -7,6 +7,13 @@ exclude: '^(internal-testing/|results/|evidence/|docs/Original_Project_Definitio
 repos:
   - repo: local
     hooks:
+      - id: ci-types
+        name: Check project types before pushing Python changes
+        entry: uv run --locked python -m mypy
+        language: system
+        stages: [pre-push]
+        pass_filenames: false
+        files: '^(acprof/.*\.pyi?$|pyproject\.toml$|uv\.lock$)'
       - id: ci-preflight
         name: Fast CI contracts before pushing code (opt-in pre-push)
         entry: uv run --locked python scripts/check_ci_preflight.py

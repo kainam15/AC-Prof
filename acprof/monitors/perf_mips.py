@@ -537,7 +537,7 @@ def probe_event_set(prefix: list[str], *, env=None) -> dict:
     first = run(PERF_EVENTS)
     states, evidence = first if first is not None else ({}, {})
     if all(states.get(event) == "available" for event in PERF_EVENTS):
-        selected = PERF_EVENTS
+        selected: tuple[str, ...] = PERF_EVENTS
         isolated = {}
     else:
         isolated = _isolated_perf_statuses(states, run, probe_errors)

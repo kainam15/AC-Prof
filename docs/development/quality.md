@@ -71,6 +71,7 @@ uv run pre-commit run --all-files --show-diff-on-failure
 `install` 给当前 clone 安装 `pre-commit` 和 `commit-msg` 两个 Git hooks；新 clone 需执行一次。
 对经常改动 Python/TUI 的开发者，可额外执行 `uv run pre-commit install --hook-type pre-push`，
 在推送代码前自动运行和 CI 相同的 `scripts/check_ci_preflight.py` 快速契约检查；
+改动 `acprof/` 的 Python 源码、`pyproject.toml` 或 `uv.lock` 时也运行项目的 mypy 检查。
 它不会安装到其他人的 clone，不会运行实际模型或 Docker，也不替代完整 CI 与 PNG 对比。
 手动运行和 CI 读取同一份
 [`.pre-commit-config.yaml`](../../.pre-commit-config.yaml)，检查尾随空白、文件末尾换行、YAML、JSON、
@@ -166,7 +167,7 @@ Ruff 版本由 [`pyproject.toml`](../../pyproject.toml) 的 `required-version` �
 本地 Python 修改先运行 Ruff，再按受影响行为选择 pytest 文件、node ID 或 marker。
 需要 evidence 时追加 `--report`，或使用 CI wrapper；后者的 `--pattern` 可重复。
 局部修改默认验证受影响范围。默认的 `pre-commit`/`commit-msg` hooks 不运行 pytest 或硬件采集；
-仅开发者主动安装的 `pre-push` hook 才运行有限的离线契约测试，同样不运行真实硬件采集。
+仅开发者主动安装的 `pre-push` hook 才运行有限的离线契约测试和适用的类型检查，不运行真实硬件采集。
 
 ```bash
 uv run ruff check acprof/host/env_utils.py tests/runtime/environment/test_env_utils.py
