@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
 
 from acprof.artifacts import JsonObjectSnapshot, read_json_object_snapshot
@@ -19,6 +19,22 @@ def _resolved(path: Path) -> Path:
         return path.resolve()
     except RuntimeError as error:  # Python 3.12 raises RuntimeError on symlink loops.
         raise ValueError(f"cannot resolve metadata source {path}: {error}") from error
+
+
+def _matches_content(path: Path, content: bytes, cancelled: Callable[[], bool] | None) -> bool:
+    """Compare up to the retained length and one overflow byte, allowing short raw reads."""
+    with path.open("rb", buffering=0) as stream, memoryview(content) as expected:
+        offset = 0
+        while True:
+            check_cancelled(cancelled)
+            chunk = stream.read(min(64 * 1024, len(expected) - offset + 1))
+            check_cancelled(cancelled)
+            if not chunk:
+                return chunk == b"" and offset == len(expected)
+            end = offset + len(chunk)
+            if chunk != expected[offset:end]:
+                return False
+            offset = end
 
 
 class ResultMetadataSnapshot:
@@ -82,29 +98,50 @@ class ResultMetadataSnapshot:
             raise record
         return record
 
-    def verify_current(self, source: str | Path) -> None:
-        """Recheck selection, observed presence, exact parsed bytes and previous read failures."""
-        self.validate_source(source)
-        for name, present in self._presence.items():
-            current = self._observe_presence(name)
-            if isinstance(current, (OSError, ValueError)):
-                if _same_error(present, current):
-                    continue
-                raise ValueError(f"metadata changed: {name}: {current}") from current
-            if current is not present:
-                raise ValueError(f"metadata presence changed: {name}")
-            record = self._records.get(name)
-            if current and record is not None and not self._record_unchanged(name, record):
-                raise ValueError(f"metadata changed: {self.layout.path(name)}")
+    def verify_current(self, source: str | Path, *, cancelled: Callable[[], bool] | None = None) -> None:
+        """Raise the first verification error for callers requiring a stable source."""
+        error = next(self.verification_errors(source, cancelled=cancelled), None)
+        if error is not None:
+            raise error
 
-    def _record_unchanged(self, name: str, record: JsonObjectSnapshot | OSError | ValueError) -> bool:
-        path = self.layout.path(name)
-        if isinstance(record, JsonObjectSnapshot):
-            with path.open("rb") as stream:
-                # A replacement can be arbitrarily large; one extra byte proves a length change.
-                return stream.read(len(record.content) + 1) == record.content
+    def verification_errors(self, source: str | Path, *, cancelled: Callable[[], bool] | None = None,
+                            ) -> Iterator[OSError | ValueError]:
+        """Check selection, then each observed artifact in its original read order."""
         try:
-            read_json_object_snapshot(path, label=self._failed_labels[name])
+            self.validate_source(source, cancelled=cancelled)
+        except (OSError, ValueError) as error:
+            check_cancelled(cancelled)
+            yield error
+            return
+        for name, present in cancellable(self._presence.items(), cancelled):
+            try:
+                self._verify_observation(name, present, cancelled)
+            except (OSError, ValueError) as error:
+                check_cancelled(cancelled)
+                yield error
+        check_cancelled(cancelled)
+
+    def _verify_observation(self, name: str, present: bool | OSError | ValueError,
+                            cancelled: Callable[[], bool] | None) -> None:
+        current = self._observe_presence(name)
+        if isinstance(current, (OSError, ValueError)):
+            if _same_error(present, current):
+                return
+            raise ValueError(f"metadata changed: {name}: {current}") from current
+        if current is not present:
+            raise ValueError(f"metadata presence changed: {name}")
+        record = self._records.get(name)
+        if current and record is not None and not self._record_unchanged(name, record, cancelled):
+            raise ValueError(f"metadata changed: {self.layout.path(name)}")
+
+    def _record_unchanged(self, name: str, record: JsonObjectSnapshot | OSError | ValueError,
+                          cancelled: Callable[[], bool] | None) -> bool:
+        path = self.layout.path(name)
+        check_cancelled(cancelled)
+        if isinstance(record, JsonObjectSnapshot):
+            return _matches_content(path, record.content, cancelled)
+        try:
+            read_json_object_snapshot(path, label=self._failed_labels[name], cancelled=cancelled)
         except (OSError, ValueError) as error:
             if _same_error(record, error):
                 return True
