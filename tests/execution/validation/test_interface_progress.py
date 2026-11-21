@@ -169,6 +169,7 @@ def test_terminal_interface_events_cannot_arrive_inside_measurement():
         tracker.feed(encode_event("interface", "passed"))
 
 
+@pytest.mark.tui
 @pytest.mark.parametrize(("size", "language"), [((120, 30), "zh"), ((80, 24), "en")])
 async def test_monitor_renders_real_interface_completion(interface_check, capsys, tmp_path, size, language):
     from dataclasses import replace

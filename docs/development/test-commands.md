@@ -71,7 +71,8 @@ Textual `run_test()` 通过 async context manager 完成退出；不要遗留后
 `tui` 自动标记 `tests/tui/` 功能域的测试（包括纯 TUI 逻辑），与其它平台/运行时 marker 独立；
 `unit` 自动赋予无 tui/integration/runtime/visual/platform/hardware 标记的测试。
 `unit` 只表示不要求专项外部环境，不承诺绝不启动 UI 或恒定低耗时；
-跨功能域调用 TUI 的测试仍须按影响范围审查。平台 skip 只作用于显式 `wsl`、`native_linux`，`hardware` 本身不跳过失败。
+在同时覆盖后端逻辑与普通界面交互的测试文件中，对挂载 AC-Prof TUI 的交互用例标记 `@pytest.mark.tui`。这些用例会启用共享的离线 PyPI 响应与机器环境 Fixture，同文件的后端用例仍按各自标记筛选。
+平台 skip 只作用于显式 `wsl`、`native_linux`，`hardware` 本身不跳过失败。
 原有缺依赖或显式 opt-in skip 原因保留；CI runtime 使用 `--require-no-skips` 拒绝缺失验证。
 
 `scripts/check_test_framework.py` 在 pre-commit 与 CI 中禁止旧执行框架的导入，允许 mock；
@@ -90,8 +91,8 @@ Docker 名称与 host 状态审计后，对独立 unit 子集比较串行/并行
 ```bash
 # 非 TUI 的隔离单元测试；仍可能包含跨域的 TUI 辅助测试
 uv run pytest -m unit -q
-# TUI 专题测试（独立串行）
-uv run pytest tests/tui -q
+# TUI 专题和跨目录的界面测试（串行）
+uv run pytest -m tui -q
 # 从已有测试 JSON 报告找累计最慢的文件和参数化测试组，无需重跑
 uv run python scripts/report_test_durations.py internal-testing/runs/<YYYY-MM>/<run-id>/reports/shard-0.json --top 30
 # 本地受控并行：只开放已审查的 analysis、quality 单元测试域

@@ -33,6 +33,8 @@ P1 · cgroup I/O 预检：已将宿主进程 cgroup 能力与目标 Docker / Pro
 
 ## 工程维护优先序
 
+缓存选择器、接口监控和流程目录的跨域界面回归已纳入 `pytest -m tui`，启动时的 PyPI 版本检查使用[共享离线响应](development/test-commands.md)。
+
 模型识别读取配置或原始 Hub 清单时，先跳过无法提供所需内容的 [Model Store 条目](models/model-store.md)，减少过滤下载和历史缓存共存时对权重分片的重复检查。
 
 Docker 依赖下载已保留 Debian Security 仓库路径。CI 预检从空缓存验证两个 Debian 仓库，

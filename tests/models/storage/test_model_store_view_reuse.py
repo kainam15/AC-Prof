@@ -156,6 +156,7 @@ def test_complete_view_still_rejects_same_size_corrupt_payload(prepared):
     assert model_store.read_entry(receipt["entry_id"], root) == receipt["model_download"]
 
 
+@pytest.mark.tui
 @pytest.mark.parametrize("language", ["zh", "en"])
 async def test_cached_view_can_be_selected_at_80x24_without_source_index(prepared, language):
     task, _, root = prepared

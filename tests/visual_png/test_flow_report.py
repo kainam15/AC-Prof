@@ -14,6 +14,7 @@ from scripts.tui_flow_catalog import CATALOG, ROOT, load_catalog, png_inventory,
 from tests.support.tui_fixtures import AcprofTui
 
 
+@pytest.mark.tui
 async def test_flow_catalog_matches_visible_tui_pages(tmp_path: Path) -> None:
     catalog = load_catalog()
     app = AcprofTui(settings_path=tmp_path / "settings.json")

@@ -20,18 +20,23 @@ def test_path_classification_does_not_depend_on_file_name():
 
 
 def test_pytest_collection_selects_tui_and_excludes_it_from_unit():
-    node = (
+    tui_nodes = {
         "tests/tui/widgets/test_tui_page_chrome.py::TestTuiPageChrome::"
-        "test_confirmation_keeps_the_action_color_and_cancel_does_not_launch"
-    )
-    for marker, expected_count in (("tui", 1), ("unit", 0)):
+        "test_confirmation_keeps_the_action_color_and_cancel_does_not_launch",
+        "tests/models/storage/test_model_store_view_reuse.py::test_cached_view_can_be_selected_at_80x24_without_source_index",
+        "tests/execution/validation/test_interface_progress.py::test_monitor_renders_real_interface_completion",
+        "tests/visual_png/test_flow_report.py::test_flow_catalog_matches_visible_tui_pages",
+    }
+    unit_nodes = {
+        "tests/models/storage/test_model_store_view_reuse.py::test_candidate_scan_uses_recorded_entry_id_and_stays_read_only",
+        "tests/execution/validation/test_interface_progress.py::test_terminal_interface_events_cannot_arrive_inside_measurement",
+        "tests/visual_png/test_flow_report.py::test_flow_catalog_references_existing_public_fixtures_and_pages",
+    }
+    for marker, expected in (("tui", tui_nodes), ("unit", unit_nodes)):
         result = subprocess.run(
-            [sys.executable, "-m", "pytest", "--collect-only", "-q", "-m", marker, node],
+            [sys.executable, "-m", "pytest", "--collect-only", "-q", "-m", marker, *sorted(tui_nodes | unit_nodes)],
             cwd=TUI_TEST_ROOT.parents[1], capture_output=True, text=True, timeout=30,
         )
-        if expected_count:
-            assert result.returncode == 0, result.stdout + result.stderr
-            assert node in result.stdout
-            assert "1 test selected" in result.stdout or "1 test collected" in result.stdout
-        else:
-            assert "1 deselected" in result.stdout, result.stdout + result.stderr
+        assert result.returncode == 0, result.stdout + result.stderr
+        selected = {line.partition("[")[0] for line in result.stdout.splitlines() if line.startswith("tests/")}
+        assert selected == expected
