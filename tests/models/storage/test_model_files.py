@@ -85,6 +85,37 @@ class TestModelFilePlan:
         assert (self.selected(plan)) == (set(names))
         assert (plan["reason"]) == ("custom_adapter")
 
+    @pytest.mark.parametrize("backend", ["transformers_pipeline", "transformers_model", "chronos"])
+    def test_root_loader_plans_root_weights_in_a_mixed_repository(self, backend):
+        # The module chain's shard is missing. Its index must not be read for a root loader.
+        names = {"config.json", "model.safetensors", "pytorch_model.bin", "modules.json",
+                 "encoder/config.json", "encoder/model.safetensors.index.json", "1_Pooling/config.json"}
+        plan = self.plan(names, backend=backend)
+        assert plan["weights"] == [{
+            "component": ".", "format": "safetensors", "variant": None, "files": ["model.safetensors"],
+        }]
+        assert self.selected(plan) == names - {"pytorch_model.bin"}
+
+    @pytest.mark.parametrize("backend", ["transformers_pipeline", "sentence_transformers"])
+    def test_nested_encoder_cannot_substitute_for_a_missing_root_shard(self, backend):
+        names = {"config.json", "model.safetensors.index.json", "pytorch_model.bin", "modules.json",
+                 "encoder/config.json", "encoder/model.safetensors", "encoder/pytorch_model.bin"}
+        metadata = {
+            "modules.json": [{"path": "encoder", "type": "sentence_transformers.models.Transformer"}],
+            "encoder/config.json": {"model_type": "bert"},
+            "model.safetensors.index.json": {"weight_map": {"layer.weight": "missing-root.safetensors"}},
+        }
+        if backend == "transformers_pipeline":
+            with pytest.raises(ModelFilesError, match="missing checkpoint shards.*missing-root.safetensors"):
+                self.plan(names, metadata, backend=backend)
+        else:
+            plan = self.plan(names, metadata, backend=backend)
+            assert plan["weights"] == [{
+                "component": "encoder", "format": "safetensors", "variant": None,
+                "files": ["encoder/model.safetensors"],
+            }]
+            assert self.selected(plan) == names - {"encoder/pytorch_model.bin"}
+
     def test_sentence_transformers_keeps_dense_modules(self):
         names = ["modules.json", "0_Transformer/config.json", "0_Transformer/model.safetensors",
                  "0_Transformer/pytorch_model.bin", "1_Pooling/config.json", "2_Dense/pytorch_model.bin"]

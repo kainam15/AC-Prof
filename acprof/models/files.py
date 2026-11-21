@@ -29,6 +29,11 @@ def safe_path(name: str) -> str:
     return name
 
 
+def uses_sentence_transformer_modules(backend: str, files: set[str]) -> bool:
+    """Only the selected sentence encoder loads its checkpoint directories from modules.json."""
+    return backend == "sentence_transformers" and "modules.json" in files
+
+
 def _checkpoint_choices(prefix: str, *, diffusion: bool) -> list[tuple[str, str]]:
     stems = [("diffusion_pytorch_model", "safetensors"), ("diffusion_pytorch_model", "bin")] if diffusion else [
         ("model", "safetensors"), ("pytorch_model", "bin"),

@@ -5,7 +5,13 @@ from typing import Any, NoReturn
 
 from acprof.failures import Failure, RuntimeFailure
 from acprof.models.diffusion_pipelines import diffusers_pipeline
-from acprof.models.files import ModelFilesError, checkpoint_index, resolve_checkpoint, safe_path
+from acprof.models.files import (
+    ModelFilesError,
+    checkpoint_index,
+    resolve_checkpoint,
+    safe_path,
+    uses_sentence_transformer_modules,
+)
 from acprof.models.metadata_validation import (
     MetadataValidationError,
     validate_diffusers_declarations,
@@ -150,7 +156,7 @@ def inspect_artifact_layout(task_info: Any, *, adapter: str = "family-default") 
             return {"status": "identified", "source": "registered_kokoro_snapshot", "weights": [
                 {"component": ".", "format": "pth", "variant": None, "files": [snapshot_contract()["weights"]]}]}
         if backend in {"transformers_model", "transformers_pipeline", "sentence_transformers", "cross_encoder", "chronos"}:
-            uses_modules = backend == "sentence_transformers" and "modules.json" in files
+            uses_modules = uses_sentence_transformer_modules(backend, files)
             config = metadata.get("config.json", getattr(task_info, "model_config", {})) or {}
             native_loader = adapter == "family-default" and not config.get("auto_map") and not config.get("custom_pipelines")
             if not uses_modules and "config.json" not in files:

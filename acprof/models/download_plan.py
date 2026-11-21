@@ -15,7 +15,13 @@ from pathlib import PurePosixPath
 from typing import Any, NotRequired, TypedDict, cast
 
 from acprof.models.diffusion_pipelines import diffusers_pipeline
-from acprof.models.files import Checkpoint, ModelFilesError, resolve_checkpoint, safe_path
+from acprof.models.files import (
+    Checkpoint,
+    ModelFilesError,
+    resolve_checkpoint,
+    safe_path,
+    uses_sentence_transformer_modules,
+)
 from acprof.models.spec import validate_dependencies, validate_repository_identity
 
 
@@ -192,11 +198,11 @@ def _transformer_checkpoint(
 
 
 def _plan_transformers(
-    names: set[str], read_json: Callable[[str], Any], native_model_types: set[str] | None,
+    names: set[str], read_json: Callable[[str], Any], native_model_types: set[str] | None, backend: str,
 ) -> tuple[set[str], list[Checkpoint], str]:
     selected = set(names)
     weights: list[Checkpoint] = []
-    if "modules.json" in names:
+    if uses_sentence_transformer_modules(backend, names):
         modules = read_json("modules.json")
         if not isinstance(modules, list) or not modules:
             raise ModelFilesError("invalid sentence-transformers modules.json")
@@ -350,7 +356,7 @@ def plan_download(
     elif policy == "auto" and backend in {
         "transformers_pipeline", "transformers_model", "sentence_transformers", "chronos",
     }:
-        selected, weights, reason = _plan_transformers(names, read_json, native_model_types)
+        selected, weights, reason = _plan_transformers(names, read_json, native_model_types, backend)
     elif policy == "auto" and backend == "diffusers" and "model_index.json" in names:
         selected, weights, reason = _plan_diffusers(names, read_json)
     elif policy == "auto" and backend in {"torchscript", "skops"}:
