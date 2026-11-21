@@ -9,6 +9,22 @@ from pathlib import Path
 from acprof.results.metrics import METRICS
 
 
+def _unmet_requirements(report, *, require_complete, require_ok):
+    reasons = []
+    if require_complete:
+        if report["completion"] != "complete":
+            reasons.append(f"--require-complete 需要 run_status=complete，当前为 {report['run_status']}。")
+        if report["coverage"] is None:
+            reasons.append("--require-complete 缺少可核对的计划覆盖证据。")
+    if require_ok:
+        counts = report["counts"]
+        formal = counts["rows"] - counts["warmup"]
+        if counts["formal_ok"] <= 0 or counts["formal_ok"] != formal:
+            reasons.append("--require-ok 要求至少一个正式窗口且全部实测成功，"
+                           f"正式窗口实测成功 {counts['formal_ok']}/{formal}。")
+    return reasons
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", nargs="?", type=Path, help="结果目录或 CSV")
@@ -42,12 +58,8 @@ def main(argv=None):
         else:
             from acprof.analysis.comparison import audit_and_compare_results
             report = audit_and_compare_results(args.source, args.compare, purpose=args.comparison_purpose)
-        passed = report["valid"]
-        if args.require_complete:
-            passed = passed and report["completion"] == "complete" and report["coverage"] is not None
-        if args.require_ok:
-            counts = report["counts"]
-            passed = passed and counts["formal_ok"] > 0 and counts["formal_ok"] == counts["rows"] - counts["warmup"]
+        reasons = _unmet_requirements(report, require_complete=args.require_complete, require_ok=args.require_ok)
+        passed = report["valid"] and not reasons
         if args.compare is not None:
             passed = passed and report["comparison"]["valid"]
             if args.require_comparable:
@@ -57,9 +69,20 @@ def main(argv=None):
             print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False))
         else:
             counts = report["counts"]
-            print(f"审计{'通过' if passed else '未通过'}；完成状态={report['completion']}；"
+            print(f"审计{'通过' if passed else '未通过'}；运行完成状态={report['completion']}；"
+                  f"测量状态={report['measurement_status']}；"
                   f"共 {counts['rows']} 行，正式有效 {counts['formal_ok']}，warmup {counts['warmup']}，"
                   f"warn {counts['warn']}，error {counts['error']}")
+            coverage = report["coverage"]
+            if coverage is None:
+                print("计划覆盖=unknown")
+            else:
+                print("计划覆盖（按窗口标识） " + "，".join(
+                    f"{key}={coverage[key]}" for key in ("expected", "actual", "missing", "unexpected")))
+            if unknown := report.get("execution", {}).get("unknown_timeout_attempt_rows"):
+                print(f"终态失败行中有 {unknown} 行超时诊断无法确认计划请求是否已发出。")
+            for reason in reasons:
+                print(reason)
             for issue in report["issues"]:
                 print(f"[{issue['severity']}] {issue['message']}")
             if report["missing_metrics"]:
