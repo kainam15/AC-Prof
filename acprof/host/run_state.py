@@ -1159,9 +1159,11 @@ class RunState:
         _, rows = read_result_csv(final_csv, expected=self.expected_plan())
         from acprof.host.measurement.window_recovery import is_incremental
         if self._matrix_publication is not None and self._matrix_publication[0] == (os.getpid(), current_thread()):
+            from acprof.result_store.sources import verify_source_files
             _, writer, lease = self._matrix_publication
             if writer.layout.result_csv != Path(final_csv).absolute() or writer.expected_run_id != self.run_id:
                 raise RunStateError("最终结果与正在提交的实验身份不一致")
+            verify_source_files(writer.layout, writer.manifest)
             writer.freeze()
             digest = file_sha256(writer.layout.result_csv)
             lease.close()

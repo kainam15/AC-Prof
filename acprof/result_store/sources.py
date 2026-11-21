@@ -64,6 +64,25 @@ class _LegacyChangeKeys:
         return self.aliases[key]
 
 
+def _read_derivation(layout, manifest, source):
+    ref = source["reference"]
+    if not layout.contained(ref["path"]).is_relative_to(layout.path("raw/result_updates")):
+        raise ResultValidationError("derivation source is outside raw/result_updates")
+    update = read_reference(layout, ref)
+    if update.get("schema_version") != 1 or update.get("run_id") != manifest["run_id"]:
+        raise ResultValidationError("invalid result derivation identity")
+    encoding = update.get("measurement_key_encoding")
+    if "measurement_key_encoding" in update and encoding != EXACT_KEY_ENCODING:
+        raise ResultValidationError("unknown measurement key encoding in result derivation")
+    if not isinstance(update.get("reason"), str) or not update["reason"]:
+        raise ResultValidationError("result derivation requires provenance")
+    for evidence in update.get("evidence", []):
+        path = layout.contained(evidence["path"])
+        if file_sha256(path) != evidence["sha256"]:
+            raise ResultValidationError("result derivation evidence changed")
+    return update
+
+
 def apply_source(layout, manifest, source, rows, windows, *, legacy_keys=None):
     """Mutate ordered rows only after validating the complete source operation."""
     fields = manifest["wide_fields"]
@@ -88,21 +107,8 @@ def apply_source(layout, manifest, source, rows, windows, *, legacy_keys=None):
         return
     if source.get("kind") != "derivation":
         raise ResultValidationError("unknown result source")
-    ref = source["reference"]
-    if not layout.contained(ref["path"]).is_relative_to(layout.path("raw/result_updates")):
-        raise ResultValidationError("derivation source is outside raw/result_updates")
-    update = read_reference(layout, ref)
-    if update.get("schema_version") != 1 or update.get("run_id") != manifest["run_id"]:
-        raise ResultValidationError("invalid result derivation identity")
+    update = _read_derivation(layout, manifest, source)
     encoding = update.get("measurement_key_encoding")
-    if "measurement_key_encoding" in update and encoding != EXACT_KEY_ENCODING:
-        raise ResultValidationError("unknown measurement key encoding in result derivation")
-    if not isinstance(update.get("reason"), str) or not update["reason"]:
-        raise ResultValidationError("result derivation requires provenance")
-    for evidence in update.get("evidence", []):
-        path = layout.contained(evidence["path"])
-        if file_sha256(path) != evidence["sha256"]:
-            raise ResultValidationError("result derivation evidence changed")
     for row in update.get("insert", []):
         if not isinstance(row, dict) or set(row) - set(fields) or not all(isinstance(value, str) for value in row.values()):
             raise ResultValidationError("invalid derived outcome fields")
@@ -128,8 +134,8 @@ def apply_source(layout, manifest, source, rows, windows, *, legacy_keys=None):
         rows[key] = {**rows[key], **values}
 
 
-def replay(layout, manifest):
-    """Verify the commit chain and all authority once, outside acquisition."""
+def _verified_commits(layout, manifest):
+    """Validate the complete chain before accessing the referenced sources."""
     commits = []
     ref = manifest["commit"]
     expected_sequence = manifest["sequence"]
@@ -161,10 +167,26 @@ def replay(layout, manifest):
         ref = commit.get("previous")
     if expected_sequence != -1:
         raise ResultValidationError("incomplete result commit chain")
+    commits.reverse()
+    return commits
+
+
+def verify_source_files(layout, manifest) -> None:
+    """Recheck immutable files under the same writer lease before final freeze."""
+    for _, sources in _verified_commits(layout, manifest):
+        for source in sources:
+            if source["kind"] == "window":
+                window_row(layout, source)
+            else:
+                _read_derivation(layout, manifest, source)
+
+
+def replay(layout, manifest):
+    """Rebuild ordered rows only after checking the complete commit chain."""
     rows: dict[tuple[str, ...], dict[str, str]] = {}
     windows: dict[tuple[str, ...], str] = {}
     legacy_keys = _LegacyChangeKeys()
-    for expected_rows, sources in reversed(commits):
+    for expected_rows, sources in _verified_commits(layout, manifest):
         for source in sources:
             apply_source(layout, manifest, source, rows, windows, legacy_keys=legacy_keys)
         if len(rows) != expected_rows:

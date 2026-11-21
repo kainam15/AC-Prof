@@ -67,6 +67,28 @@ def test_final_matrix_shares_one_replay_and_allows_readers_until_freeze(experime
     assert state["row_count"] == len(snapshot.rows)
 
 
+def test_history_changed_during_capability_check_cannot_be_frozen(experiment, monkeypatch):
+    apply = publication.apply_collection_result
+    layout = ArtifactLayout.for_new_run(experiment.directory)
+    heads = []
+
+    def damage_derivation(report, rows):
+        heads.append(layout.result_csv.read_bytes())
+        update = next(layout.path("raw/result_updates").glob("*.json"))
+        raw = update.read_bytes()
+        assert raw.endswith(b"\n")
+        update.write_bytes(raw[:-1] + b" ")
+        return apply(report, rows)
+
+    monkeypatch.setattr(publication, "apply_collection_result", damage_derivation)
+    with pytest.raises(SystemExit) as stopped:
+        experiment.invoke()
+    assert stopped.value.code == 2
+    assert heads == [layout.result_csv.read_bytes()]
+    assert json.loads(layout.path("run_state.json").read_bytes())["status"] == "failed"
+    assert_writer_lease_available(layout)
+
+
 def test_valid_case_replacement_is_rejected_before_final_publication_and_repaired_on_resume(experiment, monkeypatch):
     root = experiment.directory
     before = {}

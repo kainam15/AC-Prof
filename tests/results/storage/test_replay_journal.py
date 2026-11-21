@@ -14,7 +14,8 @@ from tests.results.storage.test_projection_recovery import committed_store
 from tests.results.storage.test_sequential_result_reads import artifact_hashes
 
 from acprof.result_store import writer as writer_module
-from acprof.result_store.protocol import publication_lock
+from acprof.result_store.protocol import publication_lock, reference
+from acprof.result_store.sources import verify_source_files
 
 from acprof.results.csv import ResultValidationError
 from acprof.results.layers import read_result_layers
@@ -47,6 +48,30 @@ def test_replay_memory_does_not_retain_historical_manifest_copies(tmp_path):
     assert peak < 2 * 1024 * 1024, f"replaying 130 commits allocated {peak:,} bytes for one result row"
     assert layout.result_csv.read_bytes() == manifest
     assert all(path.read_bytes() == raw for path, raw in projections.items())
+
+
+@pytest.mark.parametrize(("artifact", "reason"), [
+    ("receipt", "window receipt SHA256 mismatch"),
+    ("telemetry", "window telemetry hash mismatch"),
+    ("evidence", "result derivation evidence changed"),
+])
+def test_sources_rechecked_after_consolidation(tmp_path, artifact, reason):
+    layout = initialized(tmp_path)
+    window = receipt(tmp_path)
+    evidence = layout.path("raw/observations.json")
+    evidence.write_bytes(b"{}\n")
+    with ResultWriter(tmp_path) as writer:
+        writer.append_window(window)
+        row = dict(next(iter(writer.rows.values())), latency_app_s="7")
+        writer.update_rows([row], reason="corrected latency", evidence=[reference(layout, evidence)])
+        verify_source_files(layout, writer.manifest)
+        path = {"receipt": window, "telemetry": next(layout.path("raw/telemetry").rglob("*.json")),
+                "evidence": evidence}[artifact]
+        raw = path.read_bytes()
+        assert raw.endswith(b"\n")
+        path.write_bytes(raw[:-1] + b" ")
+        with pytest.raises(ValueError, match=reason):
+            verify_source_files(layout, writer.manifest)
 
 
 def rewrite_history(layout, index, mutate):
