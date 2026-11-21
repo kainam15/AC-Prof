@@ -70,16 +70,23 @@ class ConfigurationController:
         self.applying_config = False
         self.preview_timer: Timer | None = None
 
-    def startup_config(self, *, model: str | None = None, model_source: str | None = None) -> RunConfig:
+    def startup_config(
+        self, *, model: str | None = None, model_source: str | None = None, preset: str | None = None,
+    ) -> RunConfig:
         """Resolve the final repository before reusing model-bound defaults."""
         saved = self.saved_settings
-        config = saved.run_defaults or RunConfig.smoke()
+        if saved.run_defaults is None:
+            config = RunConfig.from_preset(preset or "main", runtime="docker")
+        else:
+            config = run_form.runtime_form_config(saved.run_defaults)
+            if preset:
+                config = config.with_preset(preset)
         model = model if model is not None else saved.last_model or config.model
         source = model_source or (saved.last_model_source if saved.last_model else "") or config.model_source
         if (model, source) != (config.model, config.model_source):
             config = replace(config, model=model, model_source=source, revision="",
                              tasks="" if config.model else config.tasks)
-        return run_form.runtime_form_config(config)
+        return config
 
     def _remember_model_fields(self, config: RunConfig) -> None:
         repository = (config.model, config.model_source)
@@ -568,11 +575,33 @@ class ConfigurationController:
                 ancestor.collapsed = False
         self.app.call_after_refresh(self.focus_config_field, control)
 
+    def _show_incomplete_preview(self, issues: tuple[ConfigIssue, ...], *, draft: RunConfig | None = None) -> None:
+        self.update_field_errors(issues)
+        if not self.app.execution.session.snapshot.measurement_active:
+            if draft is not None:
+                self._update_section_summaries(draft, None)
+            view = run_planning.invalid_plan_view(issues) if issues else run_planning.awaiting_model_plan_view()
+            self.app.query_one(RunPlanPanel).show_plan(view)
+            self.app.localization.set_text(
+                self.app.query_one("#input-scales-label", Label), message_id("run.inputs.scales"),
+            )
+            self.app.localization.set_text(
+                self.app.query_one("#input-scales", Input), message_id("common.state.pending"), "placeholder",
+            )
+        self.app.localization.set_text(
+            self.app.query_one("#command-preview", Static),
+            message_id('run.command.incomplete_detail', join_messages("; ", (item.reason for item in issues)))
+            if issues else message_id('run.command.await_model'),
+        )
+
     def refresh_command_preview(self, *, notify: bool = True) -> bool:
         self.cancel_preview_timer()
         self.validation_pending = False
         try:
-            config = self.collect_config()
+            config = self.collect_config(allow_empty_model=not notify and not self.field_errors_visible)
+            if not config.model:
+                self._show_incomplete_preview((), draft=config)
+                return False
             self.config_warnings = run_planning.configuration_warnings(config)
             command = build_run_command(
                 config,
@@ -583,27 +612,7 @@ class ConfigurationController:
             self.field_errors_visible = False
             self._explicit_error_signature = None
         except RunConfigError as exc:
-            # Strict validation remains authoritative. Only an untouched empty
-            # model is a normal draft state, not a user-facing error.
-            awaiting_model = not self.input("model") and not self.field_errors_visible and not notify
-            shown_issues = tuple(issue for issue in exc.issues
-                                 if not (awaiting_model and issue.field == "model"))
-            self.update_field_errors(shown_issues)
-            if not self.app.execution.session.snapshot.measurement_active:
-                view = (run_planning.invalid_plan_view(shown_issues) if shown_issues
-                        else run_planning.awaiting_model_plan_view())
-                self.app.query_one(RunPlanPanel).show_plan(view)
-                self.app.localization.set_text(
-                    self.app.query_one("#input-scales-label", Label), message_id("run.inputs.scales"),
-                )
-                self.app.localization.set_text(
-                    self.app.query_one("#input-scales", Input), message_id("common.state.pending"), "placeholder",
-                )
-            self.app.localization.set_text(
-                self.app.query_one("#command-preview", Static),
-                message_id('run.command.incomplete_detail', join_messages("; ", (item.reason for item in shown_issues)))
-                if shown_issues else message_id('run.command.await_model'),
-            )
+            self._show_incomplete_preview(exc.issues)
             if notify:
                 self.show_config_error(exc)
             return False

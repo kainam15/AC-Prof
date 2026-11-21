@@ -10,12 +10,16 @@ from dataclasses import MISSING, dataclass, field, fields
 from typing import Any, Literal, get_type_hints
 
 from acprof.config import (
+    DEFAULT_BATCH_SIZE,
     DEFAULT_COMPUTE_PROFILE_TOOL,
+    DEFAULT_GPU_LIST,
     DEFAULT_IDLE_COOLDOWN_SECONDS,
     DEFAULT_IDLE_SECONDS,
+    DEFAULT_REPEAT,
     DEFAULT_REPEAT_IN_WINDOW,
     DEFAULT_REPEAT_WINDOW_SECONDS,
     DEFAULT_REQUEST_TIMEOUT_SECONDS,
+    DEFAULT_WARMUP,
 )
 from acprof.hub.huggingface.endpoints import HF_DOWNLOAD_MODES
 
@@ -81,7 +85,7 @@ class RunOptions:
         probe_help='Memory GB candidates scanned from low to high',
     )
     gpus: str = option(
-        'off,on', help='GPU modes (comma-separated: off,on)', probe=True,
+        ','.join(DEFAULT_GPU_LIST), help='GPU modes (comma-separated: off,on)', probe=True,
         probe_help='Use CPU when off is listed (default). Use --gpus on for a GPU probe.',
     )
     input_scales: str = option(
@@ -119,13 +123,13 @@ class RunOptions:
         'results', help='Output directory', probe=True,
     )
     batch_size: int = option(
-        1, help='Batch size', probe=True,
+        DEFAULT_BATCH_SIZE, help='Batch size', probe=True,
     )
     warmup: int = option(
-        2, help='Warmup iterations',
+        DEFAULT_WARMUP, help='Warmup iterations',
     )
     repeat: int = option(
-        5, help='Measurement repeat count',
+        DEFAULT_REPEAT, help='Measurement repeat count',
     )
     repeat_in_window: int = option(
         DEFAULT_REPEAT_IN_WINDOW, help='Requests per energy window; 0 enables auto calibration',

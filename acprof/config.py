@@ -25,9 +25,20 @@ DEFAULT_TASK_PARAMS: dict[str, dict[str, Any]] = CATALOG.family_task_params()
 # ─────────────────────────────────────────────
 # 默认资源矩阵
 # ─────────────────────────────────────────────
-DEFAULT_CPU_LIST = [1, 2, 4, 8]
-DEFAULT_MEM_LIST = [2, 4, 8, 16]
+DEFAULT_DOCKER_CPUS = (1, 2, 4, 8)
+DEFAULT_DOCKER_MEMS = (2, 4, 8, 16)
+DEFAULT_CPU_LIST = list(DEFAULT_DOCKER_CPUS)
+DEFAULT_MEM_LIST = list(DEFAULT_DOCKER_MEMS)
 DEFAULT_GPU_LIST = ["off", "on"]
+
+
+def docker_resource_limits(cpus: str = "auto", mems: str = "auto") -> tuple[str, str]:
+    """Expand automatic Docker axes to the comma-separated quotas used by run and probe."""
+    return (
+        ",".join(map(str, DEFAULT_DOCKER_CPUS)) if cpus == "auto" else cpus,
+        ",".join(map(str, DEFAULT_DOCKER_MEMS)) if mems == "auto" else mems,
+    )
+
 
 # ─────────────────────────────────────────────
 # 实验参数默认值

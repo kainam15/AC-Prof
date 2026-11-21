@@ -10,6 +10,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from acprof.artifacts import atomic_write_json, read_json_object
+from acprof.config import docker_resource_limits
 from acprof.events.preparation import emit_progress
 from acprof.experiments.options import add_option_arguments
 from acprof.failures import RuntimeFailure
@@ -91,8 +92,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.runtime == "process":
         parser.error("the minimum-memory probe requires Docker; Process input scans use acprof run --runtime process --profiling-mode basic")
     try:
-        cpu_list = _int_list("1,2,4,8" if args.cpus == "auto" else args.cpus, "CPU 列表")
-        mem_list = _int_list("2,4,8,16" if args.mems == "auto" else args.mems, "内存列表")
+        cpus, mems = docker_resource_limits(args.cpus, args.mems)
+        cpu_list = _int_list(cpus, "CPU 列表")
+        mem_list = _int_list(mems, "内存列表")
         _, _, gpu_mode = select_minimum_resources(cpu_list, mem_list, _gpu_list(args.gpus))
     except argparse.ArgumentTypeError as exc:
         parser.error(str(exc))

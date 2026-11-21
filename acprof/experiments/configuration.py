@@ -9,6 +9,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field as dataclass_field, fields, replace
 from pathlib import Path
 
+from acprof.config import docker_resource_limits
 from acprof.experiments.constraints import PROFILER_NUMBERS, RUN_NUMBERS, ConstraintViolation
 from acprof.experiments.options import RunOptions, configuration_arguments
 from acprof.extensions import CATALOG
@@ -117,10 +118,14 @@ class RunConfig(RunOptions):
 
     def with_preset(self, preset: str) -> RunConfig:
         """Change experimental parameters while retaining identity and user constraints."""
-        if preset not in {"smoke", "main"}:
-            raise RunConfigError([ConfigIssue(None, message("未知预设：{0}", preset))])
-        template = self.smoke(self.model) if preset == "smoke" else self.main_matrix(self.model)
-        updated = replace(self, **{name: getattr(template, name) for name in PRESET_FIELDS})
+        template = self.from_preset(preset, model=self.model, runtime=self.runtime)
+        values = {name: getattr(template, name) for name in PRESET_FIELDS}
+        if self.resume and preset == "main":
+            # Older runs may have recorded either default axis as the literal "auto".
+            for name in ("cpus", "mems"):
+                if getattr(self, name) == "auto":
+                    values.pop(name)
+        updated = replace(self, **values)
         if self.resume and self.experiment_parameters() != updated.experiment_parameters():
             raise RunConfigError([ConfigIssue("resume", message("续跑参数不能更改；请取消续跑并选择新的输出目录创建新实验。"))])
         return updated
@@ -158,10 +163,20 @@ class RunConfig(RunOptions):
         return options
 
     @classmethod
-    def smoke(cls, model: str = "") -> RunConfig:
+    def from_preset(cls, preset: str, *, model: str = "", runtime: str = "auto") -> RunConfig:
+        """Start a new experiment with all defaults of the selected preset."""
+        if preset == "main":
+            return cls.main_matrix(model, runtime=runtime)
+        if preset == "smoke":
+            return cls.smoke(model, runtime=runtime)
+        raise RunConfigError([ConfigIssue(None, message("未知预设：{0}", preset))])
+
+    @classmethod
+    def smoke(cls, model: str = "", *, runtime: str = "auto") -> RunConfig:
         """Return a short CPU workload with a single request window."""
         return cls(
             model=model,
+            runtime=runtime,
             cpus="1",
             mems="4",
             gpus="off",
@@ -179,13 +194,12 @@ class RunConfig(RunOptions):
         )
 
     @classmethod
-    def main_matrix(cls, model: str = "") -> RunConfig:
-        """Return the normal matrix with isolated profilers deferred."""
-        return cls(
-            model=model,
-            compute_profile_tool="none",
-            execution_profile_tool="none",
-        )
+    def main_matrix(cls, model: str = "", *, runtime: str = "auto") -> RunConfig:
+        """Expose Docker's editable axes and keep unresolved or Process limits automatic."""
+        if runtime == "docker":
+            cpus, mems = docker_resource_limits()
+            return cls(model=model, runtime=runtime, cpus=cpus, mems=mems)
+        return cls(model=model, runtime=runtime)
 
     def validate(self, *, project_dir: Path | None = None, allow_auto_profiling: bool = False) -> RunConfig:
         """Validate static inputs; automatic preflight may retain a pending profiling mode."""

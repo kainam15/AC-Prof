@@ -14,15 +14,16 @@ acprof tui
 页头左侧显示 `AC-Prof <version>`，右侧依次显示环境状态分类计数、快捷键入口“?”和退出按钮“×”。
 版本号与 CLI 使用同一来源；环境详情随界面语言切换，放大日志时入口也保持可见。
 
-也可以预填模型并直接加载最小 smoke 配置：
+首次打开且没有保存实验配置时，TUI 采用项目的 Docker 主矩阵。模型 ID 留空时也可以查看和编辑资源、测量窗口及分析器。参数表见[默认完整矩阵](experiments.md#默认完整矩阵)。
+
+如需单核 CPU、4 GB 内存的最小 Smoke，可在启动时加上 `--preset smoke`。
 
 ```bash
 acprof tui --model google-bert/bert-base-uncased --preset smoke
 ```
 
-首次打开且没有保存实验配置时使用 Smoke：CPU、1 核、4 GB、无 warmup、单次请求，
-Idle 与 cooldown 为 0，关闭独立 profiler，初始通知为 `none`。保存过的配置和主动选择的主矩阵继续生效。
-高级参数中的“深度性能分析”提供 PyTorch Profiler、NVIDIA NCU、Valgrind Massif、
+Smoke 使用零次预热和单次请求，Idle 与 cooldown 均为 0。
+基本配置中的“深度性能分析”提供 PyTorch Profiler、NVIDIA NCU、Valgrind Massif、
 NVIDIA Nsys 四个独立勾选项；可单选或任意组合，默认均关闭。配置保存和命令预览继续使用
 `compute_profile_tool`（Torch / NCU）与 `execution_profile_tool`（Massif / Nsys）
 的原有 `none` / 单工具 / `both` 取值，不改变采集窗口、已有配置或实验结果格式。
@@ -40,8 +41,8 @@ Smoke 的 `--input-scale-policy minimal` 在任务解析后从现有 workload �
 
 `--output-dir` 覆盖预设或已保存配置中的输出目录，例如
 `acprof tui --model google-bert/bert-base-uncased --preset smoke --output-dir results/my-first-run`。
-启动参数只预填本次界面，打开或退出界面不会覆盖已保存的实验默认值；不传参数时恢复保存的设置，未保存时用 Smoke。
-`setup.sh` 每次使用新的结果目录，直接运行 smoke 时默认仍为 `results/smoke`，重做实验需更换目录。
+启动参数只预填本次界面。直接运行 `acprof tui` 会优先恢复显式保存的实验配置。
+`setup.sh` 的入门示例显式选择 Smoke，每次使用新的结果目录。在没有保存配置时，直接用 `--preset smoke` 启动的输出目录是 `results/smoke`。
 
 默认以 RGB 真彩色显示，默认主题为“石墨灰 · 深色”，普通终端和 VS Code 使用相同配色；SSH 未传递 `COLORTERM`
 也不会自动降级。仅支持 256 色的终端可加 `--color-system 256`，需要环境自动检测时使用

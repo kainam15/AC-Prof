@@ -8,6 +8,7 @@ from textual.app import ComposeResult
 from textual.containers import Grid, Horizontal, Vertical, VerticalScroll
 from textual.widgets import Button, Collapsible, ContentSwitcher, Label, Static, TabPane
 
+from acprof.config import docker_resource_limits
 from acprof.tui.i18n import message_id
 from acprof.tui.models.input import ModelInput
 from acprof.tui.run.plan_panel import RunPlanPanel
@@ -34,6 +35,7 @@ def compose_number_field(app: AcprofTui, label: str, widget_id: str, value: int 
         )), app.localization.localized_widget(Label(unit, classes="field-unit")), classes="number-field"), field_id=widget_id)
 
 def compose_run_tab(app: AcprofTui) -> ComposeResult:
+    default_cpus, default_mems = docker_resource_limits()
     with TabPane("实验配置", id="run-tab"):
         with Vertical(classes="page-header"):
             yield RunPlanPanel(id="run-plan-panel")
@@ -95,14 +97,14 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                         yield app.localization.localized_widget(Label("CPU 列表"))
                         yield ConfigField(app.localization.localized_widget(Input(
                             value=app.configuration.initial_config.cpus,
-                            placeholder="1,2,4,8",
+                            placeholder=default_cpus,
                             id="cpus",
                             classes="config-control",
                         )), field_id="cpus")
                         yield app.localization.localized_widget(Label("内存 GB"))
                         yield ConfigField(app.localization.localized_widget(Input(
                             value=app.configuration.initial_config.mems,
-                            placeholder="2,4,8,16",
+                            placeholder=default_mems,
                             id="mems",
                             classes="config-control",
                         )), field_id="mems")

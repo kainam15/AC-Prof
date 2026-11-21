@@ -57,12 +57,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         app = AcprofTui(color_system=args.color_system)
     except ValueError as exc:
         parser.error(str(exc))
-    config = app.configuration.startup_config(model=args.model, model_source=args.model_source)
-    if args.preset:
-        try:
-            config = config.with_preset(args.preset)
-        except RunConfigError as exc:
-            parser.error(str(exc))
+    try:
+        config = app.configuration.startup_config(
+            model=args.model, model_source=args.model_source, preset=args.preset,
+        )
+    except RunConfigError as exc:
+        parser.error(str(exc))
     if args.output_dir is not None:
         config = replace(config, output_dir=args.output_dir)
     app.configuration.initial_config = config

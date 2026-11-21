@@ -5,13 +5,11 @@ from argparse import Namespace
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
+from acprof.config import DEFAULT_DOCKER_CPUS, DEFAULT_DOCKER_MEMS, docker_resource_limits
 from acprof.gpu_mode import normalize_gpu_mode
 
 if TYPE_CHECKING:
     from acprof.experiments.configuration import RunConfig
-
-DEFAULT_DOCKER_CPUS = (1, 2, 4, 8)
-DEFAULT_DOCKER_MEMS = (2, 4, 8, 16)
 
 
 def resolve_runtime_options(config: RunConfig, requested: Namespace, *, recorded_runtime: str = "docker") -> Namespace:
@@ -29,10 +27,7 @@ def resolve_runtime_options(config: RunConfig, requested: Namespace, *, recorded
     resolved.runtime_selection = selection.to_dict()
     require_runtime_requests(resolved)
     if resolved.runtime == "docker":
-        if resolved.cpus == "auto":
-            resolved.cpus = ",".join(map(str, DEFAULT_DOCKER_CPUS))
-        if resolved.mems == "auto":
-            resolved.mems = ",".join(map(str, DEFAULT_DOCKER_MEMS))
+        resolved.cpus, resolved.mems = docker_resource_limits(resolved.cpus, resolved.mems)
         # Validate automatic resources before resolution, downloads or state writes.
         replace(config, runtime="docker", cpus=resolved.cpus, mems=resolved.mems).validate()
     elif resolved.prune_startup_oom:

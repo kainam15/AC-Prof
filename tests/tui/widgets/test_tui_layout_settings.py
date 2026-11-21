@@ -239,7 +239,7 @@ class TestTuiLayoutSettings:
             assert (warning) == ("")
             assert (saved.run_defaults) is not None
             assert (saved.run_defaults.model) == ("")
-            assert (saved.run_defaults) == (replace(RunConfig.smoke(), runtime="docker"))
+            assert saved.run_defaults == RunConfig.main_matrix(runtime="docker")
             with patch.object(app, 'launch') as launch:
                 app.experiments.request_run()
                 await pilot.pause()
@@ -311,7 +311,7 @@ class TestTuiLayoutSettings:
             assert restarted.query_one("#slash-command-bar").display
             assert not (restarted.query_one("#run-log", SelectableLog).wrap)
             assert (restarted.query_one("#run-log", SelectableLog).max_lines) == (1000)
-            assert (restarted.configuration.initial_config) == (replace(RunConfig.smoke(), runtime="docker"))
+            assert restarted.configuration.initial_config == RunConfig.main_matrix(runtime="docker")
             await pilot.press("f2")
             assert await pilot.click("#restore-ui-defaults", offset=(3, 1))
             await pilot.pause()
@@ -478,7 +478,8 @@ class TestTuiModelMemory:
         saved, warning = load_settings(self.settings_path, PROJECT_DIR)
         assert (warning) == ("")
         assert (saved) == (TuiSettings(last_model="demo/first", last_model_source="huggingface"))
-        assert (AcprofTui(settings_path=self.settings_path).configuration.initial_config) == (replace(RunConfig.smoke("demo/first"), runtime="docker"))
+        restarted = AcprofTui(settings_path=self.settings_path)
+        assert restarted.configuration.initial_config == RunConfig.main_matrix("demo/first", runtime="docker")
 
     @pytest.mark.parametrize('corrupt', [False, True])
     async def test_write_failure_or_corrupt_file_does_not_block_launch(self, corrupt):
@@ -723,13 +724,14 @@ class TestTuiMainSettings:
         self.check_cli_overrides(model or self.saved_config.model, cli_case)
 
     def check_cli_overrides(self, model, cli_case):
+        saved = replace(self.saved_config, runtime="docker")
         cases = (
-            ([], replace(self.saved_config, model=model)),
-            (["--model", "demo/explicit"], replace(self.saved_config, model="demo/explicit")),
-            (["--model", ""], replace(self.saved_config, model="")),
-            (["--preset", "smoke"], replace(self.saved_config.with_preset("smoke"), model=model)),
-            (["--preset", "main"], replace(self.saved_config.with_preset("main"), model=model)),
-            (["--model", "demo/explicit", "--preset", "smoke"], replace(self.saved_config.with_preset("smoke"), model="demo/explicit")),
+            ([], replace(saved, model=model)),
+            (["--model", "demo/explicit"], replace(saved, model="demo/explicit")),
+            (["--model", ""], replace(saved, model="")),
+            (["--preset", "smoke"], replace(saved.with_preset("smoke"), model=model)),
+            (["--preset", "main"], replace(saved.with_preset("main"), model=model)),
+            (["--model", "demo/explicit", "--preset", "smoke"], replace(saved.with_preset("smoke"), model="demo/explicit")),
         )
         original = self.settings_path.read_bytes()
         argv, expected = cases[cli_case]
@@ -739,7 +741,7 @@ class TestTuiMainSettings:
         app = run.call_args.args[0]
         # The saved/CLI defaults are not rewritten until the user explicitly
         # saves; the TUI form itself cannot expose the legacy Auto option.
-        assert (app.configuration.initial_config) == (replace(expected, runtime="docker"))
+        assert app.configuration.initial_config == expected
         assert (app.configuration.preferences.theme) == ("acprof-light")
         assert (self.settings_path.read_bytes()) == (original)
 

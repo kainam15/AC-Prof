@@ -117,3 +117,15 @@ def test_incompatible_preset_during_resume_requires_new_experiment():
     current = replace(RunConfig.smoke("demo/model"), resume=True)
     with pytest.raises(RunConfigError, match="新实验"):
         current.with_preset("main")
+
+
+@pytest.mark.parametrize(("cpus", "mems"), [
+    ("auto", "auto"), ("auto", "2,4,8,16"), ("1,2,4,8", "auto"), ("1,2,4,8", "2,4,8,16"),
+])
+def test_matching_main_preset_preserves_recorded_docker_axes(cpus, mems):
+    recorded = RunConfig(model="demo/model", runtime="docker", cpus=cpus, mems=mems, resume=True)
+    assert recorded.with_preset("main") == recorded
+
+    other_matrix = replace(recorded, cpus="3")
+    with pytest.raises(RunConfigError, match="新实验"):
+        other_matrix.with_preset("main")

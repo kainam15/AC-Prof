@@ -155,7 +155,8 @@ acprof run --model google-bert/bert-base-uncased \
 acprof run --model google-bert/bert-base-uncased
 ```
 
-默认配置如下：
+新实验在 Docker 下使用下表的默认值。首次打开 TUI 且未保存实验配置时也使用这套主矩阵。
+CLI 选用 Process 时，未指定的 CPU 和内存配额继承当前进程的限制。
 
 | 维度 | 默认值 |
 | --- | --- |
@@ -164,6 +165,7 @@ acprof run --model google-bert/bert-base-uncased
 | GPU mode | `off,on` |
 | input scale | 自动规划，通常 6 档 |
 | warmup / repeat | `2 / 5` |
+| batch size | `1` |
 | 每行 workload | 自动持续到累计 application latency 约 10 秒 |
 | 单个 `/predict` 请求超时 | `300` 秒 |
 | Idle 基线 / 前置冷却 | `20 / 5` 秒 |

@@ -1,13 +1,16 @@
 """First-run presets must reach the real command without changing saved defaults."""
+import shlex
 import tempfile
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from textual.widgets import Button, Input, Static
+from textual.widgets import Button, Collapsible, Input, Static
 
+from acprof.application.resources import resource_matrix
 from acprof.cli.tui import main
+from acprof.experiments.arguments import build_parser
 from acprof.experiments.configuration import RunConfig, build_run_command
 from acprof.tui.i18n import message_id
 from acprof.tui.run.plan_panel import RunPlanPanel
@@ -42,10 +45,48 @@ async def test_start_waiting_state_is_translated_without_covering_monitor():
                 assert any(app.tr(row.detail) == "Creating subprocess" for row in details.section.rows)
                 app.execution.session.kind = ""
 
-def test_first_launch_without_saved_configuration_is_a_small_smoke():
-    with tempfile.TemporaryDirectory() as temporary:
-        app = AcprofTui(settings_path=Path(temporary) / "settings.json")
-        assert app.configuration.initial_config == replace(RunConfig.smoke(), runtime="docker")
+async def test_first_launch_uses_the_same_main_matrix_as_cli(tmp_path):
+    path = tmp_path / "settings.json"
+    app = AcprofTui(settings_path=path)
+    async with app.run_test(size=(120, 30)) as pilot:
+        assert app.query_one("#resource-matrix", Collapsible).title == (
+            "资源矩阵（CPU: 1,2,4,8 · 内存: 2,4,8,16GB · CPU + GPU · 规模: 自动）"
+        )
+        assert app.query_one("#measurement-parameters", Collapsible).title == (
+            "测量参数（Warmup 2 · Repeat 5 · Batch 1 · 自动窗口）"
+        )
+        assert app.query_one("#profiling-options", Collapsible).title == "深度性能分析（已关闭）"
+        app.query_one("#model", Input).value = "fixture/model"
+        preview = app.query_one("#command-preview", Static)
+        await wait_for_condition(
+            pilot, lambda: "--model fixture/model" in str(preview.content),
+            description="default run command", timeout=3,
+        )
+        command = shlex.split(str(preview.content))
+        assert command[:2] == ["acprof", "run"]
+        parser = build_parser()
+        tui_args = parser.parse_args(command[2:])
+        cli_args = parser.parse_args(["--model", "fixture/model", "--runtime", "docker"])
+        assert (tui_args.cpus, tui_args.mems) == ("1,2,4,8", "2,4,8,16")
+        for args in (tui_args, cli_args):
+            assert resource_matrix(args) == ([1, 2, 4, 8], [2, 4, 8, 16], ["off", "on"])
+            assert not args.input_scales
+            assert args.input_scale_policy == "auto"
+            assert (args.warmup, args.repeat, args.batch_size, args.repeat_in_window) == (2, 5, 1, 0)
+            assert args.repeat_window_seconds == 10
+            assert (args.compute_profile_tool, args.execution_profile_tool) == ("none", "none")
+    assert not path.exists()
+
+
+def test_explicit_smoke_on_first_launch_keeps_its_output_and_notifications(tmp_path):
+    path = tmp_path / "settings.json"
+    with patch("acprof.tui.settings.controller.default_settings_path", return_value=path), patch(
+        "textual.app.App.run", autospec=True,
+    ) as run:
+        main(["--model", "fixture/model", "--preset", "smoke"])
+    config = run.call_args.args[0].configuration.initial_config
+    assert config == replace(RunConfig.smoke("fixture/model"), runtime="docker")
+    assert not path.exists()
 
 @pytest.mark.parametrize(('language', 'size'), [('zh', (80, 24)), ('en', (120, 30))])
 async def test_first_open_blank_model_is_neutral_and_locatable(tmp_path, language, size):
