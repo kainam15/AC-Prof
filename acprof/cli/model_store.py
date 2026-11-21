@@ -5,6 +5,18 @@ from pathlib import Path
 
 from acprof.host.env_utils import load_project_env
 from acprof.host.model_store.store import disk_report, prune_store
+from acprof.network_policy import parse_bytes
+
+
+def _target_size(value: str) -> str:
+    if not value.strip():
+        raise argparse.ArgumentTypeError("capacity must not be empty")
+    try:
+        parse_bytes(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+    # Pass the original units to the store, including capacities beyond int's text limit.
+    return value
 
 
 def main(argv=None):
@@ -12,7 +24,8 @@ def main(argv=None):
     parser.add_argument("action", choices=("status", "prune"), nargs="?", default="status")
     parser.add_argument("--apply", action="store_true", help="Actually remove unused entries and unreferenced weights")
     parser.add_argument("--keep", action="append", default=[], help="Entry ID to retain; can be repeated")
-    parser.add_argument("--target-size", help="Prune least recently used entries toward this capacity, e.g. 100GB")
+    parser.add_argument("--target-size", type=_target_size,
+                        help="Prune least recently used entries toward this capacity, e.g. 100GB")
     parser.add_argument("--model-store", type=Path, help="Store to inspect or prune; defaults to ACPROF_MODEL_STORE")
     args = parser.parse_args(argv)
     load_project_env(Path.cwd())
