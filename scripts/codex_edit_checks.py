@@ -45,6 +45,23 @@ BEHAVIOR_INPUTS = {
         "acprof/host/client.py", "acprof/host/orchestrator.py", "acprof/host/preflight.py",
         "acprof/platform.py", "tests/support/platform_fixtures.py",
     },
+    "tests/tui/results/test_structured_overview.py::"
+    "test_four_fact_groups_keep_identifiers_times_and_paths_in_details": {
+        "acprof/tui/experiments/catalog.py", "acprof/analysis/compatibility.py", "acprof/tui/results/overview.py",
+    },
+    "tests/runtime/containers/test_service_source_imports.py::"
+    "test_service_entrypoint_imports_without_checkout[acprof.failures]": {
+        "acprof/source_identity.py", "acprof/failures.py", "acprof/artifacts.py",
+        "acprof/results/measurement_plan.py", "acprof/experiments/constraints.py",
+    },
+    "tests/analysis/statistics/test_statistics_metadata_observations.py::"
+    "test_failed_presence_probe_stays_distinct_from_absence": {
+        "acprof/artifacts.py", "acprof/results/metadata.py",
+    },
+    "tests/results/storage/test_result_merge.py::TestResultMerge::"
+    "test_csv_identity_preserves_all_significant_digits_without_rounding": {
+        "acprof/results/csv.py", "acprof/results/measurement_plan.py",
+    },
 }
 
 

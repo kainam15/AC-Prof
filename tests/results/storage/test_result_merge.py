@@ -1,7 +1,7 @@
 import csv
 import hashlib
 import os
-from decimal import Inexact, InvalidOperation, localcontext
+from decimal import Inexact, InvalidOperation, Rounded, localcontext
 from pathlib import Path
 from unittest.mock import patch
 
@@ -155,11 +155,14 @@ class TestResultMerge:
         path = self.source(rows=rows)
         with localcontext(prec=2, capitals=0) as context:
             context.traps[Inexact] = True
-            prior_flags = context.flags.copy()
-            _, loaded = read_result_csv(path)
-            assert [measurement_key(row)[3] for row in loaded] == scales
-            assert measurement_key({**rows[0], "input_scale": scales[0] + "00"}) == measurement_key(rows[0])
-            assert context.flags == prior_flags
+            for already_rounded in (False, True):
+                context.clear_flags()
+                context.flags[Inexact] = context.flags[Rounded] = already_rounded
+                prior_flags = context.flags.copy()
+                _, loaded = read_result_csv(path)
+                assert [measurement_key(row)[3] for row in loaded] == scales
+                assert measurement_key({**rows[0], "input_scale": scales[0] + "00"}) == measurement_key(rows[0])
+                assert context.flags == prior_flags
 
     @pytest.mark.parametrize("trapped", [True, False])
     def test_rejecting_malformed_window_identity_leaves_caller_flags_untouched(self, trapped):

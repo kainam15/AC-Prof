@@ -5,6 +5,11 @@ import pytest
 
 from scripts import codex_edit_checks as edit_checks
 
+OVERVIEW = "test_four_fact_groups_keep_identifiers_times_and_paths_in_details"
+STAGED_IMPORT = "test_service_entrypoint_imports_without_checkout[acprof.failures]"
+PRESENCE = "test_failed_presence_probe_stays_distinct_from_absence"
+DECIMAL_KEY = "test_csv_identity_preserves_all_significant_digits_without_rounding"
+
 
 @pytest.fixture
 def commands(monkeypatch):
@@ -37,6 +42,33 @@ def test_report_patch_includes_explicit_ruff_project_types_and_focused_pilot(tmp
     assert "test_open_overhead_at_all_sizes" in targets[0]
     assert all(options["cwd"] == tmp_path for _, options in commands)
     assert all(options["env"]["HF_HUB_OFFLINE"] == "1" for _, options in commands)
+
+
+@pytest.mark.parametrize(("path", "expected"), [
+    ("acprof/tui/experiments/catalog.py",
+     {OVERVIEW, "test_duplicate_run_collapses_aliases_and_content_conflict_is_explicit"}),
+    ("acprof/analysis/compatibility.py", {OVERVIEW}),
+    ("acprof/tui/results/overview.py", {OVERVIEW}),
+    ("acprof/source_identity.py", {STAGED_IMPORT}),
+    ("acprof/failures.py", {STAGED_IMPORT}),
+    ("acprof/experiments/constraints.py", {STAGED_IMPORT}),
+    ("acprof/artifacts.py", {STAGED_IMPORT, PRESENCE}),
+    ("acprof/results/metadata.py", {PRESENCE}),
+    ("acprof/results/csv.py", {DECIMAL_KEY, "test_error_in_mixed_batch_leaves_valid_head_and_writer[absent-insert]"}),
+    ("acprof/results/measurement_plan.py", {STAGED_IMPORT, DECIMAL_KEY}),
+    ("tests/tui/results/test_structured_overview.py", {OVERVIEW}),
+    ("tests/runtime/containers/test_service_source_imports.py", {STAGED_IMPORT}),
+    ("tests/analysis/statistics/test_statistics_metadata_observations.py", {PRESENCE}),
+    ("tests/results/storage/test_result_merge.py", {DECIMAL_KEY}),
+])
+def test_changed_contract_files_run_only_their_affected_regressions(tmp_path, commands, path, expected):
+    make_file(tmp_path, "scripts/check_ci_preflight.py", "TEST_TARGETS = ('tests/smoke.py',)\n")
+    make_file(tmp_path, path)
+    assert edit_checks.run_checks(tmp_path, {path}) == ""
+    behavior = [argv for argv, _kwargs in commands if "--require-no-skips" in argv]
+    assert len(behavior) == 1
+    nodes = behavior[0][behavior[0].index("--") + 1:]
+    assert {node.rsplit("::", 1)[-1] for node in nodes} == expected
 
 
 def test_deleted_registered_test_still_checks_its_node_from_this_checkout(tmp_path, commands):
