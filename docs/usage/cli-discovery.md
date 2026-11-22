@@ -200,6 +200,16 @@ run 默认只做静态检查，可以与正式采集并行。`--validate-runtime
 snapshot 不把 Hub 标签自动当成正确答案。零总权重和没有审阅样本的比率为 null。
 报告生成成功退出 0 不表示所有模型成功；逐模型失败保留在 rows 中，不生成正式性能 CSV。
 
+需要指定工作负载时，在冻结样本的对应模型条目中设置一个 `task_id`，例如 T5 的 `"task_id": "translation_en_to_fr"`。
+可用值是同一来源和固定 revision 上 `acprof inspect --tasks` 支持的单个语义任务 ID 或执行 profile ID。
+选择语义 ID 会使用该任务的输入示例。未指定时沿用原有判定，需要选择时，报告列出实际的 profile ID 和可选语义 ID。
+每个来源、模型和 revision 只能占一行，权重只计一次。空值、首尾空白、逗号列表和 `all` 均无效。
+
+显式样本的 `coverage.json` 和 CSV 展示请求的 `requested_task_id`、实际选择的 `selected_task_id`
+和选择来源 `task_selection_source`。Markdown 展示请求的任务和选中的 profile。选择失败时保留请求与诊断。
+原有 `selected_task` 表示模型接口。
+用户指定的工作负载不计入自动语义正确率的分子和审阅权重。更改 `task_id` 会改变冻结样本摘要，需使用新的输出目录。
+
 样本条目的 `source` 可为 `huggingface` 或 `modelscope`；缺失时沿用历史 Hugging Face 语义，
 不会被 `ACPROF_MODEL_SOURCE` 覆盖。模型身份为 `source + model_id + revision`，不同来源的同名
 仓库不合并。解析结果必须匹配样本来源与固定 revision；访问预检显式传入这两个条件，

@@ -76,6 +76,7 @@ def interrupted_cleanup(root: Path, attempt: dict, models: list[dict]) -> dict |
         issue = str(exc)
     return {
         "model_index": index, "model_id": model["model_id"], "revision": model["revision"],
+        **({"requested_task_id": model["task_id"]} if "task_id" in model else {}),
         "source": model.get("source", "huggingface"), "weight": model["weight"], "resolved": False,
         "supported": False, "resolution_status": "unknown", "runtime_status": "error", "failed_stage": "cleanup",
         "cleanup_status": "incomplete", "cleanup_errors": [] if issue else errors,

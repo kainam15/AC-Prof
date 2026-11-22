@@ -52,6 +52,11 @@ def validate_sample(sample: dict) -> None:
         weight = item.get("weight")
         if type(weight) not in {float, int} or not math.isfinite(cast(float, weight)) or cast(float, weight) < 0:
             raise ValueError("coverage weights must be finite nonnegative numbers")
+        if "task_id" in item:
+            task_id = item["task_id"]
+            if (not isinstance(task_id, str) or not task_id or task_id != task_id.strip()
+                    or task_id == "all" or "," in task_id):
+                raise ValueError("coverage task_id must be a single nonempty discovered task/profile ID; all is not allowed")
         reference = item.get("semantic_reference")
         if reference is not None and (not isinstance(reference, dict) or not isinstance(reference.get("task"), str)
                                       or not reference["task"] or not reference.get("source")):
@@ -141,6 +146,7 @@ _LOG = logging.getLogger(__name__)
 
 def _record_static_inspection(row: dict, task: Any) -> None:
     """Project the final static decision without manufacturing runtime evidence."""
+    row["selected_task"] = task.pipeline_tag
     resolution = task.model_resolution
     status = resolution.get("status", "unknown")
     compatibility = dict(resolution.get("compatibility") or {})
@@ -165,6 +171,7 @@ def _evaluate_model(item: dict, output: Path, *, probe, cpus, memory_gb, gpu,
                     timeout_seconds, max_parameters, max_download_bytes,
                     measurement_lock: MeasurementLock | None) -> dict:
     from acprof.host.detect import detect_task
+    from acprof.host.preparation.coverage_tasks import select_coverage_task
     from acprof.host.preparation.model_inspection import validate_model_runtime
     from acprof.host.preparation.task_support import require_task_support
     from acprof.models.contract import write_model_resolution
@@ -175,6 +182,9 @@ def _evaluate_model(item: dict, output: Path, *, probe, cpus, memory_gb, gpu,
            "inspection_status": "unknown",
            "compatibility": {"status": "unknown", "evidence_level": "static", "checkpoint_verified": False},
            "runtime_status": "not_requested" if probe == "none" else "not_run", "semantic_correct": None}
+    requested = item.get("task_id")
+    if requested is not None:
+        row["requested_task_id"] = requested
     stage = "resolution"
     task = None
     identity_verified = False
@@ -185,13 +195,17 @@ def _evaluate_model(item: dict, output: Path, *, probe, cpus, memory_gb, gpu,
         if task.model_revision != item["revision"] or task.model_source != row["source"]:
             raise ValueError("resolver returned a different source or snapshot")
         identity_verified = True
+        devices = ("gpu" if gpu else "cpu",) if probe == "full" else ()
+        task = select_coverage_task(task, requested, devices=devices)
         write_model_resolution(task, output)
-        row["selected_task"] = task.pipeline_tag
         _record_static_inspection(row, task)
-        if row["resolved"] and item.get("semantic_reference"):
+        if row["resolved"] and not task.metadata_errors and len(task.selected_tasks) == 1:
+            row["selected_task_id"] = task.selected_tasks[0]["task_id"]
+            row["task_selection_source"] = "explicit" if requested is not None else "automatic"
+        if requested is None and row["resolved"] and item.get("semantic_reference"):
             row["semantic_correct"] = task.pipeline_tag == item["semantic_reference"]["task"]
         stage = "support"
-        require_task_support(task, devices=("gpu" if gpu else "cpu",) if probe == "full" else ())
+        require_task_support(task, devices=devices)
         row["runtime_profile"] = task.runtime_profile_id
         write_model_resolution(task, output)
         _record_static_inspection(row, task)

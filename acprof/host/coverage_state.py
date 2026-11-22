@@ -255,6 +255,7 @@ class CoverageState:
                 model = self.sample["models"][index]
                 if (any(row.get(key) != model[key] for key in ("model_id", "revision", "weight"))
                         or row.get("source", "huggingface") != model.get("source", "huggingface")
+                        or row.get("requested_task_id") != model.get("task_id")
                         or row.get("attempt_id") != payload["attempt_id"]
                         or row.get("configuration_sha256") != payload["configuration_sha256"]
                         or row.get("attempt_path") != str(path.parent.relative_to(self.root))):
