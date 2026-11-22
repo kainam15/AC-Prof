@@ -62,7 +62,8 @@ class TestResultAudit:
     def test_legacy_directory_and_file_share_the_same_audited_snapshot(self):
         self.write(self.row())
         expected = audit_result(self.path)
-        assert expected["valid"] and expected["counts"]["formal_ok"] == 1
+        assert expected["valid"]
+        assert expected["counts"]["formal_ok"] == 1
         assert audit_result(self.root) == expected
         assert audit_result(self.path, metadata_snapshot=ResultMetadataSnapshot(self.root)) == expected
         assert audit_result(self.root, metadata_snapshot=ResultMetadataSnapshot(self.path)) == expected
@@ -117,8 +118,10 @@ class TestResultAudit:
         layout.path("run_state.json").write_text(json.dumps({"status": "complete", "run_id": "other-run"}))
         report = audit_result(self.root)
         issue, = [item for item in report["issues"] if item["code"] == "run_id_mismatch"]
-        assert not report["valid"] and report["counts"]["rows"] == 0
-        assert snapshot.run_id and snapshot.run_id in issue["message"]
+        assert not report["valid"]
+        assert report["counts"]["rows"] == 0
+        assert snapshot.run_id
+        assert snapshot.run_id in issue["message"]
         assert "other-run" in issue["message"]
 
     def test_explicit_missing_layer_file_stays_literal_in_a_legacy_directory(self):
@@ -143,7 +146,8 @@ class TestResultAudit:
         metadata = ResultMetadataSnapshot(alias)
         for source in (alias, other_alias, directory_alias / alias.name):
             report = audit_result(source, metadata_snapshot=metadata)
-            assert report["valid"] and report["run_id"] == "from-export"
+            assert report["valid"]
+            assert report["run_id"] == "from-export"
         report = audit_result(self.path, metadata_snapshot=metadata)
         assert not report["valid"]
         assert any(issue["code"] == "invalid_layout" and "different path" in issue["message"]

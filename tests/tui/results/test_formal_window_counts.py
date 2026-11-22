@@ -48,9 +48,12 @@ async def test_result_status_reports_observed_quality_and_window_limits(tmp_path
         await wait_for_condition(pilot, lambda: app.results.data_status is not None and not app.read_jobs,
                                  description="completed result quality audit", timeout=5)
         text = str(app.query_one("#result-data-status", Static).content)
-        assert "unsupported" in text and "rapl_dram" in text
-        assert "26%" in text and "PMU" in text
-        assert "3 个" in text and "置信区间" in text
+        assert "unsupported" in text
+        assert "rapl_dram" in text
+        assert "26%" in text
+        assert "PMU" in text
+        assert "3 个" in text
+        assert "置信区间" in text
         assert not app.query_one("#report-window-stats", Button).disabled
 
 
