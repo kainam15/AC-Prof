@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 SOURCE_CHECKS = {
     'base': ('environment', 'runtime', 'runtime_auto'),
-    'docker': ('docker',),
+    'docker': ('docker', 'docker_gpu'),
     'cgroup': ('cgroup', 'container_cpu', 'container_memory', 'cgroup_metrics'),
     'process': ('uv', 'process_runtime', 'process_resources', 'process_cpu', 'process_memory', 'process_io', 'process_threads', 'process_fds', 'process_ctx'),
     'nvml': ('gpu_device', 'gpu_memory', 'gpu_utilization', 'gpu_power', 'gpu_temperature', 'gpu_pstate', 'gpu_memory_clock', 'gpu_sm_clock'),

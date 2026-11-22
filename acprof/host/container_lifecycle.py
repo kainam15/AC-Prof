@@ -120,9 +120,14 @@ def _list_owner_containers(current: dict[str, str], run: Callable, operations: l
     return identifiers
 
 
+def owner_container_ids(owner: dict[str, str], run: Callable) -> tuple[str, ...]:
+    """Return immutable IDs filtered by every recorded owner label."""
+    return _list_owner_containers(owner, run, [], scope_labels=tuple(sorted(owner)))
+
+
 def owner_containers_absent(owner: dict[str, str], run: Callable) -> bool:
     """Inspect an exact recorded owner; caller verifies the local Docker daemon."""
-    return not _list_owner_containers(owner, run, [], scope_labels=tuple(sorted(owner)))
+    return not owner_container_ids(owner, run)
 
 
 def remove_owned_container(identifier: str, run: Callable, *, stop: bool = False) -> None:

@@ -116,7 +116,7 @@ def test_gpu_plan_checks_each_query_and_falls_back_to_power(monkeypatch):
     import sys
     from types import SimpleNamespace
 
-    from acprof.host.runtimes.capabilities import _gpu_probes
+    from acprof.host.runtimes.capabilities import probe_gpu_telemetry
     calls = []
     def denied(*args):
         raise PermissionError("counter access denied")
@@ -125,9 +125,9 @@ def test_gpu_plan_checks_each_query_and_falls_back_to_power(monkeypatch):
         nvmlDeviceGetPowerUsage=lambda _: 1200)
     monkeypatch.setitem(sys.modules, "pynvml", nvml)
     monkeypatch.setattr("acprof.monitors.gpu_telemetry.read_gpu_sample", lambda nv, h, fail: fail("temperature", PermissionError("temperature denied")))
-    assert _gpu_probes({}, hardware_energy=True)["gpu_power"].status == "not_applicable"
+    assert probe_gpu_telemetry({}, hardware_energy=True)["gpu_power"].status == "not_applicable"
     assert not calls
-    probes = _gpu_probes({"uuid": "GPU-1"}, hardware_energy=True)
+    probes = probe_gpu_telemetry({"uuid": "GPU-1"}, hardware_energy=True)
     assert calls == ["init", "shutdown"]
     assert probes["gpu_power"].status == "available"
     assert probes["gpu_power"].evidence["counter"]["status"] == "permission_denied"

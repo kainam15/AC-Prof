@@ -24,7 +24,7 @@ from acprof.host.collection_history import (
     empty_collection_history,
     write_collection_history_json,
 )
-from acprof.host.gpu_device import selected_gpu_device
+from acprof.host.gpu_device import require_docker_gpu, selected_gpu_device
 from acprof.host.runtimes.contracts import RuntimeCleanupError
 from acprof.results.layout import ArtifactLayout
 
@@ -83,9 +83,16 @@ def prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_lis
     layout = ArtifactLayout.discover(output_dir)
     static_meta_json = str(layout.path("static_meta.json"))
     collection_history_json = str(layout.path(COLLECTION_HISTORY_NAME))
+    def verify_pending_docker_gpu(image):
+        selection = getattr(args, "runtime_selection", {})
+        if selection.get("docker_gpu", {}).get("status") == "pending":
+            proof = workflow.run("preflight", require_docker_gpu, selected_gpu_device(), image_id=image.tag)
+            selection["docker_gpu"] = {"status": "verified", "detail": proof}
+
     if run_state.ready:
         (task_info, image_info, planned_input_scales, compute_profile_plan_file,
          execution_profile_plan_file) = run_state.restore_runtime()
+        verify_pending_docker_gpu(image_info)
         workflow.emit("input", "passed", input_plan=input_plan_summary(task_info, planned_input_scales))
         notices.update_plan(model_id=task_info.model_id, output_dir=output_dir,
                                       total_cases=total_cases)
@@ -121,6 +128,7 @@ def prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_lis
             print(f"\n[build][ERROR] {exc}", file=sys.stderr)
             raise CollectionFailed(str(exc)) from exc
 
+        verify_pending_docker_gpu(image_info)
         os.makedirs(output_dir, exist_ok=True)
         if task_info.model_resolution:
             from acprof.models.contract import write_model_resolution

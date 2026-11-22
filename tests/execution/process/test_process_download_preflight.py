@@ -52,7 +52,7 @@ def test_process_sources_preserve_uv_urls_and_do_not_create_environment(tmp_path
     declaration = SimpleNamespace(requirements_lock='requirements.lock', platform=SimpleNamespace(python_version='3.12'))
     with (
         patch('acprof.host.runtimes.environment.environment_plan', return_value=(environment, identity, declaration)),
-        patch('acprof.host.preparation.network_preflight.shutil.which', return_value='/bin/uv'),
+        patch('acprof.host.preparation.network_preflight.require_process_uv', return_value='/bin/uv'),
         patch('acprof.host.preparation.network_preflight.host_command.run_command',
               return_value=SimpleNamespace(returncode=0)) as command,
     ):

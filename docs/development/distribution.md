@@ -138,6 +138,12 @@ cd AC-Prof
 重复执行会更新当前源码包、复用依赖缓存，保留项目 `.venv`、认证文件、TUI 设置和旧结果。
 脚本不自动安装系统包、修改 Docker 权限或 GPU 驱动；错误修复后重试原命令即可。
 
+Process 预检与实际准备共用 uv 发现逻辑。先检查 `PATH`，再检查 Astral 安装器使用的
+`UV_INSTALL_DIR`、`XDG_BIN_HOME`、`XDG_DATA_HOME/../bin` 和 `~/.local/bin`。
+在用户目录找到可执行文件时直接使用绝对路径，保留原 shell 的 `PATH`。
+诊断区分找不到文件、没有执行权限和 CLI 参数不兼容，使用只读的 `--help` 检查实际需要的参数。
+目录顺序参考 [uv 的安装器与存储文档](https://github.com/astral-sh/uv/blob/main/docs/reference/storage.md)。
+
 仅在缺少 uv 时需要 `sha256sum`（coreutils）。下载的安装脚本必须匹配仓库固定的 SHA256，
 否则停止且不执行；预期哈希不能由环境变量覆盖，也不在安装时从网络获取。
 该哈希对应 [uv 0.13.5 的 `uv-installer.sh` 发行制品](https://github.com/astral-sh/uv/releases/tag/0.13.5)，

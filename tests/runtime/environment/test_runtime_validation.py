@@ -435,7 +435,8 @@ class TestRuntimeValidation:
             assert not (any('/app/acprof' in item for item in command))
             assert ('--gpus') in (command)
 
-    def test_cli_stops_before_matrix_when_runtime_validation_fails(self):
+    @pytest.mark.parametrize("deferred", [False, True])
+    def test_cli_stops_before_matrix_when_runtime_validation_fails(self, deferred):
         import sys
 
         from acprof.cli import run as run_cli
@@ -447,6 +448,12 @@ class TestRuntimeValidation:
                 '--gpus', 'off,on', '--input-scales', '1', '--notify', 'none', '--output-dir', temporary,
             ]))
             stack.enter_context(patch('acprof.host.preflight.require_native_docker'))
+            from acprof.host.gpu_device import DockerGpuError
+            early_error = DockerGpuError("fixture: no local platform", reason_code="probe_image_missing") if deferred else None
+            stack.enter_context(patch("acprof.application.run.require_docker_gpu",
+                                      side_effect=early_error, return_value="GPU verified"))
+            late_probe = stack.enter_context(patch("acprof.application.preparation.require_docker_gpu",
+                                                   side_effect=DockerGpuError("CDI fixture failed")))
             for name in (
                 'bootstrap_project_env', 'require_collection_host',
                 'require_packet_latency_prerequisites', 'require_cpu_energy_prerequisites',
@@ -481,7 +488,13 @@ class TestRuntimeValidation:
             with pytest.raises(SystemExit) as exited:
                 run_cli.main()
             assert (exited.value.code) == (1)
-            validation.assert_called_once()
+            if deferred:
+                late_probe.assert_called_once()
+                assert late_probe.call_args.kwargs["image_id"] == "sha256:" + "b" * 64
+                validation.assert_not_called()
+            else:
+                late_probe.assert_not_called()
+                validation.assert_called_once()
             matrix.assert_not_called()
             compute.assert_not_called()
             execution.assert_not_called()

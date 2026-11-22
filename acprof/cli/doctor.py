@@ -12,7 +12,7 @@ from acprof.host.env_utils import load_project_env
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="只读检查 AC-Prof 主机前置条件；不安装软件或更改权限")
+    parser = argparse.ArgumentParser(description="检查 AC-Prof 主机前置条件；Docker GPU 检查使用临时探针容器")
     parser.add_argument("--runtime", choices=("auto", "docker", "process"), default="auto")
     parser.add_argument("--profiling-mode", choices=("best_effort", "basic", "full"), default="best_effort")
     parser.add_argument("--gpus", type=normalize_gpu_mode, choices=("off", "on"), default="off")
@@ -53,5 +53,5 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  建议：{check.remedy}")
         print("前置检查通过；请继续运行最小 smoke test。" if report["ready"] else
               "存在缺失条件；按上面的建议处理后重新运行 doctor。")
-        print("此检查不下载模型、不启动容器；不证明真实推理或完整 profiling 已通过。")
+        print("前置检查与真实模型推理、正式指标采集分别验收。")
     return 0 if report["ready"] else 1

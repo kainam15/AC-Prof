@@ -32,6 +32,7 @@ from acprof.results.csv import (
     verify_result_source,
 )
 from acprof.system.command import run_command
+from acprof.system.uv import probe_process_uv, uv_install_paths
 from acprof.tui.commands import csv_values
 from acprof.tui.i18n import error_message, message_id
 from acprof.tui.run.docker_diagnostics import DockerDiagnostic, inspect_docker
@@ -67,6 +68,7 @@ def permission_signature(project_dir: Path) -> tuple:
     paths = {str(project_dir / ".env"), str(project_dir / ".env.local"), "/var/run/docker.sock",
              "/dev/nvidiactl", "/sys/fs/cgroup"}
     paths.update(filter(None, (shutil.which(tool) for tool in ("perf", "tcpdump", "tshark", "uv", "nvidia-smi"))))
+    paths.update(str(path) for path in uv_install_paths())
     powercap = Path("/sys/class/powercap")
     for pattern in ("*:*/energy_uj", "*:*/*:*/energy_uj"):
         paths.update(str(path) for path in powercap.glob(pattern))
@@ -151,9 +153,9 @@ def quick_preflight(
     )
 
     if config.runtime == "process":
-        return checks + _process_checks(config, project_dir=project_dir)
+        return checks + _process_checks(config, project_dir=project_dir, command_runner=command_runner or completed_command)
 
-    from acprof.host.gpu_device import resolve_gpu_device
+    from acprof.host.gpu_device import require_docker_gpu, resolve_gpu_device
     docker_gpu = partial(resolve_gpu_device, command_runner=command_runner)
     command_runner = command_runner or completed_command
     cgroup_v2 = Path("/sys/fs/cgroup/cgroup.controllers").is_file()
@@ -175,11 +177,13 @@ def quick_preflight(
         reasons = "; ".join(str(check.detail) for check in checks[1:] if check.status == "fail")
         checks = checks[:1] + [replace(checks[-1], status='warn' if docker.code != 'ready' else 'ok'),
                               PreflightCheck("Runtime auto → Process", "ok", reasons, check_id="runtime_auto")]
-        return checks + _process_checks(config, project_dir=project_dir)
+        return checks + _process_checks(config, project_dir=project_dir, command_runner=command_runner or completed_command)
     checks.append(PreflightCheck("Runtime", "ok", "Docker", runtime_kind="docker", check_id="runtime"))
 
+    container_probe = partial(require_docker_gpu, command_runner=command_runner) if docker.code == "ready" else None
     if config.profiling_mode == "best_effort":
-        return checks + _automatic_checks(config, "docker", docker_gpu, project_dir=project_dir)
+        return checks + _automatic_checks(config, "docker", docker_gpu, project_dir=project_dir,
+                                           container_probe=container_probe)
     for tool in (("tcpdump", "tshark") if measurement_requested(config.profiling_mode, "packet_latency") else ()):
         path = shutil.which(tool)
         checks.append(
@@ -258,7 +262,19 @@ def quick_preflight(
                 checks.append(PreflightCheck("NVIDIA GPU", "fail", str(exc), check_id="gpu_device", source="environment"))
         else:
             if need_gpu:
-                _requested_gpu(config, docker_gpu, checks, environ=probe_env, source="nvidia-smi")
+                gpu = _requested_gpu(config, docker_gpu, checks, environ=probe_env, source="nvidia-smi",
+                                     container_probe=container_probe)
+                if gpu.get("uuid"):
+                    from acprof.host.runtimes.capabilities import probe_gpu_telemetry
+                    for name, probe in probe_gpu_telemetry(
+                        gpu, hardware_energy=config.profiling_mode == "full" and environment.native,
+                    ).items():
+                        if name == "gpu_power" and config.profiling_mode == "basic":
+                            continue
+                        status = ("ok" if probe.status == "available" else "not_requested" if probe.status == "not_requested"
+                                  else "fail" if name == "gpu_power" and environment.native else "warn")
+                        checks.append(PreflightCheck(name, status, probe.detail, probe.status.value,
+                                                     check_id=name, source=probe.source))
             if need_perf:
                 perf = probe_perf_instructions(env=probe_env)
     perf_status = CapabilityStatus(perf.status).value
@@ -277,7 +293,17 @@ def _project_probe_environment(project_dir) -> dict[str, str]:
     return env
 
 
-def _process_checks(config, *, project_dir=None):
+def process_uv_check(command_runner, *, preparation: bool = False) -> PreflightCheck:
+    uv = probe_process_uv(command_runner)
+    # A previously prepared, verified Process environment needs no installer.
+    # Planning and creation enforce this capability when a cache miss is known.
+    status = "ok" if uv.status == "available" else "warn" if preparation else "fail"
+    return PreflightCheck("uv", status, uv.detail,
+                          CapabilityStatus(uv.status).value, check_id="uv", source=uv.source,
+                          reason_code=uv.evidence.get("reason_code", ""))
+
+
+def _process_checks(config, *, project_dir=None, command_runner=completed_command):
     from dataclasses import replace
 
     from acprof.application.resources import resource_matrix
@@ -312,9 +338,7 @@ def _process_checks(config, *, project_dir=None):
     from acprof.host.runtimes.gpu import process_gpu_device
     if config.profiling_mode == "best_effort":
         checks.extend(_automatic_checks(config, "process", process_gpu_device, project_dir=project_dir))
-        uv = shutil.which("uv")
-        checks.append(PreflightCheck("uv", "ok" if uv else "fail", uv or "Process environment preparation requires uv",
-                                     check_id="uv", reason_code="" if uv else "not_installed"))
+        checks.append(process_uv_check(command_runner, preparation=True))
         return checks
     probe_env = _project_probe_environment(project_dir)
     gpu = _requested_gpu(config, process_gpu_device, checks, environ=probe_env)
@@ -326,8 +350,7 @@ def _process_checks(config, *, project_dir=None):
         status = ("not_requested" if not requested or item["status"] == "not_requested" else
                   "ok" if item["status"] == "available" else "fail" if required else "warn")
         checks.append(PreflightCheck(name, status, f"{item['status']}: {item['detail']}", item['status'], check_id=name, source=item.get("source", "probe_collection_plan")))
-    uv = shutil.which("uv")
-    checks.append(PreflightCheck("uv", "ok" if uv else "fail", uv or "Process environment preparation requires uv", check_id="uv", reason_code="" if uv else "not_installed"))
+    checks.append(process_uv_check(command_runner, preparation=True))
     return checks
 
 
@@ -335,7 +358,8 @@ def _gpu_requested(config: RunConfig) -> bool:
     return "on" in [normalize_gpu_mode(value) for value in csv_values(config.gpus)]
 
 
-def _requested_gpu(config, resolve_device, checks, *, environ, source="quick_preflight"):
+def _requested_gpu(config, resolve_device, checks, *, environ, source="quick_preflight", container_probe=None):
+    from acprof.host.gpu_device import DockerGpuError
     if not _gpu_requested(config):
         return {}
     selector = config.extra_options.get("gpu_device")
@@ -351,16 +375,25 @@ def _requested_gpu(config, resolve_device, checks, *, environ, source="quick_pre
         checks.append(PreflightCheck(label, "fail", str(exc), check_id="gpu_device", source=source, reason_code=reason))
         return {"error": str(exc)}
     checks.append(PreflightCheck(label, "ok", gpu["uuid"], check_id="gpu_device", source=source))
+    if container_probe is not None:
+        try:
+            evidence = container_probe(gpu)
+        except DockerGpuError as exc:
+            status = "warn" if exc.reason_code == "probe_image_missing" else "fail"
+            checks.append(PreflightCheck("Docker GPU", status, exc.detail, check_id="docker_gpu",
+                                         source="docker run --gpus", reason_code=exc.reason_code))
+        else:
+            checks.append(PreflightCheck("Docker GPU", "ok", evidence, check_id="docker_gpu", source="docker run --gpus"))
     return gpu
 
 
-def _automatic_checks(config, runtime, resolve_device, *, project_dir=None):
+def _automatic_checks(config, runtime, resolve_device, *, project_dir=None, container_probe=None):
     from acprof.host.runtimes.capabilities import probe_collection_plan
 
     checks: list[PreflightCheck] = []
     probe_env = _project_probe_environment(project_dir)
     gpu = _requested_gpu(config, resolve_device, checks, environ=probe_env,
-                         source="nvidia-smi" if runtime == "docker" else "quick_preflight")
+                         source="nvidia-smi" if runtime == "docker" else "quick_preflight", container_probe=container_probe)
     dram = config.extra_options.get("dram_energy", "auto")
     plan = probe_collection_plan(runtime, gpu=gpu, sniff_iface=config.sniff_iface, dram_energy=dram, env=probe_env,
                                  service_cgroup=config.cpus != "auto" or config.mems != "auto")

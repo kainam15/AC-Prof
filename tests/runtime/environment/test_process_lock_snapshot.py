@@ -24,7 +24,7 @@ def process_project(tmp_path, monkeypatch):
     (package / "__init__.py").write_text("# fixture service\n")
     monkeypatch.setenv("ACPROF_PROCESS_STORE", str(tmp_path / "environments"))
     monkeypatch.setattr(environment, "select_runtime_profile", lambda task: profile)
-    monkeypatch.setattr(environment.shutil, "which", lambda name: "/fixture/uv")
+    monkeypatch.setattr(environment, "require_process_uv", lambda: "/fixture/uv")
     monkeypatch.setattr(environment, "installed_packages", lambda python: {"transformers": "4.57.6"})
     commands = []
 

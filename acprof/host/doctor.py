@@ -2,22 +2,24 @@
 from __future__ import annotations
 
 import io
-import json
 import os
 import platform
 import shutil
 import stat
+import subprocess
 from collections.abc import Callable
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from acprof.capabilities import CapabilityStatus
 from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host import preflight
 from acprof.host.env_utils import load_project_env
 from acprof.installation import resource_root
 from acprof.platform import capability_matrix, detect_environment
 from acprof.system.command import run_command
+from acprof.system.uv import probe_process_uv
 
 
 @dataclass(frozen=True)
@@ -95,21 +97,6 @@ def _packet(sniff_iface: str) -> str:
     return f"tcpdump/tshark、capture capabilities 和 {sniff_iface} 可用；未实际抓包"
 
 
-def _gpu() -> str:
-    from acprof.host.gpu_device import resolve_gpu_device
-    from acprof.host.metadata.gpu import probe_gpu_metadata
-
-    report = probe_gpu_metadata(gpu_device=resolve_gpu_device())
-    name = report["fields"]["name"]["value"]
-    if name is None:
-        raise RuntimeError(f"GPU metadata unavailable: {report['errors']}")
-    devices = f"{name} ({report['device']['uuid']}; source={report['fields']['name']['source']})"
-    runtimes = json.loads(_command(["docker", "info", "--format", "{{json .Runtimes}}"] ))
-    if not isinstance(runtimes, dict) or "nvidia" not in runtimes:
-        raise RuntimeError("Docker 未注册 NVIDIA runtime；安装并配置 NVIDIA Container Toolkit")
-    return f"{devices}；Docker 已注册 NVIDIA runtime（容器 GPU 尚未实测）"
-
-
 def collect_checks(*, runtime: str = "auto", profiling_mode: str = "best_effort", gpus: str = "off",
                    sniff_iface: str = "docker0", output_dir: Path | None = None,
                    probe_env: dict[str, str] | None = None) -> list[DoctorCheck]:
@@ -128,12 +115,13 @@ def collect_checks(*, runtime: str = "auto", profiling_mode: str = "best_effort"
             from acprof.host.runtimes.capabilities import probe_collection_plan
             from acprof.host.runtimes.gpu import process_gpu_device
             from acprof.host.runtimes.process_control import require_process_supervision
+            uv = probe_process_uv()
             checks = [runtime_check, _check("architecture", _architecture, "请使用 Linux x86_64。"),
                       _check("resources", _resources, "重新安装完整 AC-Prof。"),
                       _check("process_supervision", require_process_supervision,
                              "Process 需要可用的 pidfd 与 child-subreaper 内核接口。"),
-                      DoctorCheck("uv", "available" if shutil.which("uv") else "unavailable",
-                                  "Process 使用 uv 创建隔离环境", "安装 uv 并加入 PATH。")]
+                      DoctorCheck("uv", CapabilityStatus(uv.status).value, uv.detail, "" if uv.status == "available" else
+                                  "检查 uv 的安装目录、执行权限和命令行版本。")]
             gpu = {}
             if gpus == "on":
                 try:
@@ -169,18 +157,40 @@ def collect_checks(*, runtime: str = "auto", profiling_mode: str = "best_effort"
                "安装 Docker Buildx plugin（docker-buildx-plugin）。"),
         _check("resources", _resources, "重新安装完整 AC-Prof wheel 或 standalone release。"),
     ]
-    if profiling_mode == "best_effort":
-        from acprof.host.gpu_device import resolve_gpu_device
-        from acprof.host.runtimes.capabilities import probe_collection_plan
-        gpu = {}
-        if gpus == "on":
+    gpu = {}
+    if gpus == "on":
+        from acprof.host.gpu_device import DockerGpuError, require_docker_gpu, resolve_gpu_device
+        try:
+            gpu = resolve_gpu_device(environ=probe_env)
+        except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as exc:
+            gpu = {"error": str(exc)}
+            checks.append(DoctorCheck("gpu", "unavailable", str(exc), "检查 NVIDIA driver 和选定设备。"))
+        else:
+            checks.append(DoctorCheck("gpu", "available", f"{gpu['name']} ({gpu['uuid']}, nvidia-smi)"))
+        if gpu.get("uuid") and any(c.name == "docker" and c.status == "available" for c in checks):
             try:
-                gpu = resolve_gpu_device()
-            except (OSError, ValueError, RuntimeError) as exc:
-                gpu = {"error": str(exc)}
+                detail = require_docker_gpu(gpu)
+            except DockerGpuError as exc:
+                status = "pending" if exc.reason_code == "probe_image_missing" else "unavailable"
+                checks.append(DoctorCheck("docker_gpu", status, exc.detail, exc.remedy))
+            except RuntimeError as exc:
+                checks.append(DoctorCheck("docker_gpu", "unavailable", str(exc), "检查探针容器的清理状态。"))
+            else:
+                checks.append(DoctorCheck("docker_gpu", "available", detail))
+    else:
+        checks.append(DoctorCheck("gpu", "not_requested", "--gpus off"))
+    if profiling_mode == "best_effort":
+        from acprof.host.runtimes.capabilities import probe_collection_plan
         plan = probe_collection_plan("docker", gpu=gpu, sniff_iface=sniff_iface, env=_probe_environment(probe_env))
-        checks.extend(DoctorCheck(name, item["status"], item["detail"], required=False)
+        checks.extend(DoctorCheck(name, item["status"], f"{item.get('source', '')} {item['detail']}".strip(), required=False)
                       for name, item in plan["probes"].items())
+    elif gpu.get("uuid"):
+        from acprof.host.runtimes.capabilities import probe_gpu_telemetry
+        hardware_energy = profiling_mode == "full" and detect_environment().native
+        for name, item in probe_gpu_telemetry(gpu, hardware_energy=hardware_energy).items():
+            if name != "gpu_power" or hardware_energy:
+                checks.append(DoctorCheck(name, item.status.value, f"{item.source} {item.detail}".strip(),
+                                          required=name == "gpu_power"))
     for name, action, remedy in (
         ("rapl", lambda: _capability(preflight.probe_cpu_energy),
          "检查 /sys/class/powercap 的 energy_uj 读取权限；或先用 --profiling-mode basic。"),
@@ -193,8 +203,6 @@ def collect_checks(*, runtime: str = "auto", profiling_mode: str = "best_effort"
             continue
         checks.append(_check(name, action, remedy) if profiling_mode == "full" else
                       DoctorCheck(name, "not_requested", "basic 模式不要求此能力"))
-    checks.append(_check("gpu", _gpu, "检查 NVIDIA driver 和 NVIDIA Container Toolkit。")
-                  if gpus == "on" else DoctorCheck("gpu", "not_requested", "--gpus off"))
     return [*checks, *_workspace_checks(output_dir)]
 
 

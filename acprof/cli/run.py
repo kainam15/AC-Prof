@@ -10,6 +10,7 @@ from acprof.application.run import RunApplication, configure_environment
 from acprof.application.terminal_log import format_run_command
 from acprof.experiments.arguments import build_parser
 from acprof.experiments.configuration import RunConfig
+from acprof.host.gpu_device import DockerGpuError
 from acprof.host.preparation.task_support import TaskSupportError
 from acprof.host.run_state import RunStateError
 from acprof.system.cleanup import format_exception_notes
@@ -33,7 +34,7 @@ def main(*, args=None, prepared_task=None, preparation_artifacts=None):
             )
         except (ValueError, TaskSupportError, RunStateError) as exc:
             parser.error(format_exception_notes(exc))
-        except CollectionFailed as exc:
+        except (CollectionFailed, DockerGpuError) as exc:
             print(format_exception_notes(exc), file=sys.stderr)
             raise SystemExit(1) from None
 

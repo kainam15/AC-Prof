@@ -7,6 +7,8 @@ from contextlib import ExitStack, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from acprof.cli import doctor as cli
 from acprof.host import doctor
 from acprof.installation import cli_command, module_command
@@ -25,7 +27,7 @@ class TestDoctor:
         assert (report["checks"][0]["name"]) == ("environment")
         assert ("ACPROF_SUDO_PASSWORD") in (report["checks"][0]["detail"])
 
-    def collect(self, mode="basic", **overrides):
+    def collect(self, mode="basic", *, gpus="off", **overrides):
         with ExitStack() as stack:
             for target, value in {
                 "preflight.require_collection_host": None,
@@ -37,7 +39,7 @@ class TestDoctor:
                 options = {"side_effect": value} if isinstance(value, BaseException) else {"return_value": value}
                 stack.enter_context(patch(f"acprof.host.doctor.{target}", **options))
             directory = stack.enter_context(tempfile.TemporaryDirectory())
-            checks = doctor.collect_checks(profiling_mode=mode, output_dir=Path(directory))
+            checks = doctor.collect_checks(runtime="docker", profiling_mode=mode, gpus=gpus, output_dir=Path(directory))
             assert (list(Path(directory).iterdir())) == ([])
             return {check.name: check for check in checks}
 
@@ -70,13 +72,36 @@ class TestDoctor:
         assert (report["checks"][0]["remedy"]) == ("Check Docker socket access")
 
     def test_gpu_driver_alone_does_not_pass_container_readiness(self):
-        with patch.object(doctor, "_command", return_value="{}"), patch(
-            "acprof.host.gpu_device.resolve_gpu_device",
-            return_value={"uuid": "GPU-test", "name": "Test GPU", "memory_total_bytes": 1024},
-        ):
-            check = doctor._check("gpu", doctor._gpu, "Configure NVIDIA runtime")
-        assert (check.status) == ("unavailable")
-        assert ("NVIDIA runtime") in (check.detail)
+        from acprof.capabilities import Capability
+        from acprof.host.gpu_device import DockerGpuError
+        with patch("acprof.host.gpu_device.resolve_gpu_device", return_value={"uuid": "GPU-test", "name": "Test GPU"}), patch(
+            "acprof.host.gpu_device.require_docker_gpu", side_effect=DockerGpuError("GPU vendor discovery failed")
+        ), patch("acprof.host.runtimes.capabilities.probe_gpu_telemetry",
+                 return_value={"gpu_memory": Capability("available", source="nvml")}):
+            checks = self.collect(gpus="on")
+        assert checks["docker"].status == checks["gpu"].status == checks["gpu_memory"].status == "available"
+        assert checks["docker_gpu"].status == "unavailable"
+        assert "GPU vendor" in checks["docker_gpu"].detail
+        assert "NVIDIA Container Toolkit" in checks["docker_gpu"].remedy
+        assert not doctor.report_dict(list(checks.values()), profiling_mode="basic", gpus="on")["ready"]
+
+    @pytest.mark.parametrize("reason", ["probe_image_missing", "passthrough_failed", "probe_image_invalid"])
+    def test_automatic_collection_can_defer_only_a_missing_probe_image(self, reason):
+        from acprof.host.automation import select_profiling_mode
+        from acprof.host.gpu_device import DockerGpuError
+
+        with patch("acprof.host.gpu_device.resolve_gpu_device", return_value={"uuid": "GPU-fixture", "name": "GPU"}), patch(
+            "acprof.host.gpu_device.require_docker_gpu", side_effect=DockerGpuError("fixture", reason_code=reason),
+        ), patch("acprof.host.runtimes.capabilities.probe_gpu_telemetry", return_value={}):
+            checks = list(self.collect(gpus="on").values())
+        assert not doctor.report_dict(checks, profiling_mode="basic", gpus="on")["ready"]
+        if reason == "probe_image_missing":
+            mode, pending = select_profiling_mode("basic", checks)
+            assert mode == "basic"
+            assert [(check["name"], check["status"]) for check in pending] == [("docker_gpu", "pending")]
+        else:
+            with pytest.raises(RuntimeError, match="host preflight failed: docker_gpu"):
+                select_profiling_mode("basic", checks)
 
     def test_explicit_remote_context_overrides_local_host_variable(self):
         context = subprocess.CompletedProcess([], 0, "remote-lab\n", "")

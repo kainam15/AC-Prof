@@ -30,6 +30,7 @@ class TestRunNotificationLifecycle:
         monkeypatch.setattr(run.RunApplication, "_prepare_inference_configuration",
                             lambda _app, task, *args, **kwargs: task)
         self._request = request
+        monkeypatch.setattr(run, "require_docker_gpu", lambda device: device["uuid"])
         selection = patch('acprof.host.gpu_device.resolve_gpu_device', return_value={
             'uuid': 'GPU-fixture', 'index': 1, 'name': 'Fixture', 'memory_total_bytes': 8 * 1024 ** 3,
             'pci_bus_id': '00000000:02:00.0',

@@ -1,3 +1,6 @@
+import json
+import subprocess
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -70,3 +73,90 @@ def test_container_exposes_only_the_selected_uuid_and_records_identity():
     assert (command[command.index("--gpus") + 1]) == ("device=GPU-second")
     assert ("CUDA_VISIBLE_DEVICES=0") in (command)
     assert (session.gpu_device) == (DEVICE)
+
+
+def test_docker_gpu_probe_requires_local_image():
+    from unittest.mock import Mock
+    run = Mock(return_value=subprocess.CompletedProcess([], 1, "", "No such image"))
+    with pytest.raises(gpu_device.DockerGpuError, match="docker pull .*@sha256:") as failure:
+        gpu_device.require_docker_gpu(DEVICE, command_runner=run)
+    assert failure.value.reason_code == "probe_image_missing"
+    assert all(call.args[0][3:5] == ["image", "inspect"] for call in run.call_args_list)
+
+
+@pytest.mark.parametrize("observation", ["", "GPU-different", "GPU-second\nGPU-another", "timeout"])
+def test_docker_gpu_probe_rejects_bad_proof_and_cleans_only_owned_container(observation):
+    calls = []
+    owned = "b" * 64
+    image = "sha256:" + "a" * 64
+
+    def command(cmd, *, timeout):
+        assert cmd[:3] == ["docker", "--host", "unix:///var/run/docker.sock"]
+        cmd = ["docker", *cmd[3:]]
+        calls.append(cmd)
+        if cmd[1] == "image":
+            return subprocess.CompletedProcess(cmd, 0, json.dumps({"image_id": image, "os": "linux", "architecture": "amd64"}), "")
+        if cmd[1] == "run":
+            Path(cmd[cmd.index("--cidfile") + 1]).write_text(owned)
+            if observation == "timeout":
+                raise subprocess.TimeoutExpired(cmd, timeout)
+            return subprocess.CompletedProcess(cmd, 0, observation, "")
+        assert cmd == ["docker", "rm", "-f", owned]
+        return subprocess.CompletedProcess(cmd, 0, owned, "")
+
+    with pytest.raises(gpu_device.DockerGpuError) as failure:
+        gpu_device.require_docker_gpu(DEVICE, command_runner=command)
+    assert ("timed out" if observation == "timeout" else "Expected only GPU-second") in failure.value.detail
+    assert calls[-1] == ["docker", "rm", "-f", owned]
+
+
+@pytest.mark.parametrize("valid", [True, False])
+def test_cached_platform_must_match_project_tag_and_full_lock(valid):
+    from acprof.host.images.environment import PLATFORM_LABEL, platform_fingerprint
+    from acprof.runtime.profiles import PLATFORMS
+
+    platform_key = platform_fingerprint(PLATFORMS["cu128"])
+    expected = f"acprof-platform-cu128:{platform_key[:20]}"
+    image = "sha256:" + "d" * 64
+    runs = []
+    def command(cmd, *, timeout):
+        if cmd[3:5] == ["image", "inspect"]:
+            if cmd[5] != expected:
+                return subprocess.CompletedProcess(cmd, 1, "", "No such image")
+            labels = {"org.acprof.image-kind": "platform", "org.acprof.platform": "cu128",
+                      PLATFORM_LABEL: platform_key if valid else "counterfeit"}
+            return subprocess.CompletedProcess(cmd, 0, json.dumps(
+                {"image_id": image, "labels": labels, "os": "linux", "architecture": "amd64"}), "")
+        runs.append(cmd)
+        assert cmd[cmd.index("--entrypoint") + 2] == image
+        return subprocess.CompletedProcess(cmd, 0, DEVICE["uuid"], "")
+
+    if valid:
+        assert image in gpu_device.require_docker_gpu(DEVICE, command_runner=command)
+        assert len(runs) == 1
+    else:
+        with pytest.raises(gpu_device.DockerGpuError):
+            gpu_device.require_docker_gpu(DEVICE, command_runner=command)
+        assert not runs
+
+
+def test_probe_timeout_before_cidfile_cleans_by_exact_owner_labels():
+    owned = "b" * 64
+    calls = []
+
+    def command(cmd, *, timeout):
+        cmd = cmd[3:]
+        calls.append(cmd)
+        if cmd[0] == "run":
+            raise subprocess.TimeoutExpired(cmd, timeout)
+        if cmd[0] == "ps":
+            labels = [cmd[i + 1] for i, arg in enumerate(cmd) if arg == "--filter"]
+            assert any(label.startswith("label=org.acprof.gpu-probe=") for label in labels)
+            assert any(label.startswith("label=org.acprof.owner.pid=") for label in labels)
+            return subprocess.CompletedProcess(cmd, 0, owned, "")
+        assert cmd == ["rm", "-f", owned]
+        return subprocess.CompletedProcess(cmd, 0, owned, "")
+
+    with pytest.raises(gpu_device.DockerGpuError, match="timed out"):
+        gpu_device.require_docker_gpu(DEVICE, command_runner=command, image_id="sha256:" + "a" * 64)
+    assert calls[-1] == ["rm", "-f", owned]

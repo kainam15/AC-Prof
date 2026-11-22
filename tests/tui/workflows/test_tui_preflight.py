@@ -16,7 +16,8 @@ from tests.support.environment_fixtures import isolated_environment
 
 class TestTuiPreflight:
     @pytest.fixture(autouse=True)
-    def _setup(self, request, tmp_path):
+    def _setup(self, request, tmp_path, monkeypatch):
+        monkeypatch.setattr("acprof.host.runtimes.capabilities.probe_gpu_telemetry", lambda *args, **kwargs: {})
         self._request = request
         from tests.support.platform_fixtures import native_policy
         native_policy(self._request)

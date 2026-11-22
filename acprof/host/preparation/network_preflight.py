@@ -5,7 +5,6 @@ import hashlib
 import json
 import os
 import re
-import shutil
 import subprocess
 import time
 import urllib.error
@@ -44,6 +43,7 @@ from acprof.network_policy import (
 from acprof.runtime.dependency_locks import content_digest
 from acprof.runtime.profiles import environment_identity
 from acprof.system import command as host_command
+from acprof.system.uv import require_process_uv
 
 
 def artifact_size(url: str) -> int | None:
@@ -321,9 +321,7 @@ def process_sources(task, project_dir: Path) -> tuple[list[DownloadSource], dict
     sources = [DownloadSource("python", item["url"], sizes.get((item["url"], item["sha256"])),
                               detail="uv exact lock; package cache unknown until installation")
                for item in identity["artifacts"]]
-    uv = shutil.which("uv")
-    if uv is None:
-        raise RuntimeError("Process preparation requires uv")
+    uv = require_process_uv()
     interpreter = host_command.run_command([uv, "python", "find", "--no-python-downloads", "--offline",
                                             declaration.platform.python_version], check=False, timeout=10)
     if interpreter.returncode:

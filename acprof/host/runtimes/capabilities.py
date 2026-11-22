@@ -30,7 +30,7 @@ def package_energy_capability(topology: dict) -> Capability:
     return Capability("available", source="rapl_package", evidence={"packages": sorted(selected)})
 
 
-def _gpu_probes(gpu, *, hardware_energy):
+def probe_gpu_telemetry(gpu, *, hardware_energy):
     from acprof.monitors.gpu_telemetry import GPU_QUERIES, read_gpu_sample
 
     names = ["gpu_" + name for name in GPU_QUERIES] + ["gpu_power"]
@@ -149,7 +149,7 @@ def probe_collection_plan(runtime_kind, *, gpu=None, profiling_mode="best_effort
         probes.update({name: Capability(status, environment.label, "platform_policy") for name in advanced})
         if dram_energy == "off":
             probes["dram_energy"] = Capability("not_requested", "DRAM disabled", "dram_energy")
-    probes.update(_gpu_probes(gpu, hardware_energy=hardware))
+    probes.update(probe_gpu_telemetry(gpu, hardware_energy=hardware))
     if profiling_mode == "basic" and not gpu:
         # Historical Process Basic capabilities used not_requested for disabled GPU queries.
         probes.update({name: Capability("not_requested", source="nvml") for name in ("gpu_memory", "gpu_utilization")})

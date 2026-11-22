@@ -15,6 +15,7 @@ from acprof.runtime.dependency_locks import content_digest, package_versions, re
 from acprof.runtime.profiles import select_runtime_profile
 from acprof.source_identity import service_sources, source_fingerprint
 from acprof.system.command import run_command
+from acprof.system.uv import require_process_uv
 
 
 def host_abi() -> dict:
@@ -97,9 +98,7 @@ def prepare_environment(task, project_dir: str | Path) -> tuple[Path, dict]:
                 raise ValueError("cached Process environment identity changed")
             verify_environment(target, manifest)
             return target, manifest
-        uv = shutil.which("uv")
-        if uv is None:
-            raise RuntimeError("Process preparation requires uv; install uv before starting collection")
+        uv = require_process_uv()
         with tempfile.TemporaryDirectory(prefix=".preparing-", dir=root) as directory:
             staging = Path(directory) / "environment"
             staged_lock = _dependency_lock_path(staging / "code", identity["requirements_lock"])

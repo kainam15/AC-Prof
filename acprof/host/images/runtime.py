@@ -161,8 +161,9 @@ def model_fingerprint(task_info: Any, runtime_id: str, project_dir: str | Path =
     return digest.hexdigest()
 
 
-def inspect_identity(image: str) -> dict | None:
-    result = host_command.run_command([
+def inspect_identity(image: str, *, command_runner=None) -> dict | None:
+    run = command_runner or host_command.run_command
+    result = run([
         "docker", "image", "inspect", image, "--format",
         '{"image_id":{{json .Id}},"labels":{{json (index .Config "Labels")}},'
         '"os":{{json .Os}},"architecture":{{json .Architecture}}}',

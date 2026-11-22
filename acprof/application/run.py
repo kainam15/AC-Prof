@@ -24,7 +24,12 @@ from acprof.experiments.configuration import RunConfig
 from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host.cases import CaseMeasurement, CasePlans, CaseWorkload, MatrixRequest
 from acprof.host.env_utils import bootstrap_project_env
-from acprof.host.gpu_device import gpu_device_scope, pin_gpu_device
+from acprof.host.gpu_device import (
+    DockerGpuError,
+    gpu_device_scope,
+    pin_gpu_device,
+    require_docker_gpu,
+)
 from acprof.host.measurement.capture import (
     PacketLatencyError,
     require_packet_latency_prerequisites,
@@ -202,6 +207,15 @@ class RunApplication:
                 version = require_cgroup_prerequisites()
                 if "on" in [normalize_gpu_mode(part) for part in args.gpus.split(",")]:
                     gpu = pin_gpu_device(args.gpu_device)
+                    try:
+                        gpu_proof = require_docker_gpu(gpu)
+                    except DockerGpuError as exc:
+                        if exc.reason_code != "probe_image_missing":
+                            raise
+                        args.runtime_selection["docker_gpu"] = {"status": "pending", "reason": exc.reason_code}
+                        print(f"[preflight] {exc.detail}. GPU check will run with the prepared image.")
+                    else:
+                        args.runtime_selection["docker_gpu"] = {"status": "verified", "detail": gpu_proof}
             if args.profiling_mode == "best_effort" or args.runtime == "process":
                 from acprof.host.runtimes.capabilities import probe_collection_plan
                 plan = probe_collection_plan(args.runtime, gpu=gpu, profiling_mode=args.profiling_mode,

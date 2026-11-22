@@ -122,6 +122,7 @@ class TestNativeDockerGuard:
             model_revision="1" * 40,
             detection_method="unit",
         )
+        monkeypatch.setattr(run, "require_docker_gpu", lambda device: device["uuid"])
         selection = patch('acprof.host.gpu_device.resolve_gpu_device', return_value={
             'uuid': 'GPU-fixture', 'index': 1, 'name': 'Fixture', 'memory_total_bytes': 8 * 1024 ** 3,
             'pci_bus_id': '00000000:02:00.0',
@@ -357,6 +358,20 @@ class TestNativeDockerGuard:
             run.RunApplication()._run_host_preflight(args, dram_enabled=False, workflow=workflow)
         assert raised.value.code == 3
         getattr(run, required_check).assert_called_once()
+
+    def test_gpu_passthrough_failure_stops_run_in_host_preflight(self, monkeypatch):
+        from acprof.experiments.configuration import RunConfig
+        from acprof.host.gpu_device import DockerGpuError
+
+        args = RunConfig(model="fixture/model", runtime="docker", gpus="on").to_namespace()
+        monkeypatch.setattr(run, "require_cgroup_prerequisites", lambda: "v2")
+        monkeypatch.setattr(run, "pin_gpu_device", lambda _: {"uuid": "GPU-second"})
+        probe = Mock(side_effect=DockerGpuError("GPU vendor discovery failed"))
+        monkeypatch.setattr(run, "require_docker_gpu", probe)
+        workflow = SimpleNamespace(run=lambda stage, operation: operation())
+        with pytest.raises(DockerGpuError, match="NVIDIA Container Toolkit"):
+            run.RunApplication()._run_host_preflight(args, dram_enabled=False, workflow=workflow)
+        probe.assert_called_once_with({"uuid": "GPU-second"})
 
     def test_docker_desktop_context_exits_before_docker_info(self) -> None:
         context = SimpleNamespace(returncode=0, stdout="desktop-linux\n", stderr="")

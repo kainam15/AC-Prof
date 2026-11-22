@@ -22,7 +22,7 @@ _TARGETS = {
     'packet_latency': 'permissions:tcpdump', 'dram_energy': 'diagnostic:rapl', 'cgroup_metrics': 'diagnostic:cgroup',
     'process_resources': 'resources', 'cpu_energy': 'diagnostic:rapl',
     'cpu_instructions': 'permissions:perf', 'capture_permissions': 'permissions:tcpdump',
-    'docker': 'diagnostic:docker', 'cgroup': 'diagnostic:cgroup',
+    'docker': 'diagnostic:docker', 'docker_gpu': 'field:gpus', 'cgroup': 'diagnostic:cgroup',
     'tcpdump': 'diagnostic:capture_tools', 'tshark': 'diagnostic:capture_tools',
     'environment': 'diagnostic:platform', 'uv': 'diagnostic:uv',
     'capture_interface': 'field:sniff_iface', 'runtime': 'field:runtime',
@@ -135,6 +135,8 @@ def _requested(identifier: str, config: RunConfig, runtime: str) -> bool:
         return False  # Post-hoc tool; no experiment configuration requests it.
     if identifier in {'nsys', 'massif'}:
         return config.execution_profile_tool in {identifier, 'both'}
+    if identifier == 'docker_gpu':
+        return runtime == 'docker' and gpu
     if identifier in {'docker', 'cgroup', 'container_cpu', 'container_memory'}:
         return runtime == 'docker'
     if config.profiling_mode == "best_effort":

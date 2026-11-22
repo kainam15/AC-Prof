@@ -1,4 +1,5 @@
-"""Docker preflight must query the requested physical device without pinning or starting it."""
+"""Docker preflight must query the requested physical device and verify that Docker can expose its UUID."""
+import json
 import os
 from dataclasses import replace
 from subprocess import CompletedProcess
@@ -26,10 +27,21 @@ def docker_project(tmp_path, monkeypatch):
     monkeypatch.setattr("acprof.tui.run.diagnostics.shutil.which", lambda cmd, **kwargs: f"/bin/{cmd}")
     plan = Mock(return_value={"probes": {}, "rapl_topology": {}})
     monkeypatch.setattr("acprof.host.runtimes.capabilities.probe_collection_plan", plan)
+    monkeypatch.setattr("acprof.host.runtimes.capabilities.probe_gpu_telemetry", lambda *a, **kw: {
+        "gpu_memory": Capability("available", source="nvml")})
     queries = []
 
     def command(cmd, *, timeout):
         program = os.path.basename(cmd[0])
+        if program == "docker":
+            assert cmd[1:3] == ["--host", "unix:///var/run/docker.sock"]
+            if cmd[3:5] == ["image", "inspect"]:
+                return CompletedProcess(cmd, 0, json.dumps({"image_id": "sha256:" + "a" * 64, "os": "linux", "architecture": "amd64"}), "")
+            if cmd[3:4] == ["ps"]:
+                return CompletedProcess(cmd, 0, "", "")
+            assert cmd[3] == "run"
+            uuid = cmd[cmd.index("--gpus") + 1].removeprefix("device=")
+            return CompletedProcess(cmd, 0, uuid + "\n", "")
         if program != "nvidia-smi":
             assert program in {"ip", "getcap"}
             return CompletedProcess(cmd, 0, "fixture cap_net_raw=ep", "")
@@ -45,6 +57,7 @@ def docker_project(tmp_path, monkeypatch):
 
     # Pinning and the Textual worker use the default host command runner.
     monkeypatch.setattr(gpu_device, "run_command", lambda cmd, **kwargs: command(cmd, timeout=kwargs["timeout"]))
+    monkeypatch.setattr("acprof.tui.run.diagnostics.completed_command", command)
     return tmp_path, command, queries, plan
 
 
@@ -68,6 +81,12 @@ def test_docker_preflight_checks_the_project_device(docker_project, mode, select
     assert len(queries) == int(selector not in {"", "all"})
     if queries:
         assert f"--id={selector}" in queries[0]
+    if status == "ok":
+        assert next(r for r in checks if r.check_id == "docker_gpu").status == "ok"
+        if mode != "best_effort":
+            assert next(r for r in checks if r.check_id == "gpu_memory").source == "nvml"
+    else:
+        assert not any(r.check_id == "docker_gpu" for r in checks)
     if mode == "best_effort":
         gpu = plan.call_args.kwargs["gpu"]
         assert gpu.get("uuid", gpu.get("error")) == row.detail
@@ -144,3 +163,66 @@ def test_docker_query_failure_retains_source_and_reason(docker_project, failure,
     checks = quick_preflight(config, project_dir=project, command_runner=Mock(side_effect=failure))
     row, = (row for row in checks if row.check_id == "gpu_device")
     assert (row.status, row.source, row.reason_code, row.detail) == ("fail", "nvidia-smi", reason, str(failure))
+
+
+@pytest.mark.parametrize("mode", ["best_effort", "basic", "full"])
+def test_engine_and_host_gpu_do_not_mask_container_failure(docker_project, mode):
+    from acprof.tui.i18n import translate
+    from acprof.tui.run.environment_view import repair_guidance
+    from acprof.tui.run.global_status import build_status
+
+    project, command, _, _ = docker_project
+    config = replace(RunConfig.smoke("fixture/model"), runtime="docker", gpus="on", profiling_mode=mode)
+
+    def fail_container(cmd, *, timeout):
+        if cmd[0] == "docker" and cmd[3:4] == ["run"]:
+            assert "--pull=never" in cmd
+            assert "--rm" in cmd
+            assert cmd[cmd.index("--gpus") + 1] == "device=GPU-0"
+            assert cmd[cmd.index("--entrypoint") + 1] == "nvidia-smi"
+            return CompletedProcess(cmd, 125, "", "failed to discover GPU vendor from CDI")
+        return command(cmd, timeout=timeout)
+
+    checks = quick_preflight(config, project_dir=project, command_runner=fail_container)
+    rows = {row.check_id: row for row in checks}
+    assert rows["docker"].status == rows["gpu_device"].status == "ok"
+    row = rows["docker_gpu"]
+    assert row.status == "fail"
+    assert "CDI" in row.detail
+    assert "NVIDIA Container Toolkit" in translate(repair_guidance(row), "en")
+    status = build_status(config, issues=[], checks=checks, inventory=[], validation_pending=False,
+                          running=False, inventory_running=False, current=True, completed=True)
+    assert any(item.check.check_id == "docker_gpu" for item in status.blockers)
+
+
+def test_first_gpu_run_without_cached_probe_can_prepare_a_model(docker_project):
+    from acprof.tui.run.global_status import build_status
+
+    project, command, _, _ = docker_project
+    config = replace(RunConfig.smoke("fixture/model"), runtime="docker", gpus="on")
+    def empty_cache(cmd, *, timeout):
+        if cmd[0] == "docker":
+            assert cmd[3:5] == ["image", "inspect"]
+            return CompletedProcess(cmd, 1, "", "No such image")
+        return command(cmd, timeout=timeout)
+
+    checks = quick_preflight(config, project_dir=project, command_runner=empty_cache)
+    row, = (item for item in checks if item.check_id == "docker_gpu")
+    assert (row.status, row.reason_code) == ("warn", "probe_image_missing")
+    status = build_status(config, issues=[], checks=checks, inventory=[], validation_pending=False,
+                          running=False, inventory_running=False, current=True, completed=True)
+    assert not any(item.check.check_id == "docker_gpu" for item in status.blockers)
+
+
+def test_gpu_probe_does_not_run_against_unsupported_docker_endpoint(docker_project, monkeypatch):
+    project, command, _, _ = docker_project
+    diagnostic = DockerDiagnostic("context_unsupported", DockerHost(system="Linux"))
+    monkeypatch.setattr("acprof.tui.run.diagnostics.inspect_docker", lambda *args: diagnostic)
+    def host_only(cmd, *, timeout):
+        assert cmd[0] != "docker"
+        return command(cmd, timeout=timeout)
+
+    config = replace(RunConfig.smoke("fixture/model"), runtime="docker", gpus="on")
+    checks = quick_preflight(config, project_dir=project, command_runner=host_only)
+    assert any(row.check_id == "docker" and row.status == "fail" for row in checks)
+    assert not any(row.check_id == "docker_gpu" for row in checks)

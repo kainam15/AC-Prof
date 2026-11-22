@@ -38,11 +38,13 @@ LABELS = {
     "packet_latency": "packet_latency", "cgroup_metrics": "cgroup_metrics",
     "capture_permissions": "capture_permissions",
     "gpu_device": "gpu", "gpu_memory": "gpu_memory", "gpu_utilization": "gpu_utilization", "gpu_power": "gpu_power",
-    "profiler": "profiler", "check_error": "check_error",
+    "docker_gpu": "docker_gpu", "profiler": "profiler", "check_error": "check_error",
 }
 REMEDIES = {
     "environment": "platform", "docker": "docker", "cgroup": "cgroup", "uv": "uv",
     "process_resources": "resources", "cpu_energy": "rapl", "dram_energy": "rapl", "cpu_instructions": "permissions",
+    "docker_gpu": "docker_gpu", "docker_gpu:probe_image_missing": "docker_gpu_image",
+    "docker_gpu:probe_image_invalid": "docker_gpu_image_invalid",
     "cpu_instructions:pmu_multiplexed": "perf_multiplexed",
     "packet_latency": "capture_tools", "cgroup_metrics": "cgroup",
     "tcpdump": "capture_tools", "tshark": "capture_tools", "capture_permissions": "permissions",
@@ -88,6 +90,7 @@ _DISPLAY_STATES = {
 }
 _REASON_LABELS = {
     'not_installed': 'common.state.not_installed',
+    'version_incompatible': 'run.environment.reason.version_incompatible',
     'dependency_unavailable': 'run.environment.reason.dependency_unavailable',
     'permission_denied': 'run.environment.reason.permission_denied',
     'unsupported': 'run.environment.reason.unsupported',

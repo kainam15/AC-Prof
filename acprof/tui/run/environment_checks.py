@@ -21,7 +21,12 @@ from acprof.host.runtimes.process_control import require_process_supervision
 from acprof.host.runtimes.resources import current_cgroup
 from acprof.platform import detect_environment
 from acprof.tui.i18n import message_id
-from acprof.tui.run.diagnostics import PreflightCheck, completed_command, quick_preflight
+from acprof.tui.run.diagnostics import (
+    PreflightCheck,
+    completed_command,
+    process_uv_check,
+    quick_preflight,
+)
 
 GPU_METRICS = ("gpu_device", "gpu_memory", "gpu_utilization", "gpu_power")
 ENVIRONMENT_CHECK_IDS = (
@@ -172,7 +177,7 @@ def scan_environment(*, project_dir: str | Path | None = None, command_runner=co
             if row.check_id in {"tcpdump", "tshark"} else row for row in rows]
     rows.insert(0, PreflightCheck("Platform", "ok", detect_environment().label.split(" / ")[0], check_id="environment", source="platform"))
     rows.extend((
-        _tool_check("uv", shutil.which("uv"), command_runner),
+        process_uv_check(command_runner),
         _read_check("process_runtime", require_process_supervision, "process supervisor --probe"),
         _read_check("process_cpu", lambda: _process_metric("cpu"), "psutil"),
         _read_check("process_memory", lambda: _process_metric("memory"), "psutil"),

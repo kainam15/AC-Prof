@@ -46,7 +46,10 @@ def select_profiling_mode(requested: str, checks: list) -> tuple[str, list[dict]
     """Optional collector decisions never switch an entire experiment's protocol."""
     failures = [asdict(check) for check in checks if check.status not in {
         "available", "verified", "not_requested", "not_applicable", "warning"}]
-    blockers = [item for item in failures if item["required"]]
+    # Normal collection prepares a verified image and repeats this exact gate
+    # before input planning. A failed probe on an existing image remains fatal.
+    blockers = [item for item in failures if item["required"]
+                and (item["name"], item["status"]) != ("docker_gpu", "pending")]
     if blockers:
         raise RuntimeError("host preflight failed: " + "; ".join(f"{item['name']}: {item['detail']}" for item in blockers))
     return requested, failures

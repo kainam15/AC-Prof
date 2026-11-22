@@ -137,7 +137,7 @@ Docker 路径必需条件：
 - 抓包需要 `tcpdump`、`tshark` 和本机 Docker bridge 可用。
 - 运行 `--gpus on` 时，还需要 NVIDIA driver 和 NVIDIA Container Toolkit。
 
-安装 AC-Prof 后可先运行只读检查，查看当前缺项及处理建议：
+安装 AC-Prof 后可先运行环境检查，查看当前缺项及处理建议：
 
 ```bash
 acprof doctor
@@ -146,8 +146,9 @@ acprof doctor --gpus on
 acprof doctor --json --output-dir ./results
 ```
 
-standalone 不要求目标机安装 Python。`doctor` 不自动安装软件、更改权限或启动容器；
-通过仅表示所选模式的前置检查通过，仍需运行最小实验验证。
+standalone 已包含 Python。选择 Docker 且 GPU 为 `on` 时，TUI、`doctor` 和正式采集的预检会启动临时容器，用 `--gpus device=<UUID>` 和容器内的 `nvidia-smi` 核对所选物理 GPU。预检从本机缓存选择项目锁定 digest 的 Python 基础镜像或与项目依赖锁匹配的 AC-Prof platform 镜像，使用 `--pull=never` 并在结束时清理探针容器。首次运行缺少这些镜像时，TUI 显示容器 GPU 尚待验证；可以继续正常下载与准备，AC-Prof 拿到已验证身份的镜像后会在输入规划和 GPU 推理前补做检查。若要立即验证，可按检查详情中的 `docker pull` 命令预缓存锁定的基础镜像。Docker Engine、主机 NVML 遥测和容器内设备可见性各有独立证据；模型推理及各指标的正式测量仍由实验结果验收。
+
+若容器报 `could not select device driver` 或 `failed to discover GPU vendor from CDI`，可按 NVIDIA 安装说明检查驱动、Container Toolkit、Docker runtime 或 CDI 设备配置。先用 `docker run --rm --gpus all ubuntu:24.04 nvidia-smi -L` 检查所有 GPU，再在预检中验证所选设备。[Docker GPU 使用示例](https://github.com/docker/docs/blob/main/content/manuals/engine/containers/gpu.md) · [NVIDIA Container Toolkit 安装说明](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
 
 若启动时无法加载项目环境，`doctor` 使用继承的环境继续检查其他前置条件，并在 `--json` 报告中保留配置错误，返回退出码 1。
 `--output-dir` 检查给定目录或其可写父目录，不创建文件。路径经过普通文件、失效链接或循环链接时，`workspace` 会列出失败原因。

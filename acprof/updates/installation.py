@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from acprof.system.command import run_command
+from acprof.system.uv import locate_uv
 from acprof.updates.releases import Channel
 from acprof.updates.worker import read_receipt, validate_uv_layout
 
@@ -69,7 +70,7 @@ def detect_installation() -> Installation:
     except (importlib.metadata.PackageNotFoundError, ValueError, OSError) as exc:
         return Installation("unknown", prefix, python, entry, reason=str(exc))
     if (prefix / "uv-receipt.toml").exists():
-        uv = shutil.which("uv")
+        uv = locate_uv().evidence.get("path")
         try:
             tool = read_receipt(prefix)
             entries = tool.get("entrypoints", [])
@@ -96,6 +97,6 @@ def detect_installation() -> Installation:
         return Installation("pipx", prefix, python, entry,
                             Path(shutil.which("pipx") or "pipx"), "pipx")
     if sys.prefix != sys.base_prefix:
-        uv = shutil.which("uv")
+        uv = locate_uv().evidence.get("path")
         return Installation("venv", prefix, python, entry, Path(uv) if uv else None, reason="venv")
     return Installation("system", prefix, python, entry, reason="system")
