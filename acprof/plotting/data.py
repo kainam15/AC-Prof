@@ -202,14 +202,17 @@ def prepare_df(
 
     converters = {}
 
-    def preserve_run_id(fields: Sequence[str]) -> None:
-        if column := run_id_column(fields):
-            # An index also matches labels whose surrounding spaces Pandas strips.
-            # Pandas can apply NA inference to converter results that are strings.
-            converters[fields.index(column)] = str.encode
+    quality_text = {"resource_metric_quality", "gpu_energy_source"}
+
+    def preserve_evidence_text(fields: Sequence[str]) -> None:
+        identity = run_id_column(fields)
+        for index, field in enumerate(fields):
+            if field == identity or field.strip() in quality_text:
+                # Bytes keep literal NA-like text distinct from an empty CSV cell during inference.
+                converters[index] = str.encode
 
     try:
-        stream = open_result_text(csv_path, inspect_header=preserve_run_id)
+        stream = open_result_text(csv_path, inspect_header=preserve_evidence_text)
     except FileNotFoundError as exc:
         # Translate only the input-open boundary; parser/renderer bugs propagate.
         raise PlotInputNotFound(exc.errno, exc.strerror, exc.filename or csv_path) from exc
@@ -221,7 +224,7 @@ def prepare_df(
     from acprof.results.csv import require_current_fields
     require_current_fields(df.columns)
     for col in df.columns:
-        if col == "run_id":
+        if col == "run_id" or col in quality_text:
             df[col] = df[col].map(lambda value: value.decode().strip())
         elif pd.api.types.is_object_dtype(df[col]) or pd.api.types.is_string_dtype(df[col]):
             df[col] = df[col].map(lambda value: value.strip() if isinstance(value, str) else value)

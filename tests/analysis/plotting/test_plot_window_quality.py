@@ -64,3 +64,28 @@ def test_plot_cache_respects_a_changed_quality_record_and_keeps_legacy_values():
     assert (observed[metric], observed["n_windows"], observed["missing_windows"]) == (2, 2, 1)
     assert pd.isna(observed["ci_low"])
     assert pd.isna(observed["ci_high"])
+
+
+@pytest.mark.parametrize("field", ["resource_metric_quality", "gpu_energy_source"])
+def test_csv_quality_text_is_distinct_from_an_empty_cell(tmp_path, field):
+    metric = "gpu_energy_total_j"
+    evidence = json.dumps({"schema_version": 1, "metrics": {}, "collectors": {"gpu_power": {"status": "available"}}})
+    rows = [window(scale, index, gpu_energy_total_j=value, gpu_energy_source="", resource_metric_quality=evidence)
+            for scale, index, value in [(1, 0, 2), (2, 0, 2), (2, 1, 98)]]
+    rows[-2][field] = ""
+    rows[-1][field] = "N/A"
+    p = tmp_path / "result_all.csv"
+    with p.open("w", newline="") as stream:
+        writer = csv.DictWriter(stream, rows[0])
+        writer.writeheader()
+        writer.writerows(rows)
+    with p.open(newline="") as stream:
+        expected = summarize_windows(csv.DictReader(stream), [metric])["groups"][1]
+    points = aggregate_plot_metric(prepare_df(str(p)), metric)
+    point = points[points["input_scale"] == 2].iloc[0]
+    assert (point["n_windows"], point["missing_windows"]) == (expected["n_windows"], expected["missing_windows"])
+    if field == "resource_metric_quality":
+        assert point[metric] == expected["mean"] == 2
+    else:
+        assert pd.isna(point[metric])
+        assert expected["mean"] is None
