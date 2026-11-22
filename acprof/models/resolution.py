@@ -9,7 +9,11 @@ from acprof.models.spec import (
     task_model_spec,
     validate_model_spec,
 )
-from acprof.models.support import supports_pipeline_task, supports_transformers_task
+from acprof.models.support import (
+    keypoint_model_loader,
+    supports_pipeline_task,
+    supports_transformers_task,
+)
 
 
 def require_resolved_candidate(task_info: Any) -> None:
@@ -47,6 +51,8 @@ def describe_static_compatibility(task_info: Any, profile: Any, extension: Any) 
         "runtime_profile": profile.profile_id, "transformers_version": version or None,
         "checkpoint_verified": False,
     }
+    if not declared and support is True and task_info.pipeline_tag == "keypoint-detection":
+        compatibility["source"] = "registered_keypoint_loader"
     if overall_status == "unknown":
         compatibility.update(
             detail=layout.get("detail") if layout_status == "unknown" else
@@ -135,6 +141,9 @@ def resolve_model_interface(task_info: Any) -> dict:
             loader = "CrossEncoder"
         else:
             loader = "Transformers Auto/pipeline"
+            if (task_info.pipeline_tag == "keypoint-detection" and extension.adapter == "family-default"
+                    and version and not config.get("auto_map") and not config.get("custom_pipelines")):
+                loader = keypoint_model_loader(version, config.get("model_type", "")) or loader
     elif backend == "chronos":
         format_name, loader = "chronos", "BaseChronosPipeline"
     elif backend == "kokoro":

@@ -189,7 +189,7 @@ source，Hub 与仓库配置保留共同 snapshot 的派生关系，不按字段
 当 `transformers_info` 同时返回 `auto_model=AutoModel`、`pipeline_tag=feature-extraction`，
 且 config 中的 custom Pipeline 声明使用该通用 Auto loader 时，这个库标签只记为
 `loader_hint`，不作为任务候选或与 Hub 主任务产生冲突。原始字段保留在来源证据中，
-`inspect --explain` 会说明其分类理由；其他库任务标签、缺少匹配 Pipeline 的情形仍按原规则检查。
+`inspect --explain` 会说明其分类理由；其他库任务标签仍按其声明检查。
 唯一 custom Pipeline 可以继续进入静态契约分析，多个 Pipeline 仍须选择；
 loader hint 本身不能补全缺失的任务语义，也不能使未解决的输入或依赖通过预检。
 
@@ -201,6 +201,10 @@ Auto loader 的 image-text-to-text 标签，包括 Hub 的 `AutoModelForMultimod
 最终可用版本仍由所选 runtime 的注册表检查，不因此升级或借用其它环境的支持资格。
 缺少匹配 Auto class、明确 head 不相容，以及 summarization 与 translation 这类两个具体任务
 的冲突仍须选择。解析报告保留原标签、分类理由和来源哈希，不按榜单任务强制覆盖。
+
+对原生 SuperPoint，Hub 主任务 `keypoint-detection`、配置中的单一检测头（包括旧名 `SuperPointModel`）
+和 `AutoImageProcessor` 共同指明单图关键点协议。此时嵌套的 `AutoModel + feature-extraction`
+保留为 `loader_hint`。此规则要求模型没有自定义 loader 或 Pipeline。具体的不同任务声明仍需显式选择。[固定 revision 的模型卡和调用示例](https://huggingface.co/magic-leap-community/superpoint/blob/734450e9ffe229074f5998494ddc615475cdb20a/README.md)
 
 Hub 顶层 `pipeline_tag` 缺失时，`transformers_info.pipeline_tag=pretraining` 等未注册为可执行协议的标签
 只作为 `unsupported_task_hint` 记录，不能抢占已登记的 checkpoint head。例如

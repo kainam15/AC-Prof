@@ -198,6 +198,16 @@ class _CandidateDiscovery:
             self._backend_for(self.primary_task) if self.primary_task else "unknown",
         )
 
+    def _native_superpoint_loader_hint(self) -> bool:
+        # Older configs name the keypoint detector SuperPointModel. Neither
+        # reviewed runtime registers SuperPoint under the bare AutoModel.
+        return (self.hub_task == self.primary_task == "keypoint-detection" and self.task_info.library_name == "transformers"
+                and self.config.get("model_type") == "superpoint"
+                and self.config.get("architectures") in (["SuperPointModel"], ["SuperPointForKeypointDetection"])
+                and not self.config.get("auto_map") and not self.config.get("custom_pipelines")
+                and self.transformers_info.get("processor") == "AutoImageProcessor"
+                and not self.transformers_info.get("custom_class"))
+
     def _resolve_transformers_task(self) -> None:
         if _generic_pipeline_loader_hint(self.config, self.transformers_info):
             self.loader_hint = "AutoModel is a generic loader for config.custom_pipelines, not a task declaration"
@@ -211,6 +221,8 @@ class _CandidateDiscovery:
                                     & set(TASK_MAPPINGS.get(generic_task, ())))
                 if self.encoder:
                     self.loader_hint = "modules.json selects SentenceTransformer AutoModel encoding, not the checkpoint head"
+                elif auto_model == "AutoModel" and self._native_superpoint_loader_hint():
+                    self.loader_hint = "The native SuperPoint head detects image keypoints; AutoModel is a generic Hub loader hint"
                 elif shared_operation and auto_model != "AutoModel":
                     self.loader_hint = (
                         f"{auto_model} is a shared loader for {self.primary_task}; "

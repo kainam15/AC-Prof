@@ -153,6 +153,9 @@ CV 可使用 `--workload-spec` 指定图片、视频帧、候选标签、姿态�
 
 该示例用于 `zero-shot-object-detection`；视频可用 `num_frames` 设置合成帧数，也可由 `video_frames` 数量确定。VitPose 清单的 `boxes` 是归一化到 0–1 的 COCO `[x,y,width,height]`，默认全图框；主机按输入尺寸转换为像素坐标，不额外运行人物检测器。VitPose++ 可在 `params` 中指定 `dataset_index`。这些合成输入用于性能流程验证，不是准确率评测集。
 
+`keypoint-detection` 每次处理一张图。静态检查和 CV handler 按所选 Transformers 版本选择 loader。SuperPoint 使用 `AutoModelForKeypointDetection`，VitPose 与 VitPose++ 使用 `VitPoseForPoseEstimation`。成功的静态检查在 `loader` 给出类名，并以 `compatibility.source=registered_keypoint_loader` 记录依据。
+LightGlue、SuperGlue 和 EfficientLoFTR 需要成对的图像与匹配结果，当前单图接口无法执行这些模型。Hub 也可能将它们标为 `keypoint-detection`。[LightGlue 图像对校验](https://github.com/huggingface/transformers/blob/v4.57.6/src/transformers/models/lightglue/image_processing_lightglue.py#L99-L122)
+
 无条件图像与 3D 使用 `input_scale_type="denoising_steps"`，默认尺度 `1,2,4,8,16,20`；通过 `--input-scales` 或清单 `input_scales` 修改，不再同时用 `params.num_inference_steps` 指定。DDPM 分辨率来自模型，Shap-E 直接解码网格，不用渲染图像的 `frame_size` 冒充 3D 工作量。网格仅返回数量、顶点和面数摘要，不传输网格文件。其它生成任务继续扫描方形输出边长，默认视频 17 帧；模型必须满足对应分辨率、帧数与条件参数约束。
 
 `image-to-image`／`image-to-video` 的合成默认提示词仅在原生接口接受 `prompt` 时使用；显式写入清单的提示词必须被消费，不接受文字条件的模型会拒绝该清单。Diffusers 图像到图像可通过官方 `AutoPipelineForImage2Image.from_pipe` 复用已有组件；视频到视频仅转换已适配的 CogVideoX 文生视频、单 denoiser Wan 和旧版 TextToVideoSD pipeline，无法保留双 denoiser 等组件时明确失败。固定倍率的 Stable Diffusion Upscale／LatentUpscale 暂不符合当前方形输出边长约定，会明确拒绝。旧版 TextToVideoSD／VideoToVideoSD 上游已停止更新，保留固定版本兼容；现代视频模型另按原生参数检查。

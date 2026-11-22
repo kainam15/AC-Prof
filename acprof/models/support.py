@@ -24,7 +24,7 @@ TASK_MAPPINGS = {
     "image-segmentation": ("IMAGE_SEGMENTATION", "SEMANTIC_SEGMENTATION", "INSTANCE_SEGMENTATION", "UNIVERSAL_SEGMENTATION"),
     "depth-estimation": ("DEPTH_ESTIMATION",), "video-classification": ("VIDEO_CLASSIFICATION",),
     "zero-shot-image-classification": ("ZERO_SHOT_IMAGE_CLASSIFICATION",), "mask-generation": ("MASK_GENERATION",),
-    "keypoint-detection": ("KEYPOINT_DETECTION", "KEYPOINT_MATCHING"),
+    "keypoint-detection": ("KEYPOINT_DETECTION", "POSE_ESTIMATION"),
     "automatic-speech-recognition": ("CTC", "SPEECH_SEQ_2_SEQ"), "audio-classification": ("AUDIO_CLASSIFICATION",),
     "text-to-speech": ("TEXT_TO_WAVEFORM", "TEXT_TO_SPECTROGRAM"),
 }
@@ -93,6 +93,19 @@ def audio_text_loader(version: str, config: dict) -> tuple[str, str | None] | No
     return None
 
 
+def keypoint_model_loader(version: str, model_type: str) -> str | None:
+    """Return the loader implemented for this single-image CV protocol."""
+    mappings = transformers_support(version)
+    if model_type == "vitpose":
+        # 4.57.6 exposes the concrete class without a pose estimation Auto mapping.
+        pose_classes = mappings.get("MODEL_FOR_POSE_ESTIMATION_MAPPING_NAMES", {})
+        if version == "4.57.6" or pose_classes.get(model_type) == "VitPoseForPoseEstimation":
+            return "VitPoseForPoseEstimation"
+    if model_type == "superpoint" and model_type in mappings.get("MODEL_FOR_KEYPOINT_DETECTION_MAPPING_NAMES", {}):
+        return "AutoModelForKeypointDetection"
+    return None
+
+
 def supports_transformers_task(
     version: str, task: str, model_type: str, model_config: dict | None = None,
 ) -> bool | None:
@@ -100,6 +113,8 @@ def supports_transformers_task(
         return audio_text_loader(version, model_config or {"model_type": model_type}) is not None
     if not model_type or task not in TASK_MAPPINGS:
         return None
+    if task == "keypoint-detection":
+        return keypoint_model_loader(version, model_type) is not None
     mappings = transformers_support(version)
     return any(model_type in mappings.get(f"MODEL_FOR_{name}_MAPPING_NAMES" if name else "MODEL_MAPPING_NAMES", {})
                for name in TASK_MAPPINGS[task])

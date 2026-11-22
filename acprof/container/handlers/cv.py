@@ -57,29 +57,25 @@ class CVHandler(BaseHandler):
     def _load_direct(self, model_source: str, task_type: str, device: str,
                      model_revision: str, load_options: dict[str, Any] | None,
                      *, adapter: str = "family-default") -> dict[str, Any]:
-        from transformers import AutoConfig, AutoImageProcessor, AutoModelForVideoClassification
+        import transformers
+
+        from acprof.models.support import keypoint_model_loader
 
         policy = load_policy(model_source, task_type, "transformers_model", device, load_options, adapter=adapter)
         revision = model_revision_kwargs(model_source, model_revision)
         options = transformers_pipeline_load_kwargs(load_options).get("model_kwargs", {})
-        config = AutoConfig.from_pretrained(model_source, **revision, trust_remote_code=policy["trust_remote_code"])
+        config = transformers.AutoConfig.from_pretrained(model_source, **revision, trust_remote_code=policy["trust_remote_code"])
         keypoint_kind = None
         if task_type == "video-classification":
-            model_cls = AutoModelForVideoClassification
-        elif config.model_type == "vitpose":
-            from transformers import VitPoseForPoseEstimation
-
-            model_cls = VitPoseForPoseEstimation
-            keypoint_kind = "vitpose"
+            model_cls = transformers.AutoModelForVideoClassification
         else:
-            from transformers import AutoModelForKeypointDetection
-
-            model_cls = AutoModelForKeypointDetection
-            keypoint_kind = "superpoint"
-            if config.model_type != "superpoint":
-                raise ValueError("keypoint-detection supports SuperPoint and VitPose with transformers 4.57.6; "
-                                 f"unsupported model_type={config.model_type!r}")
-        processor = load_processor(AutoImageProcessor.from_pretrained, model_source, **revision, trust_remote_code=policy["trust_remote_code"], use_fast=False)
+            keypoint_kind = config.model_type
+            loader = keypoint_model_loader(transformers.__version__, keypoint_kind)
+            if loader is None:
+                raise ValueError(f"No single-image keypoint-detection loader for model_type={keypoint_kind!r} "
+                                 f"in transformers=={transformers.__version__}")
+            model_cls = getattr(transformers, loader)
+        processor = load_processor(transformers.AutoImageProcessor.from_pretrained, model_source, **revision, trust_remote_code=policy["trust_remote_code"], use_fast=False)
         model = model_cls.from_pretrained(
             model_source, **revision, config=config, trust_remote_code=policy["trust_remote_code"],
             torch_dtype=policy["dtype"],

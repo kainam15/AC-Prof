@@ -129,6 +129,31 @@ class TestCVExtendedHandler:
         self._request = request
         self.handler = CVHandler()
 
+    @pytest.mark.parametrize(("model_type", "loader"), [
+        ("superpoint", "AutoModelForKeypointDetection"), ("vitpose", "VitPoseForPoseEstimation"),
+        ("lightglue", None), ("superglue", None),
+    ])
+    def test_local_keypoint_loader_matches_single_image_protocol(self, tmp_path, monkeypatch, model_type, loader):
+        transformers = Mock(__version__="4.57.6")
+        transformers.AutoConfig.from_pretrained.return_value = types.SimpleNamespace(model_type=model_type)
+        monkeypatch.setitem(sys.modules, "transformers", transformers)
+        monkeypatch.setattr("acprof.container.handlers.cv.load_policy",
+                            lambda *args, **kwargs: {"trust_remote_code": False, "dtype": "float32"})
+        source = str(tmp_path)
+        if loader is None:
+            with pytest.raises(ValueError, match=model_type):
+                self.handler.load(source, "keypoint-detection", "transformers_model", "cpu")
+            transformers.AutoImageProcessor.from_pretrained.assert_not_called()
+            transformers.AutoModelForKeypointDetection.from_pretrained.assert_not_called()
+            transformers.VitPoseForPoseEstimation.from_pretrained.assert_not_called()
+            return
+        context = self.handler.load(source, "keypoint-detection", "transformers_model", "cpu")
+        assert context["keypoint_kind"] == model_type
+        transformers.AutoConfig.from_pretrained.assert_called_once_with(source, trust_remote_code=False)
+        transformers.AutoImageProcessor.from_pretrained.assert_called_once_with(source, trust_remote_code=False, use_fast=False)
+        getattr(transformers, loader).from_pretrained.assert_called_once_with(
+            source, config=transformers.AutoConfig.from_pretrained.return_value, trust_remote_code=False, torch_dtype="float32")
+
     def test_zero_shot_tasks_forward_candidates_and_parameters(self):
         for task in ("zero-shot-image-classification", "zero-shot-object-detection"):
             pipe = Mock()
