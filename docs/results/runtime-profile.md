@@ -78,8 +78,8 @@ RSS ↔ cgroup memory、HTTP bytes ↔ PCAP、设备能量 ↔ 模型归因均�
 不为得到数值改权限、重跑模型或开启额外 Profiler。必需指标失败继续阻断，
 可选运行错误保留诊断，不能标为无诊断成功。历史缺少新证据时保持 unknown。
 
-TUI 的结果概览在“产物检查详情”中按原因汇总正式成功窗口内缺失的数值字段，列出登记来源，并单列有读数但证据受限的字段。
-`acprof audit <实验目录> --json` 的 `missing_metrics` 和 `partial_metrics` 保留每个字段的原因及窗口数。
+TUI 的结果概览在“产物检查详情”中分别列出正式成功窗口与带采集证据的正式告警窗口缺失的数值字段，按原因和登记来源汇总。有读数但证据受限的字段单列。
+`acprof audit <实验目录> --json` 的 `missing_metrics` 统计正式成功窗口的缺失读数。带有 `resource_metric_quality` 的实测 `warn` 窗口若有已记录列为空，其原因和窗口数写入可选的 `warn_missing_metrics`。`partial_metrics` 汇总实测 `ok`、`warn` 窗口中读数受限的原因和窗口数。
 `window_diagnostics` 使用正式成功窗口，按资源配置、输入尺度和运行环境计数。同一窗口内的请求仍为一个统计单位。
 少于 3 个有效窗口的配置无法按默认块长估计均值区间；具体指标的有效样本还可能受数据缺失影响。
 正式窗口的 `cpu_perf_running_pct` 低于 100% 时，概览显示受影响的窗口数和最低运行比例。

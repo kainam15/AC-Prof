@@ -18,7 +18,7 @@ from acprof.capabilities import collection_outcomes
 from acprof.failures import Failure
 from acprof.platform import native_only_metric, recorded_identity
 from acprof.quality import read_quality, summarize_quality
-from acprof.results import is_inferred_result
+from acprof.results import is_inferred_result, is_observed_formal_row
 from acprof.results.csv import (
     MISSING_CSV_TEXT,
     ResultCsvSnapshot,
@@ -449,7 +449,7 @@ def _audit_process_row(report, runtime, metadata, hardware, index, row, status, 
         issue('service_cgroup_scope', '服务 cgroup 指标缺少独立 cgroup 归属证据', row=index)
 
 
-def _audit_numeric_row(report, runtime, fields, missing_reasons, missing, partial, index, row, formal, issue, cancelled):
+def _audit_numeric_row(report, runtime, fields, missing_reasons, missing, partial, index, row, issue, cancelled):
     reason_for_row = None
     for field in cancellable(fields, cancelled):
         if (runtime == "process" and (field.startswith("container_") or field.startswith("cold_start_"))
@@ -465,7 +465,7 @@ def _audit_numeric_row(report, runtime, fields, missing_reasons, missing, partia
             absent = raw in MISSING_CSV_TEXT
         if not absent and number(raw) is None:
             issue("invalid_number", f"{field} 不是有限数值或 nan", row=index, field=field)
-        elif formal and absent:
+        elif missing is not None and absent:
             if reason_for_row is None:
                 reason_for_row = missing_reasons.for_row(row)
             reason = reason_for_row(field)
@@ -498,6 +498,7 @@ def _window_diagnostics(windows_per_case, multiplexed_windows, minimum_running_p
 
 def _audit_rows(report, runtime, metadata, hardware, table: ResultCsvSnapshot, issue, cancelled):
     missing: dict[str, Counter[str]] = defaultdict(Counter)
+    warn_missing: dict[str, Counter[str]] = defaultdict(Counter)
     partial: dict[str, Counter[str]] = defaultdict(Counter)
     windows_per_case: dict[tuple[str, ...], int] = defaultdict(int)
     multiplexed_windows = 0
@@ -532,16 +533,25 @@ def _audit_rows(report, runtime, metadata, hardware, table: ResultCsvSnapshot, i
         observed = observed_window and row.get("resource_metric_quality", "") not in MISSING_CSV_TEXT
         # The first measured window establishes the existing order of missing metrics.
         numeric_fields = NUMERIC_FIELDS if measured_ok and report["counts"]["formal_ok"] == 1 else recorded
-        _audit_numeric_row(report, runtime, numeric_fields, missing_reasons, missing, partial if observed else None,
-                           index, row, measured_ok, issue, cancelled)
+        missing_counts = missing if measured_ok else None
+        if observed and status == "warn" and is_observed_formal_row(row):
+            missing_counts = warn_missing
+        _audit_numeric_row(report, runtime, numeric_fields, missing_reasons, missing_counts, partial if observed else None,
+                           index, row, issue, cancelled)
         _audit_formula_row(index, row, formal, issue)
     report["window_diagnostics"] = _window_diagnostics(windows_per_case, multiplexed_windows, minimum_running_pct)
+    _report_metric_gaps(report, header, missing, warn_missing, partial)
+
+
+def _report_metric_gaps(report, header, missing, warn_missing, partial):
     formal_ok = report["counts"]["formal_ok"]
     if formal_ok > 1:
         for field in NUMERIC_FIELDS:
             if field not in header:
                 missing[field]["not_recorded"] = formal_ok
     report["missing_metrics"] = {name: dict(reasons) for name, reasons in missing.items()}
+    if warn_missing:
+        report["warn_missing_metrics"] = {name: dict(reasons) for name, reasons in warn_missing.items()}
     if partial:
         report["partial_metrics"] = {name: dict(reasons) for name, reasons in partial.items()}
 

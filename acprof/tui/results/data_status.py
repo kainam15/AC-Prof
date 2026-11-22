@@ -77,14 +77,17 @@ def data_status_text(status: ExperimentDataStatus) -> str:
     lines = [message_id("results.overview.data_counts", status.formal_ok_rows, counts["error"], counts["warn"], counts["warmup"]),
              message_id("results.overview.integrity", message_id("results.overview.verified" if audit["valid"] else "results.overview.issues")),
              render_quality_summary(audit)]
-    missing = audit.get("missing_metrics", {})
-    if missing:
-        from acprof.results.metrics import METRICS
+    from acprof.results.metrics import METRICS
+    for key, title in (("missing_metrics", "results.overview.missing_metrics"),
+                       ("warn_missing_metrics", "results.overview.warn_missing_metrics")):
+        missing = audit.get(key)
+        if not missing:
+            continue
         by_reason: dict[str, list[str]] = {}
         for field, reasons in missing.items():
             for reason in reasons:
                 by_reason.setdefault(reason, []).append(field)
-        lines.append(message_id("results.overview.missing_metrics", len(missing)))
+        lines.append(message_id(title, len(missing)))
         for reason, fields in sorted(by_reason.items()):
             sources = ", ".join(sorted({METRICS[field].source for field in fields}))
             lines.append(message_id("results.overview.missing_reason", reason, len(fields), sources))

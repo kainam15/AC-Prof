@@ -1,4 +1,5 @@
 """The Results overview and preview agree on exact CSV window phases."""
+import json
 from unittest.mock import patch
 
 import pytest
@@ -51,6 +52,34 @@ async def test_result_status_reports_observed_quality_and_window_limits(tmp_path
         assert "26%" in text and "PMU" in text
         assert "3 个" in text and "置信区间" in text
         assert not app.query_one("#report-window-stats", Button).disabled
+
+
+async def test_result_status_reports_missing_fields_when_every_window_warned(tmp_path):
+    source = tmp_path / "result_all.csv"
+    evidence = json.dumps({"schema_version": 1, "metrics": {
+        "dram_window_energy_j": {"quality": "unsupported", "reason": "DRAM zone absent"},
+    }})
+    write_rows(source, [
+        row(0, 2, status="warn", dram_window_energy_j="", resource_metric_quality=evidence),
+        row(1, 2, status="warn", warmup="1", dram_window_energy_j="", resource_metric_quality=evidence),
+        row(2, 2, status="warn", result_origin="inferred_not_measured", dram_window_energy_j="", resource_metric_quality=evidence),
+        row(3, 2, status="warn", dram_window_energy_j="", resource_metric_quality=""),
+    ])
+    app = AcprofTui(settings_path=tmp_path / "settings.json")
+    async with app.run_test(size=(100, 30)) as pilot:
+        await open_page(pilot, "results-tab")
+        app.results.select_result(str(source))
+        await wait_for_condition(pilot, lambda: app.results.data_status is not None and not app.read_jobs,
+                                 description="audit of warned measurement windows", timeout=5)
+        audit = app.results.data_status.audit
+        assert audit["missing_metrics"] == {}
+        assert audit["warn_missing_metrics"] == {"dram_window_energy_j": {"unsupported": 1}}
+        text = str(app.query_one("#result-data-status", Static).content)
+        assert "告警窗口" in text
+        assert "unsupported" in text
+        assert "rapl_dram" in text
+        assert app.results.formal_ok_rows == 0
+        assert app.query_one("#report-window-stats", Button).disabled
 
 
 @pytest.mark.parametrize(("phase", "formal", "warmup"), [

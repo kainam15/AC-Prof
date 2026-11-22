@@ -331,6 +331,10 @@ MESSAGES: dict[str, Entry] = {
     "results.overview.running": Entry(zh='进行中', en='Running'),
     "results.overview.stale_profile": Entry(zh='实验数据或选择已改变，请刷新状态后重新选择工具。', en='Experiment data or selection changed. Refresh status and select tools again.'),
     "results.overview.verified": Entry(zh='已校验', en='Verified'),
+    "results.overview.warn_missing_metrics": Entry(
+        zh="正式告警窗口中有 {0} 个数值字段出现缺失。",
+        en="{0} numeric fields have missing readings in formal windows with warnings.",
+    ),
     "results.overview.warnings": Entry(zh='主要原因或警告：{0}', en='Main reasons or warnings: {0}'),
     "results.picker.aliases": Entry(zh="关联目录", en="Directories"),
     "results.picker.checking_roots": Entry(zh="正在检查搜索目录……", en="Checking search directories…"),
