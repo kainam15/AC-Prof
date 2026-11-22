@@ -43,25 +43,29 @@ def snapshot(tmp_path, monkeypatch, hf_lookup_environment):
     b'[["architectures", ["BertForMaskedLM"]]]',
 ], ids=["null", "empty-list", "nonempty-list", "zero", "number", "string", "true", "false", "key-value-pairs"])
 @pytest.mark.parametrize("entrypoint", ["detect", "inspect"])
-def test_nonobject_config_is_an_actionable_lookup_error(snapshot, tmp_path, capsys, payload, entrypoint):
+def test_nonobject_config_reports_the_invalid_pinned_file(snapshot, tmp_path, capsys, payload, entrypoint):
     snapshot.path.write_bytes(payload)
     if entrypoint == "detect":
-        with pytest.raises(ModelLookupError) as caught:
-            detect_task(MODEL, revision=SHA)
-        assert caught.value.model_id == MODEL
-        assert caught.value.revision == SHA
-        detail = caught.value.detail
+        report = detect_task(MODEL, revision=SHA).model_resolution
     else:
         output = tmp_path / "inspection"
-        assert main(["inspect", MODEL, "--revision", SHA, "--output-dir", str(output), "--probe-interface"]) == 1
-        captured = capsys.readouterr()
-        detail = captured.err
-        assert "[model-lookup][ERROR]" in detail
-        assert MODEL in detail
-        assert "Traceback" not in detail
-        assert not output.exists()
-    assert "config_json: ValueError: config.json must contain dict" in detail
-    assert "architecture_infer" not in detail
+        assert main(["inspect", MODEL, "--revision", SHA, "--output-dir", str(output), "--probe-interface"]) == 2
+        report = json.loads((output / "model_resolution.json").read_bytes())
+        assert "config.json must contain dict" in capsys.readouterr().err
+        assert not (output / "interface_validation.json").exists()
+
+    assert (report["status"], report["model_id"], report["model_revision"]) == ("blocked", MODEL, SHA)
+    failure = report["failure"]
+    assert (failure["reason_code"], failure["retryability"]) == ("metadata_invalid", "not_retryable")
+    digest = hashlib.sha256(payload).hexdigest()
+    assert failure["evidence"]["diagnostics"] == [{
+        "reason_code": "metadata_invalid", "file": "config.json", "json_pointer": "",
+        "raw_sha256": digest, "detail": "config.json must contain dict",
+    }]
+    assert failure["evidence"]["sources"]["config.json"] == {
+        "revision": SHA, "sha256": digest, "bytes": len(payload), "encoding": "raw",
+    }
+    assert snapshot.path.read_bytes() == payload
     snapshot.host_check.assert_not_called()
 
 
@@ -130,8 +134,9 @@ def test_empty_object_retains_the_unresolved_task_diagnostic(snapshot):
 
 def test_corrected_cached_config_can_recover_on_the_next_lookup(snapshot):
     snapshot.path.write_bytes(b"[]")
-    with pytest.raises(ModelLookupError):
-        detect_task(MODEL, revision=SHA)
+    failed = detect_task(MODEL, revision=SHA)
+    assert failed.model_resolution["failure"]["reason_code"] == "metadata_invalid"
+    assert failed.metadata_sources["config.json"]["sha256"] == hashlib.sha256(b"[]").hexdigest()
     snapshot.path.write_text(json.dumps(VALID_CONFIG), encoding="utf-8")
 
     task = detect_task(MODEL, revision=SHA)
