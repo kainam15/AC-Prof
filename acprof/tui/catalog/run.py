@@ -466,6 +466,7 @@ MESSAGES: dict[str, Entry] = {
         zh="模型信息或验证未完成，尚未进入正式采集。",
         en="Model lookup or validation failed; formal collection has not started.",
     ),
+    "run.preparation.model_lookup_failed": Entry(zh="模型解析失败", en="Model lookup failed"),
     "run.preparation.not_measuring_impact": Entry(
         zh="尚未进入正式采集，不会写入性能数据。",
         en="No measurement data was written.",

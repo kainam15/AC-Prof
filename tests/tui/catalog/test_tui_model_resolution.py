@@ -303,7 +303,7 @@ async def test_runtime_running_stays_in_monitor_and_error_opens_decision_dialog(
             assert isinstance(screen, PreparationScreen)
             assert screen.query_one("#preparation-title", Static).content == "模型无法正常运行"
             assert "输出处理" in str(screen.query_one("#preparation-banner .status-headline", Static).content)
-            assert not screen.query_one("#preparation-diagnostics", Collapsible).collapsed
+            assert screen.query_one("#preparation-diagnostics", Collapsible).collapsed
             assert await pilot.click("#preparation-continue")
             await pilot.pause()
             assert app.screen is base

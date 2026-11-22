@@ -265,7 +265,7 @@ async def test_model_lookup_error_is_translated_in_preparation_dialog():
                 str(node.content)
                 for node in app.screen.query("#preparation-banner Static, #preparation-callout Static")
             )
-            assert ("not found") in (detail)
+            assert detail.count("not found") == 1
             assert ("asdf") in (detail)
             assert ("未找到") not in (detail)
             assert ("SystemExit") not in (detail)

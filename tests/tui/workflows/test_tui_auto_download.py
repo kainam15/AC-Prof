@@ -32,7 +32,7 @@ async def test_failure_actions_show_details_and_require_source_confirmation(tmp_
         screen = PreparationScreen(event, respond=replies.append)
         app.push_screen(screen)
         await pilot.pause()
-        assert not screen.query_one("#preparation-diagnostics", Collapsible).collapsed
+        assert screen.query_one("#preparation-diagnostics", Collapsible).collapsed
         assert not screen.query("#preparation-show-diagnostics")
         log = screen.query_one("#preparation-traceback", SelectableLog)
         assert "Traceback: diagnostic-only" in log.text

@@ -83,6 +83,8 @@ class PreparationEvidence:
             if fields.get("docker_error"):
                 self.data["last_failure"]["docker_error"] = fields["docker_error"]
         if self.log is not None:
+            if isinstance(trace := fields.get("traceback"), str):
+                self.log.feed("stderr", trace)
             self.log.flush()
         self._publish()
 

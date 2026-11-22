@@ -146,7 +146,9 @@ def test_noninteractive_failure_saves_stage_and_restores_observer_and_streams(tm
     assert summary["last_failure"]["type"] == "RuntimeError"
     assert summary["log"]["status"] == "saved"
     assert "private" not in evidence.summary_path.read_text()
-    assert "user:pass" not in evidence.log_path.read_text()
+    log = evidence.log_path.read_text()
+    assert "Traceback (most recent call last)" in log
+    assert "user:pass" not in log
 
 
 @pytest.mark.parametrize(("reply", "reason"), [

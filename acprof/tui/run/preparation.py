@@ -132,6 +132,17 @@ def _docker_failure_views(error: dict) -> tuple[StatusSummary, CalloutContent]:
     )
 
 
+def _brief_error(detail: str) -> str:
+    lines = [line for line in detail.splitlines() if line.strip()]
+    if any(line.lstrip().startswith("Traceback") for line in lines):
+        # Older preparation messages lack the exception summary. Prefer a
+        # recognizable exception line over trailing notes or stack frames.
+        lines = [line for line in lines if line.partition(":")[0].endswith(("Error", "Exception", "Exit"))][-1:]
+    if not lines:
+        return ""
+    return lines[0][:240] + ("…" if len(lines[0]) > 240 else "")
+
+
 def failure_views(request: dict, stage: str) -> tuple[StatusSummary, CalloutContent]:
     """Return structured banner summary and problem/impact/next callout for a failed preparation event."""
     if error := request.get("docker_error"):
@@ -146,7 +157,7 @@ def failure_views(request: dict, stage: str) -> tuple[StatusSummary, CalloutCont
         )
     if request.get("model_error"):
         failure = ModelLookupError(**request["model_error"])
-        return StatusSummary(level="error", headline=failure.summary), CalloutContent(
+        return StatusSummary(level="error", headline=message_id("run.preparation.model_lookup_failed")), CalloutContent(
             level="error",
             problem=failure.summary,
             impact=message_id("run.preparation.model_error_impact"),
@@ -167,15 +178,17 @@ def failure_views(request: dict, stage: str) -> tuple[StatusSummary, CalloutCont
         category = _FAILURE_CATEGORIES[code]
         problem: list[str] = [message_id("run.failure.type", failure.get("exception_type") or code),
                    message_id("run.failure." + category)]
-        detail = str(failure.get("detail") or "").splitlines()
+        detail = _brief_error(str(failure.get("detail") or ""))
         if detail:
-            problem.append(message(detail[0][:240] + ("…" if len(detail[0]) > 240 else "")))
+            problem.append(detail)
         hints = [message_id("run.failure.hint." + category)]
         if path := failure.get("evidence", {}).get("log_path"):
             hints.append(message_id("run.docker.log_path", path))
         if error := failure.get("evidence", {}).get("log_capture_error"):
             hints.append(message_id("run.failure.log_incomplete", error))
         reason, hint = join_messages("\n", problem), join_messages("\n", hints)
+    elif detail := _brief_error(str(request.get("error_summary") or request.get("detail") or "")):
+        reason = detail
     return summary, CalloutContent(
         level="error",
         problem=reason,
@@ -424,7 +437,7 @@ class PreparationScreen(ModalScreen):
                     banner, callout = failure_views(request, self.event["stage"])
                     yield StatusBanner(banner, id="preparation-banner", include_actions=False)
                     yield Callout(callout, id="preparation-callout", include_details=False, include_actions=False)
-                    with Collapsible(title=tr("详细信息"), id="preparation-diagnostics", collapsed=bool(docker_error or request.get("failure"))):
+                    with Collapsible(title=tr("详细信息"), id="preparation-diagnostics", collapsed=True):
                         detail = request.get("detail", "")
                         if failure := download_failure(request):
                             import json

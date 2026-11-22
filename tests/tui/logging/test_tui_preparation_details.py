@@ -60,6 +60,11 @@ async def test_failure_details_scroll_copy_resize_and_keep_actions_visible(tmp_p
         await pilot.pause()
         assert not screen.query("#preparation-show-diagnostics")
         details = screen.query_one("#preparation-diagnostics", Collapsible)
+        assert details.collapsed
+        summary = app.tr(screen.query_one("#preparation-callout", Callout).content.problem)
+        assert summary == "RuntimeError: 构建期间代码或依赖配置发生变化"
+        assert await pilot.click(details.query_one("CollapsibleTitle"))
+        await pilot.pause()
         assert not details.collapsed
         log = screen.query_one("#preparation-traceback", SelectableLog)
         assert log.text == detail

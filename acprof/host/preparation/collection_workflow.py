@@ -18,6 +18,7 @@ from acprof.events.preparation import MAX_MESSAGE, encode_event
 from acprof.host.preparation.model_errors import ModelLookupError
 from acprof.host.runtimes.contracts import RuntimeCleanupError
 from acprof.models.evidence import content_digest, pinned_revision
+from acprof.system.redaction import redact_text
 
 
 class RebuildEnvironment(Exception):
@@ -139,16 +140,19 @@ class PreparationWorkflow:
             except (Exception, SystemExit) as exc:
                 if isinstance(exc, SystemExit) and exc.code in (0, None):
                     raise
+                detail = traceback.format_exc()
                 if self.observer is not None:
                     self.observer(stage, "failed", {"exception_type": type(exc).__name__,
-                                                     "exception_message": str(exc),
+                                                     "exception_message": str(exc), "traceback": detail,
                                                      "reason_code": getattr(exc, "reason_code", None),
                                                      **({"docker_error": exc.to_dict()} if isinstance(exc, DockerPreparationError) else {})})
-                detail = traceback.format_exc()[-24000:]
                 if (isinstance(exc, RuntimeCleanupError) or not self.interactive
                         or self.continue_on_task_failure and stage == "runtime"):
                     raise
+                detail = redact_text(detail, limit=None)[-24000:]
                 fields: dict[str, Any] = {"model_error": exc.to_dict()} if isinstance(exc, ModelLookupError) else {}
+                first_line = str(exc).partition("\n")[0]
+                fields["error_summary"] = redact_text(f"{type(exc).__name__}: {first_line}", limit=240)
                 if isinstance(exc, DockerPreparationError):
                     fields["docker_error"] = exc.to_dict()
                     detail = exc.detail
