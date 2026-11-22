@@ -64,6 +64,9 @@ def test_wide_plot_input_preserves_filters_without_fragmentation(
     assert frame["latency_s_per_output_megapixel"].tolist() == [0.125] * len(expected)
     assert frame.attrs == {"pixel_scale_kind": "input", "input_scale_type": "resolution_px"}
     assert path.read_bytes() == original
+    # A plot consumer can append a derived series without triggering a deferred warning.
+    frame["derived_latency_ms"] = frame["latency_s"] * 1000
+    assert frame["derived_latency_ms"].tolist() == [250.] * len(expected)
 
 
 def test_numeric_conversion_preserves_integer_precision_and_unknown_dtypes(tmp_path):

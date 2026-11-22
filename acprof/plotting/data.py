@@ -107,7 +107,8 @@ def _with_pixel_metrics(df: pd.DataFrame, static_meta: dict) -> pd.DataFrame:
 
     derived = pd.DataFrame(derived_rows, index=df.index,
                            columns=[*PIXEL_COUNT_FIELDS, *PIXEL_RATE_SOURCES])
-    result = df.drop(columns=derived.columns, errors="ignore").join(derived)
+    # A column mask keeps wide numeric blocks together when replacing derived fields.
+    result = df.loc[:, ~df.columns.isin(derived.columns)].join(derived)
     family = static_meta.get("task_family", "")
     result.attrs["pixel_scale_kind"] = {"diffusion": "output", "cv": "input", "multimodal": "input"}.get(family, "")
     result.attrs["input_scale_type"] = str(static_meta.get("input_scale_type") or "")
@@ -257,7 +258,7 @@ def prepare_df(
     }
     converted = {target: df[source] / float(BYTES_PER_GIB)
                  for source, target in bytes_to_gib.items() if source in df.columns}
-    df = pd.concat([df.drop(columns=list(converted), errors="ignore"), pd.DataFrame(converted, index=df.index)], axis=1)
+    df = pd.concat([df.loc[:, ~df.columns.isin(converted)], pd.DataFrame(converted, index=df.index)], axis=1)
 
     df = _with_pixel_metrics(df, static_meta)
 
