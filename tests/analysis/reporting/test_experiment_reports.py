@@ -1,9 +1,11 @@
 """HTML embeds the existing strict independent-run comparison unchanged."""
+import csv
 import json
 
 import pytest
 
 from acprof.analysis.model import load_analysis
+from acprof.analysis.report_comparison import build_experiment_comparisons
 from acprof.plotting.report import report_payload
 from tests.support.independent_comparison_fixtures import IndependentComparisonFixture
 
@@ -29,8 +31,6 @@ def test_two_independent_runs_keep_differences_and_no_window_based_ci(runs):
 
 
 def test_independent_run_means_exclude_inferred_values_and_keep_their_count(runs):
-    import csv
-
     left = runs.replicate("left", 0, [2, 999])
     right = runs.replicate("right", 0, [4, 4])
     source = left / "result_all.csv"
@@ -82,6 +82,34 @@ def test_legacy_sources_keep_descriptions_and_explain_unavailable_strict_compari
     assert comparison["display_only"] is True
 
 
+@pytest.mark.parametrize(("second_scale", "ambiguous"), [("2.0000000000000001", False), ("2.00", True)])
+def test_resource_scaling_checks_recorded_device_input_coordinates(runs, second_scale, ambiguous):
+    paths = [runs.replicate(side, 0, [1, 2]) for side in ("left", "right")]
+    for path in paths:
+        source = path / "result_all.csv"
+        with source.open(newline="") as stream:
+            reader = csv.DictReader(stream)
+            fields, rows = reader.fieldnames, list(reader)
+        assert fields is not None
+        rows[1].update(cpu_cores="2", input_scale=second_scale, repeat_idx="0")
+        with source.open("w", newline="") as stream:
+            writer = csv.DictWriter(stream, fields)
+            writer.writeheader()
+            writer.writerows(rows)
+        runs.fixture.refresh(path)
+    model = load_analysis(paths)
+    pairs = build_experiment_comparisons(model, purpose="resource-scaling",
+                                         statistics_options={"metrics": ["latency_app_s"], "resamples": 19})
+    assert len(pairs) == 2
+    for pair in pairs:
+        if ambiguous:
+            assert pair["reason"] == "resource_scaling_requires_single_configuration_per_device_input"
+            assert pair["report"] is None
+        else:
+            assert pair["reason"] == ""
+            assert len(pair["report"]["groups"]) == 2
+
+
 def test_incompatible_measurement_conditions_retain_exact_reasons(runs):
     left = runs.replicate("left", 0, [1, 2, 3])
     right = runs.replicate("right", 0, [2, 4, 6])
@@ -109,7 +137,6 @@ def test_reusing_comparison_after_source_change_refuses_html_publication(runs, t
 
 
 def test_comparison_cli_exports_matching_html_json_and_csv(runs, tmp_path, capsys):
-    import csv
     import re
 
     from acprof.cli.compare import main

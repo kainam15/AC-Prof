@@ -1,6 +1,7 @@
 """Adapt strict independent comparisons to an offline report without new estimators."""
 from __future__ import annotations
 
+import json
 from itertools import permutations
 from pathlib import Path
 
@@ -68,7 +69,8 @@ def _comparison_entry(model, left, right, *, options, purpose, session, report=N
         reason = "duplicate_independent_run"
     if purpose == "resource-scaling" and not reason:
         for path in [*left, *right]:
-            cases = [(config["device"], config["input_scale"]) for config in model.configs if config["source"] == path]
+            cases = [(config["device"], json.loads(config["input_case"])["scale"])
+                     for config in model.configs if config["source"] == path]
             if len(cases) != len(set(cases)):
                 reason = "resource_scaling_requires_single_configuration_per_device_input"
     if report is not None:

@@ -750,6 +750,139 @@ def test_same_path_runs_compare_export_restore_and_remove(page, same_path_bundle
     assert {config["config_id"] for config in imported["configs"] if config["run_id"] != "original"} == {left["config_id"], right["config_id"]}
 
 
+def _coordinate_comparison(tmp_path, axis):
+    from tests.support.independent_comparison_fixtures import IndependentComparisonFixture
+    fixture = IndependentComparisonFixture()
+    fixture.build(None, tmp_path / "groups")
+    runs = [fixture.replicate(side, 0, [1]) for side in ("left", "right")]
+    base = {"input_scale": "2", "cpu_cores": "1", "mem_cap_gb": "4"}[axis]
+    near = base + ".0000000000000001"
+    for run in runs:
+        path = run / "result_all.csv"
+        with path.open(newline="") as stream:
+            reader = csv.DictReader(stream)
+            fields, row = reader.fieldnames, next(reader)
+        assert fields is not None
+        with path.open("w", newline="") as stream:
+            writer = csv.DictWriter(stream, fields)
+            writer.writeheader()
+            for i, (tag, coordinate) in enumerate([("base", base), ("near", near), ("control", "8")], 1):
+                writer.writerow({**row, axis: coordinate, "task_param": tag, "latency_app_s": i})
+        fixture.fixture.refresh(run)
+    bundle = report_payload(load_analysis(runs), comparison_groups=([runs[0]], [runs[1]]),
+                            statistics_options={"metrics": ["latency_app_s"], "resamples": 19})
+    return bundle, near
+
+
+def _select_coordinate_comparison(page):
+    page.click("[data-view=experiments]")
+    for side in ("left", "right"):
+        select = page.locator(f"#experiment-{side}")
+        select.select_option(select.locator("option").filter(has_text=side + "-0").first.get_attribute("value"))
+    page.click("[data-view=experiments]")
+    settled(page)
+
+
+@pytest.mark.parametrize("axis", ["cpu_cores", "mem_cap_gb", "input_scale"])
+def test_comparison_coordinate_filter_and_export_roundtrip(page, tmp_path, axis):
+    bundle, near = _coordinate_comparison(tmp_path, axis)
+    url = page.url
+    import_file(page, "comparison.json", json.dumps(bundle))
+    _select_coordinate_comparison(page)
+    exported = download_json(page)
+    assert len(exported["groups"]) == 3
+    assert near in page.locator("#experiments tbody").inner_text()
+    with page.expect_download() as result:
+        page.click("#export-csv")
+    with Path(result.value.path()).open(newline="") as stream:
+        rows = list(csv.DictReader(stream))
+    assert all(row["analysis.coordinate_identity"] == "recorded_decimal_v1" for row in rows)
+    assert [row[f"exact_coordinates.{axis}"] for row in rows if row["left.mean"] == "2"] == [near]
+    page.goto(url)
+    settled(page)
+    import_file(page, "roundtrip.json", json.dumps(exported))
+    _select_coordinate_comparison(page)
+    if axis == "input_scale":
+        page.click("#experiment-parameters")
+        page.select_option("#statistics-resamples", "1000")
+        page.click("[data-view=experiments]")
+        page.click("#experiment-recalculate")
+        page.wait_for_function("() => document.body.dataset.calculating === 'false'")
+        settled(page)
+        recalculated = download_json(page)
+        assert recalculated["engine"] == "browser"
+        assert recalculated["coordinate_identity"] == "recorded_decimal_v1"
+        assert [g.get("exact_coordinates") for g in recalculated["groups"]] == [
+            g.get("exact_coordinates") for g in exported["groups"]]
+    page.locator("#report-filters").evaluate("node => node.open = true")
+    for tag, mean in (("base", 1), ("near", 2), ("control", 3)):
+        option = page.locator("#filter-input_case option").filter(has_text=f"param={tag}")
+        page.select_option("#filter-input_case", option.get_attribute("value"))
+        settled(page)
+        assert [group["left"]["mean"] for group in download_json(page)["groups"]] == [mean]
+
+
+@pytest.mark.parametrize("retained_config_coordinates", [True, False])
+def test_legacy_comparison_with_colliding_numbers_cannot_rebind_filtered_group(page, tmp_path, retained_config_coordinates):
+    bundle, _ = _coordinate_comparison(tmp_path, "input_scale")
+    report = bundle["experiment_comparisons"][0]["report"]
+    report.pop("coordinate_identity", None)
+    for group in report["groups"]:
+        group.pop("exact_coordinates", None)
+    if not retained_config_coordinates:
+        for config in bundle["configs"]:
+            config["input_case"] = json.dumps({**json.loads(config["input_case"]), "scale": config["input_scale"]})
+    import_file(page, "legacy.json", json.dumps(bundle))
+    _select_coordinate_comparison(page)
+    assert [group["left"]["mean"] for group in download_json(page)["groups"]] == [3]
+    page.locator("#report-filters").evaluate("node => node.open = true")
+    option = page.locator("#filter-input_case option").filter(has_text="param=near")
+    page.select_option("#filter-input_case", option.get_attribute("value"))
+    settled(page)
+    assert download_json(page)["groups"] == []
+
+
+def test_import_checks_independent_decimal_coordinate_evidence(page, tmp_path):
+    bundle, _ = _coordinate_comparison(tmp_path, "cpu_cores")
+    results = page.evaluate("""bundle => {
+      const check = change => {
+        const copy = JSON.parse(bundle), report = copy.experiment_comparisons[0].report;
+        const group = report.groups.find(group => group.left.mean === 2);
+        change(report, group);
+        try { ACProfImport.validate(copy, copy.registry); return true; }
+        catch (error) { return error.message; }
+      };
+      return [
+        check(report => { report.coordinate_identity = "unknown"; report.groups = []; }),
+        ...[[], {unexpected:"1"}, {input_scale:2}, {input_scale:"2"}, {input_scale:"3.0000000000000001"}]
+          .map(bad => check((_, g) => { g.exact_coordinates = bad; })),
+        check((_, g) => { g.resource_coordinates.left.exact_coordinates = {input_scale:"2.0000000000000001"}; }),
+        check((_, g) => { g.resource_coordinates.left.exact_coordinates = {cpu_cores:"1.00000000000000001"}; }),
+        check((_, g) => { g.input_scale = null; }),
+        check((_, g) => { delete g.resource_coordinates; }),
+        check((_, g) => { g.resource_coordinates = {left:null, right:null}; }),
+        check((_, g) => { g.resource_coordinates.unrecorded = null; }),
+        ...[["1E+400", null], ["1E-400", 0]].map(([raw, value]) => check((_, g) => {
+          g.input_scale = value; g.exact_coordinates.input_scale = raw;
+        })),
+      ];
+    }""", json.dumps(bundle))
+    assert all(isinstance(item, str) and "coordinate" in item for item in results[:-2])
+    assert results[-2:] == [True, True]
+
+
+def test_legacy_comparison_requires_both_sides_and_respects_recorded_exact_scale(page, tmp_path):
+    bundle, _ = _coordinate_comparison(tmp_path, "input_scale")
+    report = bundle["experiment_comparisons"][0]["report"]
+    del report["coordinate_identity"]
+    control = next(group for group in report["groups"] if group["left"]["mean"] == 3)
+    control["resource_coordinates"]["right"] = None
+    control["right"].update(mean=None, n_runs=0, runs=[], missing_runs=1)
+    import_file(page, "partial-coordinates.json", json.dumps(bundle))
+    _select_coordinate_comparison(page)
+    assert [group["left"]["mean"] for group in download_json(page)["groups"]] == [2]
+
+
 def test_formal_group_ci_is_retained_without_browser_estimation(page, tmp_path):
     from tests.support.independent_comparison_fixtures import IndependentComparisonFixture
     fixture = IndependentComparisonFixture()

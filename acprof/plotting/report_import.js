@@ -341,6 +341,45 @@ window.ACProfImport = (() => {
     }
     return gap;
   }
+  function comparisonAxes(row, axes) {
+    const invalid = () => fail("比较坐标无效 / Invalid comparison coordinate");
+    if (!record(row)) invalid();
+    const exact = Object.hasOwn(row, "exact_coordinates") ? row.exact_coordinates : {};
+    if (!record(exact) || Object.keys(exact).some(axis => !axes.includes(axis))) invalid();
+    return axes.map(axis => {
+      const display = row[axis];
+      if (!Object.hasOwn(exact, axis)) {
+        if (!(finite(display) && display > 0) && !(display === null && axis !== "input_scale")) invalid();
+        return display;
+      }
+      const raw = exact[axis], projection = Number(raw);
+      if (typeof raw !== "string" || decimalCoordinate(raw)?.key !== raw || raw === "0" ||
+          (Number.isFinite(projection) ? projection : null) !== display ||
+          decimalCoordinate(String(display))?.key === raw) invalid();
+      return raw;
+    });
+  }
+  function validateComparisonCoordinates(report, group) {
+    const explicit = Object.hasOwn(report, "coordinate_identity");
+    if (!explicit && !Object.hasOwn(group, "exact_coordinates") &&
+        !Object.values(group.resource_coordinates || {}).some(side => side && Object.hasOwn(side, "exact_coordinates"))) return;
+    const common = comparisonAxes(group, resourceAxes);
+    const sides = group.resource_coordinates;
+    if (sides === undefined && !explicit) return;
+    if (!record(sides) || Object.keys(sides).length !== 2 || (!sides.left && !sides.right))
+      fail("比较资源坐标无效 / Invalid comparison resource coordinates");
+    const quotaAxes = resourceAxes.slice(0, 2);
+    for (const side of ["left", "right"]) {
+      if (sides[side] === null) continue;
+      const quotas = comparisonAxes(sides[side], quotaAxes);
+      if ((report.purpose !== "resource-scaling" || side === "left" || !sides.left) &&
+          quotas.some((value, i) => value !== common[i]))
+        fail("比较资源坐标冲突 / Conflicting comparison resource coordinates");
+      for (const run of group[side].runs || []) {
+        if (run.resource_coordinates) comparisonAxes(run.resource_coordinates, quotaAxes);
+      }
+    }
+  }
   function validateBundle(input, registry) {
     const data = input?.analysis_bundle || input;
     if (!data || data.schema_version !== 1 || data.kind && data.kind !== "acprof_analysis_bundle" ||
@@ -440,6 +479,8 @@ window.ACProfImport = (() => {
       if (![entry.left, entry.right].every(side => Array.isArray(side) && side.every(path => sources.has(path)))) fail("实验对照来源不匹配 / Invalid comparison sources");
       if (entry.report) {
         const report = entry.report;
+        if (Object.hasOwn(report, "coordinate_identity") && report.coordinate_identity !== "recorded_decimal_v1")
+          fail("不支持的比较坐标版本 / Unsupported comparison coordinate identity");
         if (report.kind !== "independent_experiment_comparison" || report.schema_version !== 1 || !Array.isArray(report.groups) ||
             report.resampling_unit !== "independent_run_mean" || !object(report.source_sha256) ||
             [...entry.left, ...entry.right].some(path => data.sources.find(source => source.path === path)?.sha256 !== report.source_sha256[path]) ||
@@ -448,6 +489,7 @@ window.ACProfImport = (() => {
           if (![group.left, group.right].every(side => object(side) && count(side.n_runs) && numeric(side.mean)) ||
               !interval(group.difference_ci) || !interval(group.ratio_ci) ||
               (group.difference_ci !== null || group.ratio_ci !== null) && Math.min(group.left.n_runs, group.right.n_runs) < 3) fail("独立运行数或区间无效 / Invalid independent run count or interval");
+          validateComparisonCoordinates(report, group);
         }
       }
     }

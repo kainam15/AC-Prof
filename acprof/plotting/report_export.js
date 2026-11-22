@@ -16,6 +16,7 @@ window.ACProfExport = ({data, $, V, state, filtered, experiments, workspace}) =>
       const payload = {...experiments.current().report, groups:experiments.groups()};
       return {payload, rows:payload.groups.map(group => ({...group, analysis:{confidence:payload.confidence,
         resamples:payload.resamples, seed:payload.seed, resampling_unit:payload.resampling_unit, source_sha256:payload.source_sha256,
+        ...(payload.coordinate_identity ? {coordinate_identity:payload.coordinate_identity} : {}),
         method:payload.method, engine:payload.engine || "python", origin:payload.origin || "computed", rng:payload.rng || "python_random_mt19937"}}))};
     }
     if (state.view === "experiments" && !experiments.current()?.report) {
