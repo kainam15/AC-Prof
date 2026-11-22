@@ -779,15 +779,15 @@ def _detect_from_config(
         _record_failure(diagnostics, stage, info.metadata_errors[0])
         return info
     config_data = info.repository_metadata["config.json"]
+    info.model_config = _architecture_metadata(config_data)
     if not config_data.get("architectures"):
         _record_failure(diagnostics, stage, "config.json has no architectures field")
     try:
         resolved = CATALOG.resolve(library="transformers", config=config_data, model_id=model_id)
     except UnsupportedExtensionError as exc:
         _record_failure(diagnostics, "architecture_infer", str(exc))
-        return None
-    info.pipeline_tag, info.task_family, info.runtime_backend = resolved.task, resolved.family, resolved.backend
-    info.model_config = _architecture_metadata(config_data)
+    else:
+        info.pipeline_tag, info.task_family, info.runtime_backend = resolved.task, resolved.family, resolved.backend
     return info
 
 

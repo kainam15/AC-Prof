@@ -52,7 +52,7 @@ Process 可选指标缺失不会使必要检查失败，JSON 中的 `required` �
 归档报告将 `metadata_unavailable` 显示为 `inconclusive`。连接恢复后可用
 `acprof coverage run SAMPLE --output-dir DIR --resume --retry-reason metadata_unavailable` 重试相应样本。
 
-Hub 暂时不可用时，`inspect` 可以从指定 revision 的缓存配置识别任务。Diffusers 使用根目录的 `model_index.json`。例如，Hugging Face 缓存中只有 Stable Diffusion v1.5 的流水线索引时，可离线查看任务及其来源。
+Hub 暂时不可用时，`inspect` 可以从指定 revision 的缓存配置识别任务。若固定快照的 `config.json` 可读，但架构未能确定任务，`inspect` 会保留 revision、配置来源与摘要，提示选择 `--task` 或 `--model-spec`；显式选择仍须通过相应后端与运行时的静态检查。Diffusers 使用根目录的 `model_index.json`。例如，Hugging Face 缓存中只有 Stable Diffusion v1.5 的流水线索引时，可离线查看任务及其来源。
 
 ```bash
 HF_HUB_OFFLINE=1 acprof inspect stable-diffusion-v1-5/stable-diffusion-v1-5 \

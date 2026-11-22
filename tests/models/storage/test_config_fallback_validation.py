@@ -121,15 +121,14 @@ def test_invalid_snapshot_identity_stops_before_task_inference(snapshot, tmp_pat
     assert "architecture_infer" not in caught.value.detail
 
 
-def test_empty_object_retains_the_unresolved_task_diagnostic(snapshot):
+def test_empty_config_preserves_snapshot_without_selecting_a_task(snapshot):
     snapshot.path.write_bytes(b"{}")
+    task = detect_task(MODEL, revision=SHA)
 
-    with pytest.raises(ModelLookupError) as caught:
-        detect_task(MODEL, revision=SHA)
-
-    assert "config.json has no architectures field" in caught.value.detail
-    assert "architecture_infer" in caught.value.detail
-    assert "must contain dict" not in caught.value.detail
+    assert task.metadata_sources["config.json"]["sha256"] == hashlib.sha256(b"{}").hexdigest()
+    assert task.model_resolution["status"] == "needs_configuration"
+    assert task.model_resolution["provenance"]["selected_task"] is None
+    assert any("--task" in reason for reason in task.model_resolution["missing"])
 
 
 def test_corrected_cached_config_can_recover_on_the_next_lookup(snapshot):
@@ -144,3 +143,35 @@ def test_corrected_cached_config_can_recover_on_the_next_lookup(snapshot):
     assert (task.model_revision, task.pipeline_tag, task.detection_method) == (SHA, "fill-mask", "config_infer")
     assert task.repository_metadata["config.json"] == VALID_CONFIG
     assert task.metadata_errors == ()
+
+
+@pytest.mark.parametrize(("model_type", "selection", "status"), [
+    ("custom_encoder", [], "needs_configuration"),
+    ("custom_encoder", ["--task", "fill-mask"], "blocked"),
+    ("bert", ["--task", "fill-mask"], "candidate"),
+])
+def test_pinned_unknown_architecture_keeps_its_evidence_for_selection(snapshot, tmp_path, model_type, selection, status):
+    config = {"architectures": ["CustomEncoderModel"], "model_type": model_type}
+    raw = json.dumps(config, indent=2).encode()
+    snapshot.path.write_bytes(raw)
+    output = tmp_path / "inspection"
+
+    code = main(["inspect", MODEL, "--revision", SHA, "--output-dir", str(output), *selection])
+    assert code == (0 if status == "candidate" else 2)
+
+    report = json.loads((output / "model_resolution.json").read_bytes())
+    assert report["status"] == status
+    provenance = report["provenance"]
+    assert provenance["sources"]["repository_snapshot"]["revision"] == SHA
+    assert provenance["raw_evidence"]["config"] == config
+    assert provenance["selected_task"] == ("fill-mask" if selection else None)
+    options, = report["configuration_options"]["task_options"]
+    recorded = options["source_discovery"]["sources"]["config.json"]
+    assert recorded["raw_sha256"] == hashlib.sha256(raw).hexdigest()
+    if status == "blocked":
+        assert report["failure"]["reason_code"] == "runtime_unavailable"
+    if status == "candidate":
+        assert report["artifact_layout"]["status"] == "unknown"
+    assert report["runtime_validation"]["status"] == "not_run"
+    assert snapshot.path.read_bytes() == raw
+    snapshot.host_check.assert_not_called()
