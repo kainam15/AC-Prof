@@ -27,6 +27,17 @@ _HASH_CHUNK_BYTES = 2**18
 _JSON_READ_CHUNK_BYTES = 64 * 1024
 
 
+def recorded_artifact_present(path: Path) -> bool:
+    """Only a missing directory entry permits fallback to an older recorded copy."""
+    try:
+        mode = path.lstat().st_mode
+    except FileNotFoundError:
+        return False
+    if not stat.S_ISREG(mode):
+        raise ValueError(f"Expected a regular artifact file: {path}")
+    return True
+
+
 def file_sha256(path: str | Path, *, cancelled: Callable[[], bool] | None = None) -> str:
     """Hash a file with bounded memory for large experiment artifacts."""
     check_cancelled(cancelled)

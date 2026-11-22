@@ -57,7 +57,7 @@ class TestExperimentCatalog(CatalogFixture):
         record, = scan_experiments([self.root]).records
         assert record.failures[:3] == (formal, gpu, cpu)
 
-    @pytest.mark.parametrize("standalone", ["missing", "empty-object", "malformed", "read-error"])
+    @pytest.mark.parametrize("standalone", ["missing", "empty-object", "malformed", "read-error", "directory"])
     def test_catalog_uses_embedded_validation_only_when_the_file_is_missing(self, standalone, monkeypatch):
         from acprof.failures import Failure
         from acprof.tui.experiments import catalog
@@ -68,22 +68,82 @@ class TestExperimentCatalog(CatalogFixture):
         meta = directory / "static_meta.json"
         meta.write_text(json.dumps({**json.loads(meta.read_text()), "runtime_validation": embedded}))
         path = directory / "runtime_validation.json"
-        if standalone != "missing":
+        if standalone == "directory":
+            path.mkdir()
+        elif standalone != "missing":
             path.write_text("{" if standalone == "malformed" else "{}")
         if standalone == "read-error":
-            original_read = catalog.read_artifact
+            original_read = catalog.read_json_object
 
             def fail_read(target, **kwargs):
                 if target == path:
                     raise PermissionError("denied for fixture")
                 return original_read(target, **kwargs)
-            monkeypatch.setattr(catalog, "read_artifact", fail_read)
+            monkeypatch.setattr(catalog, "read_json_object", fail_read)
 
         record = catalog.read_experiment_record(directory)
         assert record.validation == (embedded if standalone == "missing" else {})
         assert record.failures == ((failure,) if standalone == "missing" else ())
-        if standalone in {"malformed", "read-error"}:
+        if standalone in {"malformed", "read-error", "directory"}:
             assert any("runtime_validation.json" in issue for issue in record.issues)
+
+    @pytest.mark.parametrize("standalone", ["missing", "empty-object", "malformed", "read-error", "directory"])
+    def test_catalog_resolution_file_controls_candidate_identity(self, standalone, monkeypatch):
+        from acprof.failures import Failure
+        from acprof.tui.experiments import catalog
+        from acprof.tui.models.candidates import candidate_from_record, model_choice
+
+        root = self.root
+        failure = Failure("resolution", "access_denied", "old resolution").to_dict()
+        embedded = {"failure": failure, "provenance": {"sources": {"repository_snapshot": {"source": "modelscope"}}}}
+        (root / "static_meta.json").write_text(json.dumps({"model_name": "demo/model", "model_resolution": embedded}))
+        path = root / "model_resolution.json"
+        if standalone == "directory":
+            path.mkdir()
+        elif standalone != "missing":
+            path.write_text("{" if standalone == "malformed" else "{}")
+        if standalone == "read-error":
+            original_open = Path.open
+
+            def deny_resolution(target, *args, **kwargs):
+                if target == path:
+                    raise PermissionError("fixture resolution denied")
+                return original_open(target, *args, **kwargs)
+
+            monkeypatch.setattr(Path, "open", deny_resolution)
+        report = catalog.scan_experiments([root])
+        record, = report.records
+        candidate = candidate_from_record(record, {})
+        assert record.failures == ((failure,) if standalone == "missing" else ())
+        if standalone in {"malformed", "read-error", "directory"}:
+            assert record.model_source == "unknown"
+            assert any("model_resolution.json" in warning for warning in report.warnings)
+            assert model_choice(candidate).actions == {"view"}
+        else:
+            assert not report.warnings
+            assert record.model_source == ("modelscope" if standalone == "missing" else "huggingface")
+            assert "use" in model_choice(candidate).actions
+
+    @pytest.mark.parametrize("invalid", [None, [], {"provenance": []}], ids=["null", "array", "bad-provenance"])
+    def test_invalid_embedded_resolution_cannot_supply_an_executable_source(self, invalid):
+        from acprof.tui.experiments.catalog import scan_experiments
+        from acprof.tui.models.candidates import candidate_from_record, model_choice
+
+        root = self.root
+        (root / "static_meta.json").write_text(json.dumps({
+            "model_name": "demo/model", "model_resolution": invalid,
+            "runtime_validation": {"status": "ok", "scope": "isolated_minimum_scale_predict_and_postprocess_before_measurement"},
+        }))
+        report = scan_experiments([root])
+        record, = report.records
+        assert record.model_source == "unknown"
+        assert any("static_meta.json" in issue for issue in record.issues)
+        assert model_choice(candidate_from_record(record, {})).actions == {"view"}
+
+        (root / "model_resolution.json").write_text("{}")
+        record, = scan_experiments([root]).records
+        assert not record.issues
+        assert record.model_source == "huggingface"
 
     def test_invalid_embedded_probe_devices_do_not_hide_other_experiments(self):
         from acprof.tui.experiments.catalog import scan_experiments

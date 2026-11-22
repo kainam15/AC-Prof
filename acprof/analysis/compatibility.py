@@ -9,7 +9,7 @@ import math
 from pathlib import Path
 from typing import TextIO
 
-from acprof.artifacts import atomic_write
+from acprof.artifacts import atomic_write, recorded_artifact_present
 from acprof.failures import Failure, compatibility_status, ordered_validation_failures
 from acprof.hub.repository import MODEL_SOURCES
 from acprof.quality import combine_quality, read_quality, summarize_quality
@@ -44,7 +44,7 @@ def _read_recorded_object(path: Path) -> dict:
 def _recorded_evidence_failure(path: Path, error: Exception) -> dict:
     return Failure(
         "compatibility_report", "recorded_evidence_invalid", f"{path.name}: {error}",
-        evidence={"artifact": str(path.resolve()), "artifact_name": path.name},
+        evidence={"artifact": str(path.absolute()), "artifact_name": path.name},
         exception_type=type(error).__name__,
     ).to_dict()
 
@@ -250,15 +250,15 @@ def _expand_result_sources(sources: list[Path]) -> list[tuple[Path, list[dict]]]
     return expanded
 
 
-def _read_compatibility_artifact(layout, source: Path, name: str, invalid: list[dict]) -> dict:
+def _read_compatibility_artifact(layout, source: Path, name: str, invalid: list[dict]) -> dict | None:
     try:
         path = layout.path(name) if name in _DIRECT_EVIDENCE_FILES else layout.contained(name)
     except (OSError, ValueError) as error:
         invalid.append(_recorded_evidence_failure(source / name, error))
         return {}
-    if not path.is_file():
-        return {}
     try:
+        if not recorded_artifact_present(path):
+            return None
         record = _read_recorded_object(path)
         if name == "run_state.json":
             _validate_run_outcome(record.get("status"), record.get("outcome"))
@@ -318,23 +318,30 @@ def _recorded_cleanup(layout, validation: dict, validation_name: str, interface:
     return {"cleanup_status": "incomplete", "cleanup_errors": errors} if incomplete else {}
 
 
-def _load_compatibility_evidence(layout, source: Path, invalid: list[dict]) -> tuple[dict[str, dict], list[dict]]:
-    def read(name: str) -> dict:
-        return _read_compatibility_artifact(layout, source, name, invalid)
+def _load_compatibility_evidence(
+    layout, source: Path, invalid: list[dict],
+) -> tuple[dict[str, dict], list[dict], dict[str, str]]:
+    stage_errors: list[dict] = []
 
-    def read_with_fallback(name: str, parent: dict, parent_name: str) -> tuple[dict, str]:
-        record = read(name)
-        embedded = parent.get(name.removesuffix(".json"))
-        if (not record and isinstance(embedded, dict)
-                and not any(problem["evidence"]["artifact_name"] == name for problem in invalid)):
-            return embedded, parent_name
-        return record, name
+    def read(name: str) -> dict:
+        return _read_compatibility_artifact(layout, source, name, invalid) or {}
+
+    def read_with_fallback(name: str, parent: dict, parent_name: str, errors: list[dict]) -> tuple[dict, str]:
+        direct = _read_compatibility_artifact(layout, source, name, invalid)
+        key = name.removesuffix(".json")
+        if direct is not None or key not in parent:
+            return direct or {}, name
+        embedded = parent[key]
+        if not isinstance(embedded, dict):
+            _invalid_compatibility_shape(layout, parent_name, f"{key} must be an object", errors)
+            return {}, parent_name
+        return embedded, parent_name
 
     metadata = read("static_meta.json")
-    resolution, resolution_name = read_with_fallback("model_resolution.json", metadata, "static_meta.json")
-    capability, _ = read_with_fallback("capability_report.json", metadata, "static_meta.json")
-    validation, validation_name = read_with_fallback("runtime_validation.json", metadata, "static_meta.json")
-    interface, interface_name = read_with_fallback("interface_validation.json", resolution, resolution_name)
+    resolution, resolution_name = read_with_fallback("model_resolution.json", metadata, "static_meta.json", invalid)
+    capability, _ = read_with_fallback("capability_report.json", metadata, "static_meta.json", stage_errors)
+    validation, validation_name = read_with_fallback("runtime_validation.json", metadata, "static_meta.json", stage_errors)
+    interface, interface_name = read_with_fallback("interface_validation.json", resolution, resolution_name, stage_errors)
     state = read("run_state.json")
     preparation = {}
     stages = [(validation, validation_name), (interface, interface_name)]
@@ -344,7 +351,6 @@ def _load_compatibility_evidence(layout, source: Path, invalid: list[dict]) -> t
         if isinstance(prep_rel, str) and prep_rel:
             preparation = read(prep_rel)
             stages.append((preparation, prep_rel))
-    stage_errors = []
     for record, name in stages:
         if "status" in record and (not isinstance(record["status"], str) or not record["status"].strip()):
             path = layout.path(name) if name in _DIRECT_EVIDENCE_FILES else layout.contained(name)
@@ -354,7 +360,7 @@ def _load_compatibility_evidence(layout, source: Path, invalid: list[dict]) -> t
         "metadata": metadata, "resolution": resolution, "capability": capability, "cleanup": cleanup,
         "validation": validation, "failure_report": read("runtime_failures.json"),
         "interface": interface, "state": state, "preparation": preparation,
-    }, stage_errors
+    }, stage_errors, {"resolution": resolution_name, "validation": validation_name, "interface": interface_name}
 
 
 def _dict_or_empty(value: object) -> dict:
@@ -362,7 +368,7 @@ def _dict_or_empty(value: object) -> dict:
 
 
 def _check_identity_consistency(
-    layout, metadata: dict, resolution: dict, state: dict, invalid: list[dict],
+    layout, metadata: dict, resolution: dict, state: dict, invalid: list[dict], *, resolution_name: str,
 ) -> tuple[object, object, object, object, str]:
     provenance = _dict_or_empty(resolution.get("provenance"))
     sources_map = _dict_or_empty(provenance.get("sources"))
@@ -371,13 +377,13 @@ def _check_identity_consistency(
     res_model = resolution.get("model_id") or provenance.get("model_id") or snapshot.get("model_id")
     if isinstance(meta_model, str) and meta_model and isinstance(res_model, str) and res_model and meta_model != res_model:
         _invalid_compatibility_shape(
-            layout, "model_resolution.json", "recorded model_id conflicts with static_meta.json", invalid,
+            layout, resolution_name, "recorded model_id conflicts with static_meta.json", invalid,
         )
     meta_rev = metadata.get("model_revision")
     res_rev = resolution.get("model_revision") or provenance.get("revision") or snapshot.get("revision")
     if isinstance(meta_rev, str) and meta_rev and isinstance(res_rev, str) and res_rev and meta_rev != res_rev:
         _invalid_compatibility_shape(
-            layout, "model_resolution.json", "recorded model_revision conflicts with static_meta.json", invalid,
+            layout, resolution_name, "recorded model_revision conflicts with static_meta.json", invalid,
         )
     invalid_identity = any(
         problem["evidence"]["artifact_name"] in {"static_meta.json", "model_resolution.json", "run_state.json"}
@@ -387,13 +393,14 @@ def _check_identity_consistency(
         # Corrupt identity evidence is not a historical document with missing fields.
         model_source = "unknown" if invalid_identity else recorded_model_source(metadata, resolution, state)
     except RecordedSourceError as error:
-        _invalid_compatibility_shape(layout, error.artifact, str(error), invalid)
+        name = resolution_name if error.artifact == "model_resolution.json" else error.artifact
+        _invalid_compatibility_shape(layout, name, str(error), invalid)
         model_source = "unknown"
     return meta_model, res_model, meta_rev, res_rev, model_source
 
 
 def _collect_compatibility_failures(
-    layout, failure_report: dict, validation: dict, resolution: dict, invalid: list[dict],
+    layout, failure_report: dict, validation: dict, resolution: dict, invalid: list[dict], origins: dict[str, str],
 ) -> list[dict]:
     recorded_failures = failure_report.get("failures", [])
     if not isinstance(recorded_failures, list):
@@ -408,27 +415,27 @@ def _collect_compatibility_failures(
         ]
     devices = validation.get("devices", {})
     if not isinstance(devices, dict):
-        _invalid_compatibility_shape(layout, "runtime_validation.json", "devices must be an object", invalid)
+        _invalid_compatibility_shape(layout, origins["validation"], "devices must be an object", invalid)
         devices = {}
     device_failures = []
     for device, value in devices.items():
         if not isinstance(value, dict):
             _invalid_compatibility_shape(
-                layout, "runtime_validation.json", f"device {device!r} must be an object", invalid,
+                layout, origins["validation"], f"device {device!r} must be an object", invalid,
             )
             continue
         raw_failure = value.get("failure")
         if raw_failure is None:
             continue
         validated = _validated_compatibility_failure(
-            layout, "runtime_validation.json", raw_failure, f"device {device!r} failure", invalid,
+            layout, origins["validation"], raw_failure, f"device {device!r} failure", invalid,
         )
         if validated is not None:
             device_failures.append((value, validated))
     resolution_failure = resolution.get("failure")
     if resolution_failure is not None:
         resolution_failure = _validated_compatibility_failure(
-            layout, "model_resolution.json", resolution_failure, "failure", invalid,
+            layout, origins["resolution"], resolution_failure, "failure", invalid,
         )
     failures = [*recorded_failures, *ordered_validation_failures(validation, device_failures)]
     if resolution_failure:
@@ -470,7 +477,7 @@ def _report_single_source(source: Path, pre_invalid: list[dict]) -> dict:
     from acprof.results.layout import ArtifactLayout
     layout = ArtifactLayout.discover(source)
     invalid = list(pre_invalid)
-    evidence, stage_errors = _load_compatibility_evidence(layout, source, invalid)
+    evidence, stage_errors, origins = _load_compatibility_evidence(layout, source, invalid)
     metadata = evidence["metadata"]
     resolution = evidence["resolution"]
     capability = evidence["capability"]
@@ -483,9 +490,11 @@ def _report_single_source(source: Path, pre_invalid: list[dict]) -> dict:
         raise ValueError(f"No recorded compatibility evidence: {source}")
 
     meta_model, res_model, meta_rev, res_rev, model_source = _check_identity_consistency(
-        layout, metadata, resolution, state, invalid,
+        layout, metadata, resolution, state, invalid, resolution_name=origins["resolution"],
     )
-    failures = _collect_compatibility_failures(layout, failure_report, validation, resolution, [*invalid, *stage_errors])
+    failures = _collect_compatibility_failures(
+        layout, failure_report, validation, resolution, [*invalid, *stage_errors], origins,
+    )
 
     state_runtime = _dict_or_empty(state.get("runtime"))
     state_task = _dict_or_empty(state_runtime.get("task"))

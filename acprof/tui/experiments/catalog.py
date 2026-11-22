@@ -15,7 +15,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 from acprof.analysis.compatibility import RecordedSourceError, recorded_model_source
-from acprof.artifacts import read_json_object
+from acprof.artifacts import read_json_object, recorded_artifact_present
 from acprof.cancellation import check_cancelled
 from acprof.experiments.arguments import flatten_run_options
 from acprof.experiments.configuration import RunConfig
@@ -79,22 +79,21 @@ def read_artifact(path: Path, *, cancelled: Callable[[], bool] | None = None) ->
     return read_json_object(path, cancelled=cancelled)
 
 
-def _read_validation(path: Path, metadata: dict, cancelled: Callable[[], bool] | None) -> dict:
-    try:
-        if "runtime_validation" in metadata:
-            path.lstat()
-    except FileNotFoundError:
-        origin = "static_meta.json runtime_validation"
-        record = metadata["runtime_validation"]
-    else:
+def _read_standalone_or_embedded(path: Path, metadata: dict, cancelled: Callable[[], bool] | None) -> tuple[dict, str]:
+    check_cancelled(cancelled)
+    if recorded_artifact_present(path):
+        record = read_json_object(path, cancelled=cancelled)
         origin = path.name
-        record = read_artifact(path, cancelled=cancelled)
+    else:
+        record = metadata.get(path.stem, {})
+        origin = "static_meta.json"
     if not isinstance(record, dict):
-        raise ValueError(f"{origin}: expected an object")
-    devices = record.get("devices", {})
-    if not isinstance(devices, dict) or not all(isinstance(item, dict) for item in devices.values()):
-        raise ValueError(f"{origin}: devices must be an object of device records")
-    return record
+        raise ValueError(f"{origin} {path.stem}: expected an object")
+    if path.name == "runtime_validation.json":
+        devices = record.get("devices", {})
+        if not isinstance(devices, dict) or not all(isinstance(item, dict) for item in devices.values()):
+            raise ValueError(f"{origin}: devices must be an object of device records")
+    return record, origin
 
 
 def format_experiment_created_at(value: str) -> str | None:
@@ -183,13 +182,16 @@ def _record(layout: ArtifactLayout, warnings: list[str], *,
     directory = layout.root
     values: dict[str, dict] = {}
     issues: list[str] = []
+    resolution_name = "model_resolution.json"
     for name in ('run_state.json', 'static_meta.json', 'runtime_validation.json', 'runtime_failures.json', 'model_resolution.json'):
-        path = layout.path(name)
         try:
+            path = layout.path(name)
             if not path.resolve().is_relative_to(directory):
                 raise ValueError(f'{name}: artifact_outside_experiment')
-            if name == "runtime_validation.json":
-                values[name] = _read_validation(path, values["static_meta.json"], cancelled)
+            if name in {"runtime_validation.json", "model_resolution.json"}:
+                values[name], origin = _read_standalone_or_embedded(path, values["static_meta.json"], cancelled)
+                if name == "model_resolution.json":
+                    resolution_name = origin
             else:
                 values[name] = read_artifact(path, cancelled=cancelled)
         except (OSError, ValueError) as exc:
@@ -200,8 +202,6 @@ def _record(layout: ArtifactLayout, warnings: list[str], *,
             values[name] = {}
     state, metadata, validation = (values[name] for name in ('run_state.json', 'static_meta.json', 'runtime_validation.json'))
     resolution = values['model_resolution.json']
-    if not resolution and isinstance(metadata.get('model_resolution'), dict):
-        resolution = metadata['model_resolution']
     task = state.get('runtime', {}).get('task', {})
     options = state.get('options', {})
     if not isinstance(options, dict):
@@ -221,7 +221,8 @@ def _record(layout: ArtifactLayout, warnings: list[str], *,
         source = "unknown" if issues else recorded_model_source(metadata, resolution, state)
     except RecordedSourceError as exc:
         source = "unknown"
-        issues.append(f"{exc.artifact}: {exc}")
+        artifact = resolution_name if exc.artifact == "model_resolution.json" else exc.artifact
+        issues.append(f"{artifact}: {exc}")
     if state and state.get('schema_version') != 1:
         issues.append('unsupported_run_state')
     recorded_runtime_env = metadata.get('runtime_environment')
