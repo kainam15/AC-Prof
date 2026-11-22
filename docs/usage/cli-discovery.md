@@ -187,6 +187,12 @@ snapshot 不把 Hub 标签自动当成正确答案。零总权重和没有审阅
 导出 CSV/Markdown 同时展示来源和版本，CSV 保留已有列顺序并追加来源列；来源证据损坏或冲突时记录 `unknown` 与
 `recorded_evidence_invalid`，不猜测或重写原始实验。
 
+读取已有实验时，报告核对静态元数据、模型解析及其主仓快照、接口探测和冻结任务中记录的主模型 ID。
+版本核对使用已解析的 40 位 Git commit。命令行请求的模型别名、branch 或 tag 可以与解析结果同时出现；
+依赖仓库使用自己的 ID 和版本，任务覆盖也有独立语义。主模型 ID 或固定 commit 发生冲突时，
+报告按实际产物和冲突字段列出诊断，TUI 中的归档候选仅可查看。本地实验目录使用已读取的静态元数据、
+解析记录和冻结任务核对身份；打开 `coverage.json` 还可查看报告在接口探测中发现的冲突。
+
 run/report 同时输出 `coverage.json`、`models.csv` 和 `REPORT.md`。失败列保留稳定的
 `reason_code` 及 evidence，质量警告单独保留在 `quality_checks`；TUI 的 `/report <coverage.json>`
 可读取两种报告。`coverage report` 支持直接传入单次实验目录、`<model--slug>` 任务集合目录（含
