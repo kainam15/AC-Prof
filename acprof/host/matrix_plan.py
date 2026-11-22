@@ -3,11 +3,17 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
+from functools import partial
 from itertools import product
 from pathlib import Path
 
-from acprof.artifacts import atomic_write_json, read_input_scale_plan_snapshot, read_json_object
+from acprof.artifacts import (
+    atomic_write_json,
+    decode_plan_json,
+    executable_input_scale,
+    read_input_scale_plan_snapshot,
+    read_json_object_snapshot,
+)
 from acprof.gpu_mode import normalize_gpu_mode
 
 MATRIX_PLAN_NAME = "matrix_plan.json"
@@ -30,8 +36,8 @@ def matrix_identity(task, image, cpus, mems, gpus, scales, *, order, seed,
     if any((type(value) is not int or value <= 0) and not (value is None and runtime_kind(image) == "process")
            for value in [*cpus, *mems]):
         raise ValueError("matrix CPUs and memory must be positive integers")
-    if any(not math.isfinite(scale) or scale <= 0 for scale in scales):
-        raise ValueError("matrix input scales must be finite and positive")
+    for index, scale in enumerate(scales):
+        executable_input_scale(scale, f"matrix identity.input_scales[{index}]")
     from acprof.cpu_affinity import normalize_cpu_set
     from acprof.host.runtimes.contracts import runtime_identity, runtime_kind
     if input_plan_file:
@@ -76,10 +82,28 @@ def build_matrix_plan(identity: dict, prefixes: dict) -> dict:
     return plan
 
 
-def load_matrix_plan(path: str | Path, identity: dict) -> dict:
-    plan = read_json_object(path, label="matrix plan")
+def _inspect_matrix_scales(plan: dict) -> None:
     if plan.get("schema_version") != 1 or plan.get("algorithm_version") != ALGORITHM_VERSION:
         raise ValueError("unsupported matrix plan schema/algorithm; start a new experiment")
+
+    def check(record, location):
+        scales = record.get("input_scales") if isinstance(record, dict) else None
+        if not isinstance(scales, list):
+            raise ValueError(f"matrix {location}.input_scales must be a list")
+        for index, scale in enumerate(scales):
+            executable_input_scale(scale, f"matrix {location}.input_scales[{index}]")
+
+    check(plan.get("identity"), "identity")
+    cases = plan.get("cases")
+    if not isinstance(cases, list):
+        raise ValueError("matrix plan cases must be a list")
+    for index, case in enumerate(cases):
+        check(case, f"cases[{index}]")
+
+
+def load_matrix_plan(path: str | Path, identity: dict) -> dict:
+    decode = partial(decode_plan_json, inspect=_inspect_matrix_scales)
+    plan = read_json_object_snapshot(path, label="matrix plan", decode=decode).payload
     if plan.get("identity") != identity:
         raise ValueError("matrix plan identity/options changed; use the original options")
     if plan.get("seed") != identity["seed"] or plan.get("matrix_order") != identity["order"]:

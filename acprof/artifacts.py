@@ -121,7 +121,8 @@ def _restore_plan_numbers(container, cancelled) -> None:
             pending.pop()
 
 
-def _decode_input_plan(text: str, exact: dict[int, str], cancelled) -> Any:
+def decode_plan_json(text: str, *, inspect: Callable[[dict], None], cancelled=None) -> Any:
+    """Inspect scale tokens before returning native finite JSON from the same parse."""
     marked = False
 
     def number(token: str) -> float | _PlanNumberToken:
@@ -133,20 +134,35 @@ def _decode_input_plan(text: str, exact: dict[int, str], cancelled) -> Any:
         return _PlanNumberToken(token)
 
     payload = json.loads(text, parse_float=number, parse_constant=_finite_json_number)
-    if marked and isinstance(payload, dict):
-        entries = payload.get("entries")
+    if isinstance(payload, dict):
+        inspect(payload)
+        if marked:
+            _restore_plan_numbers(payload, cancelled)
+    return payload
+
+
+def _lossy_scale_text(token: _PlanNumberToken, field: str) -> str | None:
+    try:
+        coordinate = decimal_coordinate(token)
+    except InvalidOperation as error:
+        raise ValueError(f"{field} is outside the decimal range") from error
+    if coordinate != decimal_coordinate(str(float(token))):
+        return decimal_key_text(coordinate)
+    return None
+
+
+def _decode_input_plan(text: str, exact: dict[int, str], cancelled) -> Any:
+    def inspect(plan: dict) -> None:
+        entries = plan.get("entries")
         if isinstance(entries, list):
             for index, entry in enumerate(cancellable(entries, cancelled)):
                 token = entry.get("input_scale") if isinstance(entry, dict) else None
                 if isinstance(token, _PlanNumberToken):
-                    try:
-                        coordinate = decimal_coordinate(token)
-                    except InvalidOperation as error:
-                        raise ValueError(f"input_scale at index {index} is outside the decimal range") from error
-                    if coordinate != decimal_coordinate(str(float(token))):
-                        exact[index] = decimal_key_text(coordinate)
-        _restore_plan_numbers(payload, cancelled)
-    return payload
+                    loss = _lossy_scale_text(token, f"input_scale at index {index}")
+                    if loss is not None:
+                        exact[index] = loss
+
+    return decode_plan_json(text, inspect=inspect, cancelled=cancelled)
 
 
 def _read_json_bytes(
@@ -253,6 +269,26 @@ def require_schema_version(payload: Any, expected: int, artifact: str) -> None:
         )
 
 
+def executable_input_scale(raw: object, field: str) -> float:
+    """Validate one recorded scale against the decimal coordinate used by the runtime."""
+    if isinstance(raw, _PlanNumberToken):
+        loss = _lossy_scale_text(raw, field)
+        if loss is not None:
+            raise ValueError(f"{field} cannot round-trip through the runtime: {loss}")
+        raw = float(raw)
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        raise ValueError(f"invalid {field}: expected a positive JSON number")
+    try:
+        scale = float(raw)
+    except OverflowError as exc:
+        raise ValueError(f"{field} exceeds the finite float range") from exc
+    if not math.isfinite(scale) or scale <= 0:
+        raise ValueError(f"invalid {field}: expected a finite positive value")
+    if isinstance(raw, int) and raw > 2**53 and raw != decimal_coordinate(str(scale)):
+        raise ValueError(f"{field} cannot round-trip through the runtime: {raw!r}")
+    return scale
+
+
 def input_plan_scales(plan: Mapping[str, Any], *, cancelled: Callable[[], bool] | None = None) -> set[float]:
     """Validate the one-to-one mapping from effective scale to materialized payload."""
     entries = plan.get("entries")
@@ -262,17 +298,7 @@ def input_plan_scales(plan: Mapping[str, Any], *, cancelled: Callable[[], bool] 
     for index, entry in enumerate(cancellable(entries, cancelled)):
         if not isinstance(entry, dict) or not isinstance(entry.get("payload"), dict):
             raise ValueError(f"invalid input scale plan entry at index {index}: payload missing")
-        raw = entry.get("input_scale")
-        if isinstance(raw, bool) or not isinstance(raw, (int, float)):
-            raise ValueError(f"invalid input_scale at index {index}: expected a positive JSON number")
-        try:
-            scale = float(raw)
-        except OverflowError as exc:
-            raise ValueError(f"input_scale at index {index} exceeds the finite float range") from exc
-        if not math.isfinite(scale) or scale <= 0:
-            raise ValueError(f"invalid input_scale at index {index}: expected a finite positive value")
-        if isinstance(raw, int) and raw != decimal_coordinate(str(scale)):
-            raise ValueError(f"input_scale at index {index} cannot round-trip through the runtime: {raw!r}")
+        scale = executable_input_scale(entry.get("input_scale"), f"input_scale at index {index}")
         if scale in positions:
             raise ValueError(f"duplicate input_scale {scale} in plan entries {positions[scale]} and {index}")
         positions[scale] = index

@@ -166,3 +166,65 @@ class TestMatrixPlan:
             with pytest.raises(ValueError, match='hash'):
                 self.run_matrix(tmp)
             case.assert_not_called()
+
+
+@pytest.mark.parametrize("location", ["identity", "last_case"])
+@pytest.mark.parametrize(("original", "token"), [(2.0, "2.0000000000000001"), (1, "true")])
+def test_resume_rejects_unexecutable_matrix_scale_even_with_matching_digest(tmp_path, location, original, token):
+    from acprof.host.matrix_plan import build_matrix_plan, digest, freeze_matrix_plan
+
+    identity = {"cpus": [1, 2], "mems": [1], "gpus": ["off"], "input_scales": [original],
+                "order": "declared", "seed": 0}
+    plan = build_matrix_plan(dict(identity), {})
+    entry = plan["identity"] if location == "identity" else plan["cases"][-1]
+    entry["input_scales"] = ["SCALE_TOKEN"]
+    text = json.dumps(plan).replace('"SCALE_TOKEN"', token)
+    normalized = json.loads(text)
+    old_digest = normalized.pop("plan_sha256")
+    raw = text.replace(old_digest, digest(normalized)).encode()
+    path = tmp_path / "matrix_plan.json"
+    path.write_bytes(raw)
+
+    with pytest.raises(ValueError, match=r"matrix.*input.scale"):
+        freeze_matrix_plan(path, identity, {})
+    assert path.read_bytes() == raw
+
+
+def test_resume_preserves_native_coordinates_and_original_digest_for_exact_spellings(tmp_path):
+    from acprof.host.matrix_plan import build_matrix_plan, digest, freeze_matrix_plan
+
+    identity = {"cpus": [1], "mems": [1], "gpus": ["off"], "input_scales": [2.0, 2**53, 0.1],
+                "order": "declared", "seed": 0}
+    plan = build_matrix_plan(identity, {})
+    plan["note"] = {"input_scales": [3.0]}
+    del plan["plan_sha256"]
+    plan["plan_sha256"] = digest(plan)
+    raw = json.dumps(plan).replace("[2.0,", "[20e-1,").replace("[3.0]", "[3.0000000000000001]").encode("utf-8-sig")
+    path = tmp_path / "matrix_plan.json"
+    path.write_bytes(raw)
+    result = freeze_matrix_plan(path, identity, {})
+    assert result == plan
+    assert [type(value) for value in result["cases"][0]["input_scales"]] == [float, int, float]
+    assert path.read_bytes() == raw
+
+
+@pytest.mark.parametrize("scale", [True, 2**53 + 1, 10**309])
+def test_matrix_identity_rejects_scales_that_cannot_be_frozen(scale):
+    from acprof.host.matrix_plan import matrix_identity
+
+    with pytest.raises(ValueError, match=r"matrix.*input.scale"):
+        matrix_identity(None, None, [1], [1], ["off"], [scale], order="declared", seed=0, prune=False)
+
+
+@pytest.mark.parametrize("cases", [None, 42])
+def test_matrix_scale_inspection_reports_malformed_case_list(tmp_path, cases):
+    from acprof.host.matrix_plan import build_matrix_plan, freeze_matrix_plan
+
+    identity = {"cpus": [1], "mems": [1], "gpus": ["off"], "input_scales": [2],
+                "order": "declared", "seed": 0}
+    plan = build_matrix_plan(identity, {})
+    plan["cases"] = cases
+    path = tmp_path / "matrix_plan.json"
+    path.write_text(json.dumps(plan))
+    with pytest.raises(ValueError, match="matrix.*cases"):
+        freeze_matrix_plan(path, identity, {})
