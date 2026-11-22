@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import math
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING
 
 from acprof.artifacts import atomic_write_json
@@ -144,14 +145,34 @@ def explain_resolution(task_info, *, explain: bool = False) -> str:
     return "\n".join(lines)
 
 
+def _selected_nlp_generator(task_info, workload_spec_path: str | Path | None):
+    from acprof.artifacts import read_json_object
+    from acprof.host.configuration_transport import bound_inference_configuration
+    from acprof.host.input_plan.materialize import get_task_generator
+    from acprof.tasks.workloads import workload_manifest
+
+    frozen = bound_inference_configuration(task_info)
+    if frozen.get("workload", {}).get("specification_sha256") and workload_spec_path is None:
+        raise ValueError("the frozen profile requires its original workload specification")
+    supplied = (read_json_object(Path(workload_spec_path).expanduser(), label="workload specification")
+                if workload_spec_path is not None else None)
+    manifest = workload_manifest(task_info.selected_tasks[0], supplied=supplied, frozen=frozen)
+    # The generator consumes the effective manifest synchronously, exactly as in a collection child.
+    with TemporaryDirectory(prefix="acprof-validation-workload-") as directory:
+        path = Path(directory) / "task_workload.json"
+        atomic_write_json(path, manifest)
+        return get_task_generator(task_info, 1, workload_spec_path=str(path))
+
+
 def validate_model_runtime(task_info, output_dir: str | Path, *, cpus: int = 2,
                            memory_gb: int = 4, gpu: bool = False, timeout_seconds: float = 300,
-                           reuse_existing: bool = True,
+                           reuse_existing: bool = True, workload_spec_path: str | Path | None = None,
                            measurement_lock: MeasurementLock | None = None) -> RuntimeValidationReport:
     from acprof.host.images.runtime import prepare_image
     from acprof.host.input_plan import PlannedInputScales, resolve_input_scales
-    from acprof.host.input_plan.materialize import get_task_generator
+    from acprof.host.input_plan.materialize import get_task_generator, write_scale_plan_file
     from acprof.host.preflight import require_collection_host, require_native_docker
+    from acprof.host.preparation.task_selection import TaskSelectionRequired
     from acprof.host.preparation.task_support import require_task_support
     from acprof.host.run_state import ResultDirectoryLock, measurement_lock_scope
     from acprof.host.runtime_validation import validate_runtime
@@ -160,6 +181,11 @@ def validate_model_runtime(task_info, output_dir: str | Path, *, cpus: int = 2,
     if (type(cpus) is not int or cpus <= 0
             or type(memory_gb) is not int or memory_gb <= 0 or not math.isfinite(timeout_seconds) or timeout_seconds <= 0):
         raise ValueError("invalid runtime validation resources/timeout")
+    if len(task_info.selected_tasks) > 1:
+        raise TaskSelectionRequired([item["task_id"] for item in task_info.selected_tasks], single_profile=True)
+    selected_nlp = bool(task_info.selected_tasks) and task_info.task_family == "nlp"
+    if workload_spec_path is not None and not selected_nlp:
+        raise ValueError("workload_spec_path requires a selected NLP profile")
     require_task_support(task_info, devices=("gpu" if gpu else "cpu",))
     require_collection_host()
     require_native_docker()
@@ -167,12 +193,14 @@ def validate_model_runtime(task_info, output_dir: str | Path, *, cpus: int = 2,
     with measurement_lock_scope(measurement_lock), ResultDirectoryLock(root):
         if (root / "runtime_validation.json").exists():
             raise ValueError("probe output already contains validation; choose a new output directory")
+        generator = _selected_nlp_generator(task_info, workload_spec_path) if selected_nlp else None
         try:
             image = prepare_image(task_info, str(resource_root()), reuse_existing=reuse_existing)
         except (RuntimeError, ValueError, OSError) as exc:
             raise ProbePreparationError(str(exc)) from exc
         write_model_resolution(task_info, root)
-        generator = get_task_generator(task_info, 1)
+        if generator is None:
+            generator = get_task_generator(task_info, 1)
         scales = generator.default_input_scales()
         if not scales and not task_info.model_resolution.get("contract"):
             scales = resolve_input_scales(task_info.task_family)
@@ -184,10 +212,14 @@ def validate_model_runtime(task_info, output_dir: str | Path, *, cpus: int = 2,
         if task_info.model_resolution.get("contract") and task_info.task_family == "multimodal":
             payload.setdefault("params", {}).update(max_new_tokens=1, do_sample=False)
         plan = root / "runtime_validation_input.json"
-        atomic_write_json(plan, {"schema_version": 2, "scope": "runtime_validation_only",
-                                "entries": [{"input_scale": scale, "payload": payload}]})
-        return validate_runtime(task_info=task_info, image_info=image,
-                                 planned=PlannedInputScales(scales=[float(scale)], source="runtime_validation",
-                                                            plan_file=str(plan)),
+        entries = [{"input_scale": scale, "payload": payload}]
+        planned = PlannedInputScales(scales=[float(scale)], source="runtime_validation", plan_file=str(plan))
+        if selected_nlp:
+            planned.workload = generator.plan_metadata()
+            planned.plan_sha256 = write_scale_plan_file(str(plan), task_info, entries, workload=planned.workload,
+                                                        scope="runtime_validation_only")
+        else:
+            atomic_write_json(plan, {"schema_version": 2, "scope": "runtime_validation_only", "entries": entries})
+        return validate_runtime(task_info=task_info, image_info=image, planned=planned,
                                 cpu_list=[cpus], mem_list=[memory_gb], gpu_list=["on" if gpu else "off"],
                                 output_dir=str(root), timeout_seconds=timeout_seconds)

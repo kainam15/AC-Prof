@@ -178,6 +178,9 @@ Transformers 精确版本的 loader 选择与能力声明继续遵循
 Runtime Validation 就是现有 `validate_runtime()`，按 `prepare_image → plan_input_scales →
 validate_runtime → run_matrix` 顺序使用正式镜像、Model Store、adapter 和 workload。
 每个选中设备执行一次最小合法输入，完整经过 load、preprocess、predict、postprocess、validate_output。
+独立 Runtime Validation 已选定一个 NLP profile 时，`runtime_validation_input.json` 使用与采集子任务相同的
+有效 workload manifest，保留任务指纹、提示词和生成参数。冻结配置绑定了原始 workload 规格时，
+必须提供内容匹配的原规格才能重建有效请求。多个选中 profile 需要先选定一个再运行独立验证。
 CPU + GPU 必须两者成功；失败、OOM、超时或缺少阶段证据均阻止正式矩阵。
 报告仍为 `runtime_validation.json`，含每个设备的日志、输入 hash 和镜像身份；历史协议的 `mode=full`
 表示端到端验证，新执行入口不再提供 basic/full 选择。它不产生正式 CSV row，不开启 profiler 测量窗口。

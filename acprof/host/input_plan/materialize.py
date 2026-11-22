@@ -37,10 +37,12 @@ def write_scale_plan_file(
     *,
     workload: dict[str, Any] | None = None,
     model_constraints: dict[str, Any] | None = None,
+    scope: str | None = None,
 ) -> str:
     frozen = bound_inference_configuration(task_info)
     payload = {
         "schema_version": 2,
+        **({"scope": scope} if scope is not None else {}),
         "model_id": task_info.model_id,
         "task_family": task_info.task_family,
         "pipeline_tag": task_info.pipeline_tag,
