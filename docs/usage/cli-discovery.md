@@ -251,6 +251,11 @@ attempt 恢复已完成模型，进行中的模型使用新目录重新验证。
 清理问题独立于最新解析或推理结论保留。重试会在批次持有测量锁期间核对原主机、原 owner UID 与原 Docker endpoint/context。
 确认原容器已不存在后才重新解析模型；失败、超时或无法确认时不执行后续模型。
 `cleanup_recovery` 保存核验结果，原始 attempt 不改写；旧重试记录缺少明确清理证明时继续阻断。
+如果进程在写出 `runtime_validation.json` 后、写入模型的 attempt 行前中断，续跑会核对原 attempt 正在处理的模型目录。
+存在未完成清理时，使用原参数与 `--resume --retry-stage cleanup`。对于这类未写入 attempt 行的记录，恢复只读检查原主机、
+用户及 Docker endpoint 的 AC-Prof 容器清单。报告摘要、主模型快照和容器 ID 均可核对时，还会逐个检查原 ID 已不存在。
+清单非空或 Docker 查询失败时会停止并保留原产物。请在原 Docker 环境检查相应容器，待原用户域的 AC-Prof 容器均已退出并移除后，再执行相同的恢复命令。
+清理证明会在新探测之前写入当前 attempt，后续中断可继续使用它。读取历史证明时须覆盖原容器 ID；未知 ID 则须有原用户域清单为空的证据。
 冻结条件还包括 `ACPROF_NLP_TORCH_INDEX_URL`、`ACPROF_NLP_TORCH_SPEC`、`ACPROF_HOST_CUDA_VERSION`；
 修改这些运行依赖选型参数须显式重试，attempt 会记录前后差异，普通续跑不能静默混用锁定环境。
 同一报告目录通过现有目录锁排除并发写入，运行验证继续使用原有测量锁。

@@ -8,6 +8,11 @@ from typing import TYPE_CHECKING, Any
 
 from acprof.artifacts import atomic_write_json, read_json_object
 from acprof.failures import coverage_row_failures
+from acprof.host.coverage_recovery import (
+    cleanup_proof_issue,
+    interrupted_cleanup,
+    validate_cleanup_confirmation,
+)
 from acprof.host.run_state import utc_now
 from acprof.models.evidence import content_digest
 
@@ -49,22 +54,34 @@ def confirm_previous_cleanup(row: dict, attempts: list[dict], configuration: dic
     current = configuration.get("preparation_environment", {})
     if any(name not in previous or previous[name] != current.get(name) for name in ("DOCKER_HOST", "DOCKER_CONTEXT")):
         raise ValueError("cleanup recovery must use the original Docker endpoint/context")
-    from acprof.host.container_lifecycle import recover_cleanup_debt
+    from acprof.host.container_lifecycle import (
+        confirm_interrupted_cleanup_absent,
+        recover_cleanup_debt,
+    )
     from acprof.host.preflight import require_native_docker
     from acprof.host.run_state import measurement_lock_scope
     from acprof.system.command import run_command
 
     with measurement_lock_scope(measurement_lock):
         require_native_docker()
+        if row.get("interrupted_cleanup_artifact"):
+            errors = [] if row.get("cleanup_identity_issue") else row.get("cleanup_errors", [])
+            return confirm_interrupted_cleanup_absent(errors, run_command)
         return recover_cleanup_debt(row.get("cleanup_errors", []), run_command)
 
 
 def retain_cleanup_debt(previous: dict, row: dict, attempt_id: int) -> dict:
     """Replay old attempts conservatively; only recorded confirmation releases debt."""
     result = dict(row)
-    if (previous.get("cleanup_status") == "incomplete"
-            and row.get("cleanup_recovery", {}).get("status") != "complete"):
+    proof = row.get("cleanup_recovery")
+    issue = cleanup_proof_issue(previous, proof) if previous.get("cleanup_status") == "incomplete" else ""
+    if issue:
+        if isinstance(proof, dict) and proof.get("status") == "complete":
+            result["cleanup_recovery_issue"] = issue
         result["cleanup_status"] = "incomplete"
+        for key in ("interrupted_cleanup_artifact", "cleanup_identity_issue"):
+            if key in previous:
+                result[key] = previous[key]
         result["cleanup_origin_attempt_id"] = previous.get("cleanup_origin_attempt_id", previous["attempt_id"])
         result["cleanup_errors"] = list(previous.get("cleanup_errors", [])) + [
             error for error in row.get("cleanup_errors", []) if error not in previous.get("cleanup_errors", [])]
@@ -102,6 +119,8 @@ class CoverageState:
         self.sample_hash = content_digest(sample)
         self.attempt: dict[str, Any] | None = None
         self.rows: dict[int, dict] = {}
+        self.interrupted_cleanup: dict[int, dict] = {}
+        self.confirmed_cleanup: dict[int, dict] = {}
         retry = retry_failed or bool(retry_stages or retry_reasons)
         if resume:
             self.report = read_json_object(root / "coverage.json", label="coverage report")
@@ -117,7 +136,16 @@ class CoverageState:
             for attempt in self.attempts:
                 for row in attempt["rows"]:
                     index = row["model_index"]
-                    self.rows[index] = retain_cleanup_debt(self.rows.get(index, {}), row, attempt["attempt_id"])
+                    self.rows[index] = retain_cleanup_debt(self.previous(index), row, attempt["attempt_id"])
+                    self.interrupted_cleanup.pop(index, None)
+                    self.confirmed_cleanup.pop(index, None)
+                if "active_cleanup_recovery" in attempt:
+                    self._restore_cleanup_confirmation(attempt)
+                orphan = interrupted_cleanup(root, attempt, sample["models"])
+                if orphan is not None:
+                    index = orphan["model_index"]
+                    self.interrupted_cleanup[index] = retain_cleanup_debt(self.previous(index), orphan, attempt["attempt_id"])
+                    self.confirmed_cleanup.pop(index, None)
         else:
             atomic_write_json(root / "sample.json", sample)
             self.report = {"schema_version": 2, "scope": "selected_sample_only; no_formal_measurement",
@@ -140,9 +168,10 @@ class CoverageState:
         expected = previous if pending else self.report["configuration"]
         if not retry and configuration != expected:
             raise ValueError("coverage configuration changed; use explicit failed-model retry or a new directory")
+        known = {index: self.previous(index) for index in self.rows.keys() | self.interrupted_cleanup.keys()}
         if retry:
             indices = []
-            for index, row in sorted(self.rows.items()):
+            for index, row in sorted(known.items()):
                 if verified(row, self.report["probe"]):
                     continue
                 failures = coverage_row_failures(row)
@@ -160,7 +189,7 @@ class CoverageState:
                 raise ValueError("no matching failed models to retry")
         else:
             indices = unfinished if pending else [index for index in range(len(sample["models"])) if index not in self.rows]
-        cleanup = {index for index, row in self.rows.items() if row.get("cleanup_status") == "incomplete"}
+        cleanup = {index for index, row in known.items() if row.get("cleanup_status") == "incomplete"}
         if cleanup and (not retry or not cleanup.issubset(indices)):
             raise ValueError("coverage cleanup is incomplete; explicitly retry the cleanup failures before continuing")
         indices.sort(key=lambda index: (index not in cleanup, index))
@@ -229,6 +258,27 @@ class CoverageState:
             raise ValueError("coverage attempt evidence is missing; refusing to repeat verified models")
         return attempts
 
+    def previous(self, index: int) -> dict:
+        previous = self.interrupted_cleanup.get(index, self.rows.get(index, {}))
+        if index in self.confirmed_cleanup:
+            return {**previous, "cleanup_status": "complete", "cleanup_recovery": self.confirmed_cleanup[index]}
+        return previous
+
+    def _restore_cleanup_confirmation(self, attempt: dict) -> None:
+        index = attempt.get("active_model_index")
+        if type(index) is not int or index not in attempt["model_indices"]:
+            raise ValueError(f"invalid active model for cleanup recovery in attempt {attempt['attempt_id']}")
+        self.confirmed_cleanup[index] = validate_cleanup_confirmation(attempt, self.previous(index))
+
+    def confirm_cleanup(self, index: int, previous: dict, proof: dict) -> None:
+        if self.attempt is None or self.attempt.get("active_model_index") != index:
+            raise RuntimeError("cleanup confirmation requires an active model")
+        self.attempt["active_cleanup_recovery"] = {
+            "model_index": index, "origin_attempt_id": previous.get("cleanup_origin_attempt_id", previous["attempt_id"]),
+            "proof": proof,
+        }
+        self.persist_attempt()
+
     def persist_attempt(self):
         if self.attempt is not None:
             atomic_write_json(self.directory / "attempt.json", self.attempt)
@@ -243,14 +293,17 @@ class CoverageState:
     def record(self, index: int, row: dict):
         if self.attempt is None:
             raise RuntimeError("coverage attempt must start before recording")
-        row.update(retain_cleanup_debt(self.rows.get(index, {}), row, self.attempt["attempt_id"]))
+        row.update(retain_cleanup_debt(self.previous(index), row, self.attempt["attempt_id"]))
         row.update(model_index=index, attempt_id=self.attempt["attempt_id"],
                    attempt_path=str(self.directory.relative_to(self.root)),
                    configuration_sha256=self.attempt["configuration_sha256"])
         self.attempt["rows"].append(row)
         self.attempt.pop("active_model_index", None)
+        self.attempt.pop("active_cleanup_recovery", None)
         self.persist_attempt()  # Durable before publishing the replaceable overview.
         self.rows[index] = row
+        self.interrupted_cleanup.pop(index, None)
+        self.confirmed_cleanup.pop(index, None)
 
     def finish(self, status: str):
         if self.attempt is not None:

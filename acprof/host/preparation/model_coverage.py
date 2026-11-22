@@ -9,8 +9,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
-from acprof.artifacts import atomic_write_json, read_json_object
+from acprof.artifacts import atomic_write_json
 from acprof.failures import coverage_row_failures, ordered_validation_failures
+from acprof.host.coverage_recovery import (
+    cleanup_proof_issue,
+    read_runtime_validation,
+    validation_cleanup_errors,
+)
 from acprof.hub.huggingface.auth import hf_token_for_url
 from acprof.hub.repository import MODEL_SOURCES, model_source_scope
 from acprof.models.evidence import pinned_revision
@@ -117,18 +122,6 @@ class CoverageCleanupError(RuntimeError):
 
 
 _LOG = logging.getLogger(__name__)
-
-
-def _read_runtime_validation_recovery(path: Path) -> dict:
-    """Read only well-formed runtime evidence when preserving a primary failure."""
-    validation = read_json_object(path, label="runtime validation")
-    status = validation.get("status")
-    devices = validation.get("devices", {})
-    if not isinstance(status, str) or not status:
-        raise ValueError(f"{path}: runtime validation status must be a nonempty string")
-    if not isinstance(devices, dict) or any(not isinstance(value, dict) for value in devices.values()):
-        raise ValueError(f"{path}: runtime validation devices must be an object of objects")
-    return validation
 
 
 def _record_static_inspection(row: dict, task: Any) -> None:
@@ -239,7 +232,7 @@ def _evaluate_model(item: dict, output: Path, *, probe, cpus, memory_gb, gpu,
             row["runtime_status"] = "error"
             if path.is_file():
                 try:
-                    recovered_validation = _read_runtime_validation_recovery(path)
+                    recovered_validation = read_runtime_validation(path)
                     devices = recovered_validation.get("devices", {})
                     quality_checks = []
                     structured = []
@@ -285,8 +278,7 @@ def _evaluate_model(item: dict, output: Path, *, probe, cpus, memory_gb, gpu,
         row["next_action"] = ""
     if validation is not None and validation.get("cleanup_status") == "incomplete":
         row["cleanup_status"] = "incomplete"
-        row["cleanup_errors"] = [value for value in [validation.get("cleanup_error"), *(
-            device.get("cleanup_error") for device in validation.get("devices", {}).values())] if value]
+        row["cleanup_errors"] = validation_cleanup_errors(validation)
     if row["runtime_status"] == "resource_limited":
         row["failed_stage"] = "resource"
     if task is not None:
@@ -354,15 +346,16 @@ def run_sample(sample: dict, root: Path, *, probe: str = "none", cpus: int = 2, 
         try:
             for index in state.indices:
                 output = state.start_model(index)
-                previous = state.rows.get(index, {})
-                recovery = None
+                previous = state.previous(index)
+                recovery = state.confirmed_cleanup.get(index)
                 row = None
                 if previous.get("cleanup_status") == "incomplete":
                     try:
                         recovery = confirm_previous_cleanup(previous, state.attempts, configuration,
                                                             measurement_lock=measurement_lock)
-                        if recovery.get("status") != "complete":
-                            raise ValueError("previous cleanup has not been confirmed complete")
+                        issue = cleanup_proof_issue(previous, recovery)
+                        if issue:
+                            raise ValueError(issue)
                     except (Exception, SystemExit) as exc:
                         serializer = getattr(exc, "to_dict", None)
                         detail = (serializer() if callable(serializer) else
@@ -370,6 +363,8 @@ def run_sample(sample: dict, root: Path, *, probe: str = "none", cpus: int = 2, 
                         row = {**previous, "runtime_status": "not_run", "failed_stage": "cleanup",
                                "cleanup_recovery": {"status": "incomplete", "error": detail},
                                "cleanup_errors": [*previous.get("cleanup_errors", []), detail]}
+                    else:
+                        state.confirm_cleanup(index, previous, recovery)
                 if row is None:
                     item = sample["models"][index]
                     with model_source_scope(item.get("source", "huggingface")):
@@ -382,9 +377,13 @@ def run_sample(sample: dict, root: Path, *, probe: str = "none", cpus: int = 2, 
                 state.record(index, row)
                 save()
                 if row.get("cleanup_status") == "incomplete":
+                    remedy = ""
+                    if row.get("interrupted_cleanup_artifact"):
+                        remedy = (f" Inspect the original Docker owner inventory for {row['interrupted_cleanup_artifact']} "
+                                  "and retry with --resume --retry-stage cleanup after it is empty.")
                     raise CoverageCleanupError(
                         f"coverage cleanup incomplete for {row['model_id']}; stopped before the next model; "
-                        f"run and cleanup evidence: {state.directory / 'attempt.json'}")
+                        f"run and cleanup evidence: {state.directory / 'attempt.json'}.{remedy}")
         except BaseException:
             state.finish("interrupted")
             save()

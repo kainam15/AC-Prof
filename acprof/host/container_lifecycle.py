@@ -225,14 +225,8 @@ def recover_abandoned_containers(current: dict[str, str], run: Callable) -> tupl
     return tuple(removed)
 
 
-def recover_cleanup_debt(cleanup_errors: list[dict], run: Callable) -> dict:
-    """Prove prior cleanup complete before retrying; caller pins daemon and holds the measurement lock."""
-    try:
-        current = container_owner_labels()
-    except (OSError, ValueError, IndexError) as exc:
-        raise ContainerCleanupError("", [{"operation": "owner_scope", "exception_type": type(exc).__name__,
-                                         "detail": str(exc)}]) from exc
-    recovered = recover_abandoned_containers(current, run)
+def cleanup_container_ids(cleanup_errors: list) -> tuple[list[str], bool]:
+    """Keep unique immutable IDs and record whether any cleanup target is unknown."""
     identifiers: list[str] = []
     unknown_id = not cleanup_errors
     for error in cleanup_errors:
@@ -241,6 +235,37 @@ def recover_cleanup_debt(cleanup_errors: list[dict], run: Callable) -> dict:
             unknown_id = True
         elif identifier not in identifiers:
             identifiers.append(identifier)
+    return identifiers, unknown_id
+
+
+def confirm_interrupted_cleanup_absent(cleanup_errors: list, run: Callable) -> dict:
+    """Read-only proof for an interrupted attempt whose full row was never journaled."""
+    current = container_owner_labels()
+    operations: list[dict] = []
+    identifiers, _ = cleanup_container_ids(cleanup_errors)
+    for identifier in identifiers:
+        item = _inspect_container(identifier, run, operations)
+        if item is not None:
+            raise ContainerCleanupError(identifier, operations, final_state="present")
+    remaining = _list_owner_containers(current, run, operations)
+    if remaining:
+        operations.append({"operation": "verify_cleanup_debt", "container_ids": list(remaining),
+                           "detail": "Interrupted cleanup requires an empty original owner inventory"})
+        raise ContainerCleanupError("", operations, final_state="present")
+    return {"schema_version": 1, "status": "complete", "verified_container_ids": identifiers, "recovered_container_ids": [],
+            "owner_scope": {key: current[key] for key in _OWNER_SCOPE_LABELS}, "scoped_inventory_empty": True,
+            "operations": operations}
+
+
+def recover_cleanup_debt(cleanup_errors: list[dict], run: Callable) -> dict:
+    """Prove prior cleanup complete before retrying; caller pins daemon and holds the measurement lock."""
+    try:
+        current = container_owner_labels()
+    except (OSError, ValueError, IndexError) as exc:
+        raise ContainerCleanupError("", [{"operation": "owner_scope", "exception_type": type(exc).__name__,
+                                         "detail": str(exc)}]) from exc
+    recovered = recover_abandoned_containers(current, run)
+    identifiers, unknown_id = cleanup_container_ids(cleanup_errors)
     operations: list[dict] = []
     for identifier in identifiers:
         item = _inspect_container(identifier, run, operations)

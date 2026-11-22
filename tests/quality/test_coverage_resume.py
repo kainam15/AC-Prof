@@ -398,7 +398,7 @@ class TestCoverageResume:
                 self.run_batch(probe="full", resume=True)
         probe.assert_not_called()
         with patch("acprof.host.preparation.model_inspection.validate_model_runtime", return_value={"status": "ok"}) as probe, patch(
-                "acprof.host.coverage_state.confirm_previous_cleanup", return_value={"status": "complete"}) as confirm:
+                "acprof.host.coverage_state.confirm_previous_cleanup", return_value={"status": "complete", "verified_container_ids": ["c" * 64]}) as confirm:
             retried = self.run_batch(probe="full", resume=True, retry_stages=["cleanup"])
         confirm.assert_called_once()
         assert (probe.call_count) == (1)
@@ -606,3 +606,41 @@ class TestCoverageResume:
             row = json.loads((self.root / "coverage.json").read_text())["rows"][0]
             assert (row["cleanup_origin_attempt_id"]) == (1)
             assert ("original owner UID") in (row["cleanup_recovery"]["error"]["detail"])
+
+    @pytest.mark.parametrize("variant", ["wrong-id", "short-id", "other-type", "known", "unknown-proven"])
+    def test_resume_checks_committed_cleanup_proof_before_the_next_model(self, variant, capsys):
+        self.seed_cleanup_debt()
+        proof = {"status": "complete", "verified_container_ids": ["c" * 64],
+                 "recovered_container_ids": [], "scoped_inventory_empty": True}
+        with patch("acprof.host.coverage_state.confirm_previous_cleanup", return_value=proof), patch(
+                "acprof.host.preparation.model_inspection.validate_model_runtime", return_value={"status": "ok"}):
+            self.run_batch(probe="full", resume=True, retry_stages=["cleanup"])
+        first_path = self.root / "attempts/attempt-000001/attempt.json"
+        next_path = self.root / "attempts/attempt-000002/attempt.json"
+        first = json.loads(first_path.read_bytes())
+        second = json.loads(next_path.read_bytes())
+        recorded = second["rows"][0]["cleanup_recovery"]
+        if variant == "wrong-id":
+            recorded["verified_container_ids"] = ["b" * 64]
+        elif variant != "known":
+            first["rows"][0]["cleanup_errors"][0]["container_id"] = 123 if variant == "other-type" else "short"
+            recorded["verified_container_ids"] = []
+            if variant != "unknown-proven":
+                recorded.pop("scoped_inventory_empty")
+        first_path.write_text(json.dumps(first))
+        next_path.write_text(json.dumps(second))
+        older = first_path.read_bytes(), next_path.read_bytes()
+        manifest = self.temporary / "manifest.json"
+        manifest.write_text(json.dumps(self.sample))
+        with patch("acprof.host.detect.detect_task", side_effect=self.task) as detect, patch(
+                "acprof.host.preparation.model_inspection.validate_model_runtime", return_value={"status": "ok"}) as probe:
+            rc = main(["run", str(manifest), "--output-dir", str(self.root), "--validate-runtime", "--resume"])
+        if variant in {"known", "unknown-proven"}:
+            assert rc == 0
+            assert probe.call_count == 2
+        else:
+            assert rc == 2
+            assert "cleanup" in capsys.readouterr().err
+            probe.assert_not_called()
+            detect.assert_not_called()
+        assert older == (first_path.read_bytes(), next_path.read_bytes())
