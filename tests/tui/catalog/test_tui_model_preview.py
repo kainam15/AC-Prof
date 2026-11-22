@@ -12,6 +12,25 @@ from tests.support.tui_fixtures import AcprofTui
 from tests.support.tui_waits import wait_for_condition
 
 
+def test_late_model_preview_events_leave_the_unmounted_form_alone(tmp_path):
+    from unittest.mock import Mock
+
+    app = AcprofTui(RunConfig.smoke("test/model"), settings_path=tmp_path / "settings.json")
+    # Textual stops its loop before removing widgets and dispatching App.Unmount.
+    app.form_ready = True
+    assert not app.is_running
+    assert not app.ui_closing
+    app.models.current_arguments = Mock(side_effect=AssertionError("form already unmounted"))
+    app.models.gguf_revision = "a" * 40
+
+    app.models.model_edited()
+    app.models.inspect_model()
+    app.models.choose_gguf_file("weights.gguf")
+
+    app.models.current_arguments.assert_not_called()
+    assert app.models.preview_worker is None
+
+
 async def test_completed_edits_replace_old_inspection_and_show_failure(tmp_path, monkeypatch):
     app = AcprofTui(RunConfig.smoke("original/model"), settings_path=tmp_path / "settings.json")
     calls = []

@@ -14,6 +14,7 @@ from acprof.tui.experiments.picker import PickerChoice, PickerTable, SearchPicke
 from acprof.tui.i18n import translate
 from acprof.tui.images.storage import StorageSpaceScreen
 from acprof.tui.logging.export_screen import ExportDirectoryScreen, LogExportScreen
+from acprof.tui.logging.widget import SelectableLog
 from acprof.tui.models.store import ModelStoreScreen
 from acprof.tui.results.profile_screen import ProfilerChoiceScreen
 from acprof.tui.results.profile_status import ProfilerOverview, ProfilerStatus
@@ -158,13 +159,14 @@ async def test_confirm_preparation_and_recovery_screens_structured_and_arrow_key
         confirm.dismiss(False)
         await pilot.pause()
 
+        traceback = 'Traceback (most recent call last):\n  File "load.py", line 7\nRuntimeError: missing file'
         prep = PreparationScreen({
             "stage": "runtime",
             "request": {
                 "id": 1,
                 "kind": "error",
                 "failed_stage": "load",
-                "detail": "RuntimeError: missing file",
+                "detail": traceback,
             },
         })
         app.push_screen(prep)
@@ -172,6 +174,10 @@ async def test_confirm_preparation_and_recovery_screens_structured_and_arrow_key
         assert prep.query_one("#preparation-banner", StatusBanner).summary.level == "error"
         callout = prep.query_one("#preparation-callout", Callout)
         assert "模型未能完成加载" in str(callout.content.problem)
+        assert "RuntimeError: missing file" in str(callout.content.problem)
+        assert "Traceback" not in str(callout.content.problem)
+        assert prep.query_one("#preparation-diagnostics", Collapsible).collapsed
+        assert traceback in prep.query_one("#preparation-traceback", SelectableLog).text
         assert not list(prep.query("#preparation-detail"))
         prep.query_one("#preparation-cancel", Button).focus()
         await pilot.press("right")

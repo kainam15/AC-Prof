@@ -135,10 +135,14 @@ def test_interactive_workflow_does_not_retry_cleanup_failure(stage, monkeypatch)
     assert caught.value is failure
     operation.assert_called_once()
     ask.assert_not_called()
-    observer.assert_any_call(stage, "failed", {
-        "exception_type": "RuntimeCleanupError", "exception_message": str(failure),
-        "reason_code": None,
-    })
+    failed, = [call.args for call in observer.call_args_list if call.args[1] == "failed"]
+    observed_stage, _, evidence = failed
+    assert observed_stage == stage
+    assert evidence["exception_type"] == "RuntimeCleanupError"
+    assert evidence["exception_message"] == str(failure)
+    assert evidence["reason_code"] is None
+    assert evidence["traceback"].startswith("Traceback (most recent call last):")
+    assert evidence["traceback"].rstrip().endswith(f"RuntimeCleanupError: {failure}")
 
 
 def test_public_preparation_uses_the_effective_cpu_set_for_planning_and_validation(prepared_application, monkeypatch):

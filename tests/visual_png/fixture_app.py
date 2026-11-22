@@ -162,19 +162,23 @@ class VisualFixtureApp(AcprofTui):
                                  description="mounted PNG scene refreshed", timeout=5)
 
     async def prepare_scene(self) -> None:
-        pilot = Pilot(self)
-        await pilot.pause()
+        await self.wait_for_refresh()
         tabs = self.query_one("#main-tabs", TabbedContent)
         page = self.scenario.page
-        if tabs.active != page:
-            self.activate_tab(page)
         pane = tabs.query_one(f"#{page}", TabPane)
         button = self.query_one(f"#nav-{page}", Button)
-        await wait_for_condition(
-            pilot,
-            lambda: tabs.active == page and pane.display and pane.region.area > 0 and button.has_class("selected-page"),
-            description=f"PNG scene page {page} visible and selected", timeout=8,
-        )
+        try:
+            async with asyncio.timeout(8):
+                while not (tabs.active == page and pane.display and pane.region.area > 0
+                           and button.has_class("selected-page")):
+                    if tabs.active != page:
+                        self.activate_tab(page)
+                    await tabs.wait_for_refresh()
+        except TimeoutError as exc:
+            raise AssertionError(
+                f"PNG scene {page} did not become visible and selected: "
+                f"active={tabs.active}, region={pane.region}, navigation={button.classes}"
+            ) from exc
         self.scenario.mount(self)
         self.call_after_refresh(self.scene_ready.set)
 

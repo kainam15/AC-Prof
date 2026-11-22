@@ -6,7 +6,7 @@ from dataclasses import replace
 from unittest.mock import Mock
 
 import pytest
-from textual.widgets import Button, TabbedContent
+from textual.widgets import Button, TabbedContent, TabPane
 
 from tests.visual_png.fixture_app import VisualFixtureApp, isolate_fixture
 
@@ -20,6 +20,18 @@ async def test_docker_scene_ready_without_descendant_focus(tmp_path) -> None:
 
     with isolate_fixture() as guard:
         app = NoFocusFixture("docker-frontend-small", settings_path=tmp_path / "settings.json")
+        activate = app.activate_tab
+        activations = []
+
+        def activate_with_initial_focus(page):
+            activate(page)
+            if not activations:
+                # A focus notification from the initial form may still be queued.
+                initial = app.query_one("#run-tab", TabPane)
+                initial.post_message(TabPane.Focused(initial))
+            activations.append(page)
+
+        app.activate_tab = activate_with_initial_focus
         restore = Mock(wraps=app.results.restore_recent_result)
         app.results.restore_recent_result = restore
         mount = app.scenario.mount
@@ -38,6 +50,7 @@ async def test_docker_scene_ready_without_descendant_focus(tmp_path) -> None:
             await app.wait_for_scene(pilot)
             await pilot.pause()
             restore.assert_called_once_with()
+            assert activations.count("monitor-tab") >= 2
             assert navigation == [("monitor-tab", True, True)]
             assert app.query_one("#main-tabs", TabbedContent).active == "monitor-tab"
             assert app.query_one("#download-progress").display

@@ -32,6 +32,10 @@ class ModelController:
         self.preview_edited = False
         self.preview_worker: asyncio.Task[None] | None = None
 
+    @property
+    def _form_active(self) -> bool:
+        return self.app.is_running and self.app.form_ready and not self.app.ui_closing
+
     def current_arguments(self) -> tuple[str, ...]:
         form = self.app.configuration
         arguments = [form.input("model"), "--model-source", form.select("model-source")]
@@ -44,7 +48,7 @@ class ModelController:
         return tuple(arguments)
 
     def choose_gguf_file(self, value) -> None:
-        if (self.gguf_revision and self.current_arguments() == self.preview_arguments
+        if (self.gguf_revision and self._form_active and self.current_arguments() == self.preview_arguments
                 and self.app.operation_state().allows("check")):
             form = self.app.configuration
             form.select_model_candidate(form.input("model"), form.select("model-source"),
@@ -68,7 +72,7 @@ class ModelController:
         widget.display = bool(text)
 
     def model_edited(self) -> None:
-        if not self.app.form_ready or self.app.ui_closing:
+        if not self._form_active:
             return
         arguments = self.current_arguments()
         if arguments == self.preview_arguments:
@@ -82,7 +86,7 @@ class ModelController:
 
     def inspect_model(self, *, submitted: bool = False) -> None:
         """Submit completed edits, preserving a typed but unfinished ID during other checks."""
-        if not self.app.form_ready or self.app.ui_closing or self.app.execution.session.kind:
+        if not self._form_active or self.app.execution.session.kind:
             return
         self.model_edited()
         if submitted and self.preview_worker and not self.preview_edited:
@@ -94,7 +98,8 @@ class ModelController:
         self.resume_preview()
 
     def resume_preview(self) -> None:
-        if not self.preview_pending or self.preview_worker or not self.app.operation_state().allows("check"):
+        if (not self.preview_pending or self.preview_worker or not self._form_active
+                or not self.app.operation_state().allows("check")):
             return
         self.preview_pending = False
         self._show_preview(message_id("models.preview.loading"))
@@ -113,14 +118,14 @@ class ModelController:
             text = message_id("models.preview.timeout")
         except (OSError, RunStateError, ValueError) as exc:
             text = message_id("models.preview.failure", str(exc))
-        if self.app.form_ready and not self.app.ui_closing and arguments == self.current_arguments():
+        if self._form_active and arguments == self.current_arguments():
             self._show_preview(text, summary)
 
     def _preview_finished(self, worker: asyncio.Task[None]) -> None:
         self.preview_worker = None
         if not worker.cancelled():
             worker.result()
-        if self.app.form_ready and not self.app.ui_closing:
+        if self._form_active:
             self.app.set_busy(False)
 
     async def close_preview(self) -> None:

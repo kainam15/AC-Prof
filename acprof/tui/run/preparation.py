@@ -180,7 +180,7 @@ def failure_views(request: dict, stage: str) -> tuple[StatusSummary, CalloutCont
             hints.append(message_id("run.failure.log_incomplete", error))
         reason, hint = join_messages("\n", problem), join_messages("\n", hints)
     elif detail := brief_error(str(request.get("error_summary") or request.get("detail") or "")):
-        reason = detail
+        reason = join_messages("\n", (reason, detail)) if failed in _FAILURE_STAGE_REASONS else detail
     return summary, CalloutContent(
         level="error",
         problem=reason,

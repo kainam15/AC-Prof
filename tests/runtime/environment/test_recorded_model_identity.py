@@ -230,7 +230,35 @@ def test_report_and_picker_use_the_unique_resolved_primary_commit(tmp_path, pin_
         app = Mock()
         ModelController(app).model_candidate_selected(("use", candidate), {MODEL})
         app.configuration.select_model_candidate.assert_called_once_with(
-            MODEL, "modelscope", REVISION if expected == REVISION else "",
+            MODEL, "modelscope", REVISION if expected == REVISION else "", "",
+        )
+
+
+def test_picker_preserves_each_cached_gguf_file_at_the_same_revision(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    from acprof.host.model_store import store
+    from acprof.tui.models.candidates import cached_candidates
+    from acprof.tui.models.controller import ModelController
+
+    model = "audio-cpp/audio.cpp-gguf"
+    variants = {"a" * 64: "asr/weights-Q4_0.gguf", "b" * 64: "asr/weights-Q8_0.gguf"}
+    for entry in variants:
+        (tmp_path / "entries" / entry).mkdir(parents=True)
+    monkeypatch.setattr(store, "read_entry", lambda key, root: {
+        "model_id": model, "model_revision": REVISION, "model_variant": variants[key],
+    })
+    monkeypatch.setattr(store, "model_sources", lambda *args, **kwargs: [SimpleNamespace(cache_status="hit")])
+
+    candidates, warnings = cached_candidates(tmp_path)
+    assert not warnings
+    assert {candidate.model_variant for candidate in candidates} == set(variants.values())
+    for candidate in candidates:
+        app = Mock()
+        ModelController(app).model_candidate_selected(("use", candidate), {model})
+        app.configuration.select_model_candidate.assert_called_once_with(
+            model, "huggingface", REVISION, candidate.model_variant,
         )
 
 
