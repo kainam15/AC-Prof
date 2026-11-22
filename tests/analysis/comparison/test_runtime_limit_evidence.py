@@ -33,7 +33,9 @@ def runtime_pair(tmp_path):
         csv_path = source / "result_all.csv"
         with csv_path.open(newline="") as stream:
             reader = csv.DictReader(stream)
-            fields, row = reader.fieldnames, next(reader)
+            fields = reader.fieldnames
+            assert fields is not None, "comparison fixture requires a CSV header"
+            row = next(reader)
         row.update(runtime_kind=runtime, runtime_id=runtime, resource_limit_source=method,
                    resource_scope="observed_process_tree" if runtime == "process" else "container_cgroup",
                    resource_metric_quality=json.dumps({"schema_version": 1, "metrics": {},
