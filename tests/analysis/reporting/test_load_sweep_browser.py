@@ -242,3 +242,18 @@ def test_dataset_sources_are_visible_safe_and_narrow(browser_page, tmp_path, dat
     settled(page)
     page.wait_for_function("document.documentElement.scrollWidth <= innerWidth")
     assert source.locator("summary").is_visible()
+
+
+def test_formal_request_failures_are_visible_in_the_affected_point(browser_page, tmp_path):
+    from tests.support.load_sweep_fixtures import make_failed_request_sweep
+
+    page, open_report = browser_page
+    root = make_failed_request_sweep(tmp_path / "sweep")
+    open_report(root)
+    healthy, mixed = page.locator("#points tr").all()
+    assert "result.requests" not in healthy.inner_text()
+    cell = mixed.locator("td").last
+    assert cell.is_visible()
+    assert "result.requests: http_error × 4 (HTTP 429 × 1, HTTP 503 × 2, HTTP status unavailable × 1)" in cell.inner_text()
+    assert "result.requests: dropped × 1" in cell.inner_text()
+    assert "result.requests: timeout × 1" in cell.inner_text()

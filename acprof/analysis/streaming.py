@@ -61,6 +61,11 @@ def _interval_samples(
     return values, requests_with_samples
 
 
+def request_error_code(row: Mapping[str, Any]) -> str:
+    """Use the recorded failure code or the terminal status used by older records."""
+    return row.get("error_code", row["status"])
+
+
 def streaming_summary(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     succeeded = [row for row in records if row["status"] == "ok"]
     summary: dict[str, Any] = {
@@ -99,6 +104,6 @@ def streaming_summary(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     ))
     summary["token_count_errors"] = sum(bool(row.get("token_count_error")) for row in succeeded)
     summary["errors"] = dict(Counter(
-        row.get("error_code", row["status"]) for row in records if row["status"] != "ok"
+        request_error_code(row) for row in records if row["status"] != "ok"
     ))
     return summary

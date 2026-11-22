@@ -85,3 +85,21 @@ def change_manifest(root: Path, change) -> None:
     payload = json.loads(path.read_text())
     change(payload)
     write_json(path, payload)
+
+
+def make_failed_request_sweep(root: Path) -> Path:
+    root = make_sweep(root, [LoadConfig(scenario="concurrent", concurrency=n, requests=7) for n in (1, 2)])
+
+    def failures(point):
+        rows = point["result"]["requests"]
+        rows[1:] = [
+            {"status": "error", "error_code": "http_error", "http_status": 503, "sent_s": 0.1},
+            {"status": "error", "error_code": "http_error", "http_status": 503, "sent_s": 0.1},
+            {"status": "error", "error_code": "http_error", "http_status": 429, "sent_s": 0.1},
+            {"status": "error", "error_code": "http_error", "sent_s": 0.1},
+            {"status": "error", "error_code": "timeout", "sent_s": 0.1},
+            {"status": "dropped", "sent_s": None},
+        ]
+    change_point(root, 2, failures)
+    change_manifest(root, lambda manifest: (manifest.update(successful=False), manifest["points"][1].update(successful=False)))
+    return root

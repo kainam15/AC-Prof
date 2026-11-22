@@ -376,3 +376,30 @@ def test_sweep_in_independent_groups_is_rejected_even_with_positional_sources(tm
         main(["report", str(tmp_path / "formal.csv"), "--left", str(root), "--right", "other"])
     assert caught.value.code == 1
     assert "without mixed inputs or comparison options" in capsys.readouterr().err
+
+
+def test_public_sweep_reports_formal_request_errors_without_changing_capacity(tmp_path, monkeypatch):
+    from tests.support.load_sweep_fixtures import make_failed_request_sweep
+
+    root = make_failed_request_sweep(tmp_path / "sweep")
+    files = {path: path.read_bytes() for path in root.rglob("*.json")}
+    monkeypatch.setattr("acprof.host.run_state.offline_analysis_lock", nullcontext)
+    assert main(["report", str(root)]) == 0
+    html = (root / "load_sweep_report.html").read_text()
+    data = json.loads(html.split('<script id="sweep-data" type="application/json">', 1)[1].split("</script>", 1)[0])
+    healthy, mixed = data["points"]
+    assert data["valid_points"] == 2
+    assert healthy["diagnostics"] == []
+    assert mixed["status"] == "complete"
+    assert mixed["successful"] is False
+    assert mixed["curve_eligible"] is True
+    assert mixed["counts"]["failed"] == 5
+    assert mixed["counts"]["dropped"] == 1
+    assert mixed["success_rate"] == pytest.approx(1 / 7)
+    assert mixed["metrics"]["successful_requests_per_s"] == pytest.approx(0.5)
+    assert mixed["diagnostics"] == [
+        "result.requests: dropped × 1",
+        "result.requests: http_error × 4 (HTTP 429 × 1, HTTP 503 × 2, HTTP status unavailable × 1)",
+        "result.requests: timeout × 1",
+    ]
+    assert files == {path: path.read_bytes() for path in files}

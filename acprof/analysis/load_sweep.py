@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections import Counter, defaultdict
 from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any
 
 from acprof.analysis.load_report import analyze_load_report, load_failure_diagnostics
+from acprof.analysis.streaming import request_error_code
 from acprof.artifacts import file_sha256, read_json_object_snapshot, require_schema_version
 from acprof.experiments.load import MAX_SWEEP_POINTS, LoadConfig
 
@@ -159,6 +161,28 @@ def _point_metrics(report: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _request_failure_diagnostics(report: dict[str, Any]) -> list[str]:
+    counts = report["streaming"]["errors"]
+    if not counts:
+        return []
+    http: dict[str, Counter[int]] = defaultdict(Counter)
+    for request in report["experiment"]["result"]["requests"]:
+        status = request.get("http_status")
+        if request["status"] != "ok" and type(status) is int and 100 <= status <= 599:
+            http[request_error_code(request)][status] += 1
+    messages = []
+    for code, count in sorted(counts.items(), key=lambda item: str(item[0])):
+        label = code if isinstance(code, str) and code else "error code unavailable"
+        message = f"result.requests: {label} × {count}"
+        if statuses := http.get(code):
+            details = [f"HTTP {status} × {n}" for status, n in sorted(statuses.items())]
+            if missing := count - statuses.total():
+                details.append(f"HTTP status unavailable × {missing}")
+            message += f" ({', '.join(details)})"
+        messages.append(message)
+    return messages
+
+
 def _read_point(
     point: dict[str, Any], root: Path, sources: dict[Path, str | None], conditions: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
@@ -192,6 +216,7 @@ def _read_point(
                    evidence_status="valid" if complete else "partial")
         if point["status"] != state:
             row["diagnostics"].append(f"manifest status {point['status']} differs from report status {state}")
+        row["diagnostics"].extend(_request_failure_diagnostics(report))
         for message in load_failure_diagnostics(report["experiment"]):
             if message not in row["diagnostics"]:
                 row["diagnostics"].append(message)
