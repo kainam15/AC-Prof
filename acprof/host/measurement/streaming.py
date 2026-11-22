@@ -226,9 +226,11 @@ def _logprob_count(logprobs: dict[str, Any], delta: dict[str, Any] | None) -> tu
             if any(delta.get(field) and not counts.get(field) for field in fields):
                 return observed, False
             has_reasoning = delta.get("reasoning") or delta.get("reasoning_content")
-            if has_reasoning and (delta.get("refusal") or counts.get("refusal")):
-                # Chat logprobs describe content and refusal, not a separate reasoning channel.
-                return observed, False
+            if has_reasoning:
+                # Some servers attach generated-token logprobs to reasoning-only chunks.
+                # In a mixed chunk, named content/refusal entries may cover just that channel.
+                reasoning_only = not (delta.get("content") or delta.get("refusal") or counts.get("refusal"))
+                return observed, reasoning_only and observed > 0
         return observed, True
     tokens = logprobs.get("tokens")
     if tokens is None:
@@ -311,7 +313,8 @@ class OpenAIStreamingAdapter:
             "schema_version": 1, "kind": "openai_streaming", "endpoint": self.endpoint,
             "clock": "perf_counter_relative_seconds", "latency_unit": "seconds",
             "tpot_unit": "seconds_per_output_token", "completion": "sse_done_then_http_eof",
-            **({"text_delta_fields": list(_CHAT_TEXT_FIELDS), "output_modalities": ["text"]}
+            **({"text_delta_fields": list(_CHAT_TEXT_FIELDS), "output_modalities": ["text"],
+                "reasoning_logprobs": "empty_or_mixed_text_incomplete"}
                if self.endpoint == "/v1/chat/completions" else {}),
             "ttft_boundary": "first_nonempty_text_or_explicit_token_output",
             "tpot_boundary": "last_output_minus_first_output_over_output_tokens_minus_one",

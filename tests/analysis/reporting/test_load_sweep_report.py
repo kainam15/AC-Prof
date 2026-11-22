@@ -112,14 +112,16 @@ def test_changed_conditions_are_separate_groups(sweep_reader, tmp_path, change):
     assert points[1]["condition_id"] != points[0]["condition_id"]
 
 
-@pytest.mark.parametrize("missing", ["text_delta_fields", "output_modalities"])
+@pytest.mark.parametrize("missing", ["text_delta_fields", "output_modalities", "reasoning_logprobs"])
 def test_historical_chat_protocols_have_separate_curves(sweep_reader, tmp_path, missing):
     from acprof.host.measurement.streaming import OpenAIStreamingAdapter
 
     root = make_sweep(tmp_path / "sweep")
     current = OpenAIStreamingAdapter().protocol()
     historical = dict(current)
-    historical.pop("output_modalities")
+    historical.pop("reasoning_logprobs")
+    if missing != "reasoning_logprobs":
+        historical.pop("output_modalities")
     if missing == "text_delta_fields":
         historical.pop("text_delta_fields")
 

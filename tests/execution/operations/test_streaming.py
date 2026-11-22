@@ -211,6 +211,43 @@ def test_empty_chat_logprobs_keep_visible_text_with_unknown_token_count():
     assert "contains_refusal" not in record["output_events"][0]
 
 
+@pytest.mark.parametrize("field", ["reasoning", "reasoning_content"])
+@pytest.mark.parametrize(("content", "logs", "lower_bound"), [
+    (None, [], None), ("answer", [{"token": "answer"}], 1),
+])
+def test_reasoning_with_incomplete_logprobs_preserves_timing(field, content, logs, lower_bound):
+    choice = {"delta": {field: "think", "content": content}, "logprobs": {"content": logs, "refusal": []}}
+    chunks = [(0.1, frame({"choices": [choice]})), (0.2, frame("[DONE]"))]
+    record = consume(chunks)
+    event, = record["output_events"]
+    assert record["stream_successful"]
+    assert record["ttft_s"] == 0.1
+    assert event["token_count"] is record["output_tokens"] is record["itl_s"] is None
+    assert event.get("token_count_lower_bound") == lower_bound
+
+
+def test_mixed_reasoning_logprobs_do_not_override_independent_token_evidence():
+    choice = {"delta": {"reasoning": "think", "content": "answer"}, "logprobs": {"content": [{"token": "answer"}]}}
+    for token_ids, source in (([1, 2], "server_event_tokens"), (None, "server_usage")):
+        chunks = [(0.1, frame({"choices": [{**choice, "token_ids": token_ids}]}))]
+        if token_ids is None:
+            chunks.append((0.15, frame(usage(2))))
+        record = consume([*chunks, (0.2, frame("[DONE]"))])
+        assert record["output_tokens"] == 2
+        assert record["output_token_count_source"] == source
+
+
+def test_reasoning_only_logprobs_keep_explicit_tokens_and_reject_conflicts():
+    choice = {"delta": {"reasoning": "think"}, "logprobs": {"content": [{"token": "think"}]}}
+    chunks = [(0.1, frame({"choices": [choice]})), (0.2, frame("[DONE]"))]
+    record = consume(chunks)
+    assert record["output_tokens"] == 1
+    assert record["output_token_count_source"] == "server_event_tokens"
+    with pytest.raises(StreamProtocolError) as error:
+        consume([(0.1, frame({"choices": [{**choice, "token_ids": []}]})), (0.2, frame("[DONE]"))])
+    assert error.value.code == "invalid_token_evidence"
+
+
 def test_refusal_text_has_timing_without_inventing_tokens():
     record = consume([
         (0.01, frame(chat(role="assistant", refusal=None))),

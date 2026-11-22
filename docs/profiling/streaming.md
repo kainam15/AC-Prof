@@ -210,8 +210,9 @@ acprof load --base-url http://127.0.0.1:8000 --protocol openai-chat \
 Chat 的 `delta.refusal` 属于模型输出。含拒答文本或拒答 Token 证据的事件标记 `contains_refusal=true`。
 同帧的推理、正文、拒答文本共享一个接收时刻。正文与拒答各自的 `logprobs` 可提供 Token 计数；
 某个非空文本字段缺少 Token 条目时，该字段的数量未知。仅覆盖部分文本时，已知正数记录为 `token_count_lower_bound`，整帧计数留空，独立的完整 Token 证据仍可用。
+仅含推理文本的事件即使返回空的 `logprobs.content`，仍记录输出时刻；有实际 Token 条目时可使用其计数。推理与正文或拒答同帧时，命名字段的条目只提供整帧计数下界，完整 `token_ids` 或覆盖最后输出的服务端 usage 可分别确定事件或请求的 Token 数。
 成功结束的拒答可参与时延 SLO 和 Goodput，指标衡量响应时效。新 Chat 实验在 adapter 身份中记录
-`text_delta_fields`，旧实验沿用保存的观测，新旧口径在 sweep 中分别分组。
+`text_delta_fields` 和推理 Token 的判定方式 `reasoning_logprobs`，旧实验沿用保存的观测，新旧口径在 sweep 中分别分组。
 协议字段见 [ChatCompletionChunk](https://github.com/openai/openai-python/blob/main/src/openai/types/chat/chat_completion_chunk.py)。
 
 role-only、usage-only、心跳、空文本元数据、结束标记不产生虚假输出时间点。
