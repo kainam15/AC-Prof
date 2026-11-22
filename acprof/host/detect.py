@@ -733,10 +733,7 @@ def _fallback_config_info(
             read_config_groups(groups, read_cached)
             info.model_config = _architecture_metadata(info.repository_metadata.get("config.json"))
         else:
-            config_data = _read_json_metadata(metadata, filename=filename)
-            if not isinstance(config_data, dict):
-                raise ValueError(f"{filename} must contain dict")
-            info.repository_metadata[filename] = config_data
+            info.repository_metadata[filename] = _repository_json(metadata, filename, [], source["sha256"])
     except MetadataValidationError as exc:
         info.metadata_errors = (str(exc),)
         info.metadata_diagnostics = tuple(exc.diagnostics)

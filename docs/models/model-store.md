@@ -73,6 +73,8 @@ ModelScope 在单次模型发现中按仓库 ID 和已固定的 commit 复用递
 HF 固定 revision 下载保留 SDK 预检大小及 commit 检查。配置、依赖元数据和静态源码解析不再重新打开缓存路径，
 因此校验后的文件替换或删除不会改变本次识别依据。原始 snapshot 路径仍用于固定 revision 核对；
 配置、依赖元数据和静态源码分别保留 1 MiB、4 MiB 和 256 KiB 上限，拒绝非普通文件和读取中超限的内容。
+Hub 查询失败后，`acprof inspect` 对固定快照中的 `config.json` 仍要求 JSON 对象。已读取的列表或 `null` 会在
+`model_resolution.json` 中记录为 `metadata_invalid`，并附文件名、根 JSON Pointer 和原始字节的 SHA-256。
 设计参考 [python-tuf 的元数据校验与解析](https://github.com/theupdateframework/python-tuf/blob/develop/tuf/ngclient/_internal/trusted_metadata_set.py)
 （Apache-2.0）；使用现有标准库，不引入 TUF 依赖。该处理仅用于准备阶段，清单 schema 和测量窗口不变。
 

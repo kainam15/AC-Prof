@@ -161,3 +161,34 @@ def test_pinned_snapshot_without_file_inventory_keeps_unknown_layout(tmp_path):
     assert result["artifact_layout"]["status"] == "unknown"
     assert result["compatibility"]["status"] == "unknown"
     assert "failure" not in result
+
+
+@pytest.mark.parametrize(("source", "content"), [("huggingface", b"[]"), ("modelscope", b"null")])
+def test_inspect_keeps_invalid_cached_config_evidence_without_hub_info(tmp_path, monkeypatch, source, content):
+    revision = "e" * 40
+    repo = "fixture/cached-root"
+    path = tmp_path / "snapshots" / revision / "config.json"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(content)
+    monkeypatch.setenv("ACPROF_MODEL_SOURCE", source)
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+    monkeypatch.setattr("acprof.host.model_store.store.cached_model_info", lambda *a, **kw: None)
+    monkeypatch.setattr("acprof.host.model_store.store.cached_metadata",
+                        lambda model, name, *a, **kw: MetadataFile(path, path.read_bytes()) if name == "config.json" else None)
+    endpoint = "huggingface_hub.HfApi.model_info" if source == "huggingface" else "acprof.hub.repository.modelscope_info"
+    output = tmp_path / "report"
+    with patch(endpoint, side_effect=ConnectionError("provider temporarily unavailable")), patch("acprof.host.env_utils.bootstrap_project_env"):
+        rc = main(["inspect", repo, "--revision", revision, "--model-source", source,
+                   "--task", "fill-mask", "--output-dir", str(output)])
+    assert rc == 2
+    report = json.loads((output / "model_resolution.json").read_bytes())
+    assert (report["model_source"], report["model_id"], report["model_revision"]) == (source, repo, revision)
+    assert (report["status"], report["runtime_validation"]) == ("blocked", "not_run")
+    failure = report["failure"]
+    assert failure["reason_code"] == "metadata_invalid"
+    assert failure["retryability"] == "not_retryable"
+    item, = failure["evidence"]["diagnostics"]
+    assert (item["file"], item["json_pointer"], item["raw_sha256"]) == (
+        "config.json", "", hashlib.sha256(content).hexdigest())
+    assert failure["evidence"]["sources"]["config.json"]["sha256"] == item["raw_sha256"]
+    assert path.read_bytes() == content
