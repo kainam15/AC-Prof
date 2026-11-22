@@ -211,6 +211,7 @@ probe 证据使用 `startup_oom_pruning.json` schema v2，逐次原子保存启�
 `matrix_order`、`seed`（CLI 的 `--matrix-seed`）、`algorithm_version=sha256-sort-v1` 和 `plan_sha256`。
 恢复会分别核对身份和每个 case 的 `input_scales`。若原文件记录的尺度经过运行时浮点转换后会变成另一个
 十进制坐标，恢复会在执行该矩阵前报错。例如 `2.0000000000000001` 不能代替已冻结的 `2.0`。
+矩阵按执行尺度检查重复项和输入计划覆盖。例如同一坐标的整数和科学计数法可分别匹配计划里的同一项，同时列入矩阵则会报重复。
 `seeded` 按 seed 与资源键的 SHA256 排序；input scale 由 seed 与该资源键派生独立 seed 后排序，
 不共享可变 RNG 状态，也不受其它 case 数量影响。`declared` 保持参数和输入计划的声明顺序。
 hash 对不含 `plan_sha256` 的规范 JSON 计算；探测时间戳不进入计划。

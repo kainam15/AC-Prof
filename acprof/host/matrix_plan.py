@@ -30,19 +30,21 @@ def matrix_identity(task, image, cpus, mems, gpus, scales, *, order, seed,
     gpus = [normalize_gpu_mode(value) for value in gpus]
     if order not in {"seeded", "declared"} or type(seed) is not int:
         raise ValueError("matrix order must be seeded/declared and seed must be an integer")
-    if any(not values or len(set(values)) != len(values) for values in (cpus, mems, gpus, scales)):
+    if not scales or any(not values or len(set(values)) != len(values) for values in (cpus, mems, gpus)):
         raise ValueError("matrix resource and scale lists must be non-empty and unique")
     from acprof.host.runtimes.contracts import runtime_kind
     if any((type(value) is not int or value <= 0) and not (value is None and runtime_kind(image) == "process")
            for value in [*cpus, *mems]):
         raise ValueError("matrix CPUs and memory must be positive integers")
-    for index, scale in enumerate(scales):
-        executable_input_scale(scale, f"matrix identity.input_scales[{index}]")
+    executable_scales = {executable_input_scale(scale, f"matrix identity.input_scales[{index}]")
+                         for index, scale in enumerate(scales)}
+    if len(executable_scales) != len(scales):
+        raise ValueError("matrix input scales must be unique")
     from acprof.cpu_affinity import normalize_cpu_set
     from acprof.host.runtimes.contracts import runtime_identity, runtime_kind
     if input_plan_file:
         snapshot = read_input_scale_plan_snapshot(
-            input_plan_file, expected_sha256=input_plan_sha256 or None, expected_scales=set(scales),
+            input_plan_file, expected_sha256=input_plan_sha256 or None, expected_scales=executable_scales,
         )
         input_plan_sha256 = input_plan_sha256 or hashlib.sha256(snapshot.content).hexdigest()
     elif input_plan_sha256:

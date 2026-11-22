@@ -316,8 +316,10 @@ def read_input_scale_plan_snapshot(
         index, value = next(iter(snapshot.exact_input_scales.items()))
         raise ValueError(f"input_scale at index {index} cannot round-trip through the runtime: {value}")
     scales = input_plan_scales(snapshot.payload)
-    if expected_scales is not None and scales != expected_scales:
-        raise ValueError(f"{path}: input plan scales do not match the matrix scales")
+    if expected_scales is not None:
+        expected = {executable_input_scale(scale, "expected input_scale") for scale in expected_scales}
+        if len(expected) != len(expected_scales) or scales != expected:
+            raise ValueError(f"{path}: input plan scales do not match the matrix scales")
     return snapshot
 
 

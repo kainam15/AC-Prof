@@ -12,6 +12,9 @@ from acprof.host.cases import CaseMeasurement, CasePlans, CaseWorkload, MatrixRe
 from acprof.host.detect import TaskInfo
 from acprof.host.images.runtime import ImageInfo
 
+# Its runtime float prints the same decimal coordinate, but compares unequal to this int.
+LARGE_DECIMAL_SCALE = 1_000_000_000_000_000_100
+
 
 class TestMatrixPlan:
     @pytest.fixture(autouse=True)
@@ -20,6 +23,36 @@ class TestMatrixPlan:
         self.task = TaskInfo('org/model', 'fill-mask', 'nlp', 'transformers_pipeline',
                              'transformers', 'a' * 40, 'manual')
         self.image = ImageInfo('sha256:' + 'b' * 64)
+
+    def test_matrix_rejects_duplicate_executable_scales_even_without_a_materialized_plan(self):
+        from acprof.host.matrix_plan import matrix_identity
+
+        scales = [LARGE_DECIMAL_SCALE, float(LARGE_DECIMAL_SCALE)]
+        with pytest.raises(ValueError, match="unique|duplicate"):
+            matrix_identity(self.task, self.image, [1], [1], ["off"], scales, order="declared", seed=0, prune=False)
+
+    @pytest.mark.parametrize("plan_scale", [LARGE_DECIMAL_SCALE, float(LARGE_DECIMAL_SCALE)], ids=["int", "float"])
+    def test_large_decimal_scale_matches_materialized_entry_and_preserves_frozen_identity(self, tmp_path, plan_scale):
+        from acprof.artifacts import read_input_scale_plan_snapshot
+        from acprof.host.matrix_plan import freeze_matrix_plan, matrix_identity
+
+        input_path = tmp_path / "input_scale_plan.json"
+        input_path.write_text(json.dumps({"schema_version": 2, "entries": [{"input_scale": plan_scale, "payload": {}}]}))
+        snapshot = read_input_scale_plan_snapshot(input_path, expected_scales={LARGE_DECIMAL_SCALE})
+        assert type(snapshot.payload["entries"][0]["input_scale"]) is type(plan_scale)
+        identity = matrix_identity(self.task, self.image, [1], [1], ["off"], [LARGE_DECIMAL_SCALE],
+                                   order="declared", seed=0, prune=False, input_plan_file=input_path)
+        assert identity["input_plan_sha256"] == hashlib.sha256(snapshot.content).hexdigest()
+        path = tmp_path / "matrix_plan.json"
+        written = freeze_matrix_plan(path, identity, {})
+        original = path.read_bytes()
+        assert freeze_matrix_plan(path, identity, {}) == written
+        for record in (written["identity"], *written["cases"]):
+            assert record["input_scales"] == [LARGE_DECIMAL_SCALE]
+            assert type(record["input_scales"][0]) is int
+        with pytest.raises(ValueError, match="identity/options changed"):
+            freeze_matrix_plan(path, {**identity, "input_scales": [float(LARGE_DECIMAL_SCALE)]}, {})
+        assert path.read_bytes() == original
 
     def run_matrix(self, directory, **options):
         request = MatrixRequest(
