@@ -41,13 +41,13 @@ BERT 后处理：Torch CPU/GPU **4/4**、NCU **2/2**、Nsys **2/2**，Massif **0
 
 ### 模型识别与冻结推理配置
 
-ModelScope 自动任务选择使用固定版本的配置与模型声明；历史缓存中的仓库当前任务标签已通过离线回放验证。静态发现区分固定版本元数据读取失败与文件内容损坏；离线缓存缺少仓库索引时仍保留配置内容及来源，能区分配置结构错误、待选择任务与运行时未支持。静态报告保留固定配置中的权重精度及顶层或解码器量化声明。确认只有 GGUF 或 Core ML 且缺少兼容加载器时，检查会直接给出制品证据。类型化参数协议、CLI / TUI Auto 与手动审阅、预设选择、输入计划 SHA 冻结及恢复身份检查已接入；`static_meta.json.inference_configuration` 保留配置与来源证据。句向量、Whisper、Chronos、VitPose / SuperPoint 单图关键点检测、多模态和 Diffusers 等有定向离线覆盖，**不代表所有新 checkpoint 均可实测运行**。历史实验复用保留模型来源、已解析的仓库 ID 与固定 commit，严格续跑仍核对冻结请求；coverage 的参数预算保留有效但未命名 dtype 的数量。新一轮 GPU 预检失败后可修正配置并重试。Process 负载重放按保存的物理 GPU UUID 复核原设备，已覆盖默认和序号选择。中断续跑仍先核验未提交模型行的原清理状态。上述行为已有离线回归。Top 100 目前只有用户提供的 **41 / 25 / 25 / 4 / 4 / 1** 汇总，缺少可逐项复核的原始名单及固定 revision，不能计算真实通过率。[参数协议](models/inference-configuration.md) · [静态元数据](profiling/metadata.md) · [Kokoro 边界](models/adaptation.md#kokoro-原生适配)。
+ModelScope 自动识别依据固定版本的配置与模型声明选择任务和加载库。历史缓存中仓库任务或库标签变化时，BERT 与 Diffusers 路线已有离线对照。静态发现区分固定版本元数据读取失败与文件内容损坏；离线缓存缺少仓库索引时仍保留配置内容及来源，能区分配置结构错误、待选择任务与运行时未支持。静态报告保留固定配置中的权重精度及顶层或解码器量化声明。确认只有 GGUF 或 Core ML 且缺少兼容加载器时，检查会直接给出制品证据。类型化参数协议、CLI / TUI Auto 与手动审阅、预设选择、输入计划 SHA 冻结及恢复身份检查已接入；`static_meta.json.inference_configuration` 保留配置与来源证据。句向量、Whisper、Chronos、VitPose / SuperPoint 单图关键点检测、多模态和 Diffusers 等有定向离线覆盖，**不代表所有新 checkpoint 均可实测运行**。历史实验复用保留模型来源、已解析的仓库 ID 与固定 commit，严格续跑仍核对冻结请求；coverage 的参数预算保留有效但未命名 dtype 的数量。新一轮 GPU 预检失败后可修正配置并重试。Process 负载重放按保存的物理 GPU UUID 复核原设备，已覆盖默认和序号选择。中断续跑仍先核验未提交模型行的原清理状态。上述行为已有离线回归。Top 100 目前只有用户提供的 **41 / 25 / 25 / 4 / 4 / 1** 汇总，缺少可逐项复核的原始名单及固定 revision，不能计算真实通过率。[参数协议](models/inference-configuration.md) · [静态元数据](profiling/metadata.md) · [Kokoro 边界](models/adaptation.md#kokoro-原生适配)。
 
 ### 结果质量、恢复与服务口径
 
-Docker / Process 的报告、审计、比较和离线 HTML 统一按**来源身份、精确窗口坐标、采样条件和指标质量**判断可比性；冻结计划及提交／恢复前核对原始证据，失效或缺失保留 `unknown` 或诊断，不静默改写。独立实验比较按坐标核对指标证据。同一 runtime 中，HTML 与 CLI 已对齐缺包窗口的描述性差值，质量不足的有限测量仍保留拒绝比较的原因。HTML 配置按 CPU / GPU 归属质量检查，历史 CSV 审计按表头统计未记录的指标。已有事务、取消、崩溃及兼容性恢复的离线回归；真实测量中断、Docker daemon / Model Store 恢复仍待现场证据。[结果字段](results/fields.md) · [实验产物与恢复](profiling/artifacts.md) · [实验比较](results/comparisons.md)。
+Docker / Process 的报告、审计、比较和离线 HTML 统一按**来源身份、精确窗口坐标、采样条件和指标质量**判断可比性；冻结计划及提交／恢复前核对原始证据，失效或缺失保留 `unknown` 或诊断，不静默改写。严格审计与 Profiler 补采已对照冻结输入计划的原始字节。独立实验比较按坐标核对指标证据，并识别指向同一份 CSV 的硬链接。同一 runtime 中，HTML 与 CLI 已对齐缺包窗口的描述性差值，质量不足的有限测量仍保留拒绝比较的原因。HTML 配置按 CPU / GPU 归属质量检查，历史 CSV 审计按表头统计未记录的指标。已有事务、取消、崩溃及兼容性恢复的离线回归；真实测量中断、Docker daemon / Model Store 恢复仍待现场证据。[结果字段](results/fields.md) · [实验产物与恢复](profiling/artifacts.md) · [实验比较](results/comparisons.md)。
 
-流式基础已覆盖 OpenAI Chat / Completions SSE、TTFT、TPOT、ITL、E2E、成功率和 SLO Goodput，包含 Qwen3-0.6B + vLLM 对照；推理文本的时延和部分 Token 计数、并发负载、sweep 逐点请求错误统计与部分请求已观测的输出 Token、vLLM / SGLang exporter 与阶段直方图有离线或本地 HTTP 验证。**共享直方图不是逐请求精确计时，共享 GPU 能耗不能直接解释为每请求的精确 Token 能耗。**[服务画像](profiling/streaming.md)。
+OpenAI Chat / Completions SSE 的成功率和 SLO Goodput 已覆盖服务端中止后仍发送 `[DONE]` 的情况。TTFT、TPOT、ITL、E2E 包含 Qwen3-0.6B + vLLM 对照；推理文本的时延和部分 Token 计数、并发负载、sweep 逐点请求错误统计与部分请求已观测的输出 Token、vLLM / SGLang exporter 与阶段直方图有离线或本地 HTTP 验证。**共享直方图不是逐请求精确计时，共享 GPU 能耗不能直接解释为每请求的精确 Token 能耗。**[服务画像](profiling/streaming.md)。
 
 ## 文档维护
 
