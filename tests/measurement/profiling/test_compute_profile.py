@@ -4,6 +4,7 @@ import os
 import tempfile
 from contextlib import nullcontext
 from functools import partial
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -55,6 +56,18 @@ def _ncu_resume_csv_text() -> str:
         '"0","kernel_a","10","100","1000"',
         '"1","kernel_b","20","300","2000"',
     ])
+
+
+def _ncu_commands_with_report(root, collection, exported):
+    def run(command, **_kwargs):
+        if "-o" in command:
+            filename = Path(command[command.index("-o") + 1]).name
+            assert filename.endswith(".ncu-rep")
+            (Path(root) / filename).write_bytes(b"native report")
+            return collection
+        assert "--import" in command
+        return exported
+    return run
 
 
 class TestComputeProfile:
@@ -605,7 +618,7 @@ class TestComputeProfile:
                 return_value=[],
             ), patch(
                 "acprof.host.profiling.tools.ncu.run_profiler_command",
-                side_effect=[collect_result, import_result],
+                side_effect=_ncu_commands_with_report(profile_root, collect_result, import_result),
             ):
                 result = ncu._run_ncu_for_entry(
                     ncu_bin="/usr/bin/ncu",
@@ -666,7 +679,7 @@ class TestComputeProfile:
                 return_value=[],
             ), patch(
                 "acprof.host.profiling.tools.ncu.run_profiler_command",
-                side_effect=[command_result, command_result],
+                side_effect=_ncu_commands_with_report(profile_root, command_result, command_result),
             ):
                 result = ncu._run_ncu_for_entry(
                     ncu_bin="/usr/bin/ncu",
@@ -964,6 +977,118 @@ class TestComputeProfile:
                     profile_root,
                     f"ncu_scale_{scale}.checkpoint.json",
                 )))
+
+    @pytest.fixture
+    def ncu_attempt(self, tmp_path, monkeypatch):
+        task = TaskInfo(model_id="fixture/model", model_revision="rev", task_family="nlp",
+                        pipeline_tag="fill-mask", runtime_backend="transformers_pipeline",
+                        library_name="transformers", detection_method="fixture")
+        events = []
+        outcomes = {}
+        metric = "smsp__sass_thread_inst_executed_op_ffma_pred_on.sum"
+
+        def run(cmd, **_kwargs):
+            if "-o" in cmd:
+                filename = Path(cmd[cmd.index("-o") + 1]).name
+                if not filename.endswith(".ncu-rep"):
+                    filename += ".ncu-rep"
+                (tmp_path / filename).write_bytes(b"captured kernels")
+                kind = "collect"
+            else:
+                assert "--import" in cmd
+                assert (tmp_path / Path(cmd[cmd.index("--import") + 1]).name).is_file()
+                kind = "export"
+            events.append(kind)
+            stdout = ('{"gpu_sm_count":24}' if kind == "collect" else _ncu_resume_csv_text())
+            return SimpleNamespace(returncode=outcomes.get(kind, 0), stdout=stdout, stderr=kind + " failed")
+
+        monkeypatch.setattr(ncu, "run_profiler_command", run)
+        monkeypatch.setattr(ncu, "profiler_container_command", lambda **kw: nullcontext(["fixture"]))
+        monkeypatch.setattr(ncu, "_resolve_ncu_metrics", lambda *_a: ([metric], ""))
+        monkeypatch.setattr(ncu, "_ncu_collect_filter_args", lambda *_a: [])
+        monkeypatch.setattr(ncu, "_ncu_section_args", lambda *_a: [])
+
+        def profile(*, resume=False, cpu=1, mem=4, **options):
+            result = ncu.profile_gpu_entries(
+                entries=[{"input_scale": 1}], ncu_bin="/fixture/ncu", ncu_root=None,
+                task_info=task, image_tag="image", cpu=cpu, mem=mem, payload_file="unused",
+                profile_root=str(tmp_path), repeat=1, resume_existing=resume, **options,
+            )
+            return result["entries"][0]
+
+        return profile, outcomes, events
+
+    def test_failed_ncu_command_cannot_publish_a_resumable_report(self, tmp_path, ncu_attempt):
+        profile, outcomes, events = ncu_attempt
+        outcomes["collect"] = 1
+        failed = profile()
+        assert failed["error"].startswith("ncu_failed:")
+        outcomes.clear()
+        recovered = profile(resume=True)
+        assert events == ["collect", "collect", "export"]
+        assert (tmp_path.parent / failed["report"]).read_bytes() == b"captured kernels"
+        assert ncu._ncu_entry_complete(recovered)
+
+    def test_resume_after_failed_ncu_export_uses_new_native_report(self, tmp_path, ncu_attempt):
+        profile, outcomes, events = ncu_attempt
+        stale = _ncu_resume_csv_text().replace('"300"', '"900"')
+        (tmp_path / "ncu_scale_1.csv").write_text(stale)
+        outcomes["export"] = 1
+        failed = profile()
+        assert failed["error"].startswith("ncu_import_failed:")
+        outcomes.clear()
+        recovered = profile(resume=True)
+        assert events == ["collect", "export", "export"]
+        assert recovered["gpu_executed_mflop_per_request_ncu"] == 0.00046
+        assert recovered["gpu_sm_count"] == 24
+        assert (tmp_path.parent / failed["report"]).suffix == ".ncu-rep"
+
+    @pytest.mark.parametrize("change", ["same-size-csv", "checkpoint-value", "cpu", "memory"])
+    def test_ncu_resume_refuses_disagreeing_evidence(self, tmp_path, ncu_attempt, change):
+        profile, _outcomes, events = ncu_attempt
+        assert ncu._ncu_entry_complete(profile())
+        if change == "same-size-csv":
+            raw = tmp_path / "ncu_scale_1.csv"
+            raw.write_text(raw.read_text().replace('"300"', '"900"'))
+        if change == "checkpoint-value":
+            checkpoint = tmp_path / "ncu_scale_1.checkpoint.json"
+            recorded = json.loads(checkpoint.read_text())
+            recorded["entry"]["gpu_executed_mflop_per_request_ncu"] = 91
+            checkpoint.write_text(json.dumps(recorded))
+        recovered = profile(resume=True, cpu=4 if change == "cpu" else 1, mem=8 if change == "memory" else 4)
+        assert events == ["collect", "export", "collect", "export"]
+        assert recovered["gpu_executed_mflop_per_request_ncu"] == 0.00046
+
+    @pytest.mark.parametrize("unbound", ["allowed", "previous-collection-failed", "explicit-resources"])
+    def test_legacy_native_report_recovery(self, tmp_path, ncu_attempt, unbound):
+        profile, _outcomes, events = ncu_attempt
+        (tmp_path / "ncu_scale_1.csv").write_text("incomplete")
+        (tmp_path / "ncu_scale_1.ncu-rep").write_bytes(b"legacy native")
+        failed = {"entries": [{"input_scale": 1, "error": "ncu_failed:runner exited 1"}]}
+        recovered = profile(
+            resume=True, allow_legacy_recovery=unbound != "explicit-resources",
+            previous_plan={"profiles": {"gpu": {"ncu": failed}}} if unbound == "previous-collection-failed" else None,
+        )
+        assert events == (["export"] if unbound == "allowed" else ["collect", "export"])
+        assert recovered["gpu_executed_mflop_per_request_ncu"] == 0.00046
+        checkpoint = json.loads((tmp_path / "ncu_scale_1.checkpoint.json").read_text())
+        assert ("resources" in checkpoint) == (unbound != "allowed")
+
+    def test_crash_publishing_ncu_report_prevents_mixing_old_csv(self, tmp_path, ncu_attempt, monkeypatch):
+        profile, _outcomes, events = ncu_attempt
+        assert ncu._ncu_entry_complete(profile())
+        writer = ncu.write_profile_json
+
+        def interrupted(path, payload):
+            if payload.get("status") == "report_ready":
+                raise OSError("interrupted publication")
+            writer(path, payload)
+
+        with monkeypatch.context() as context:
+            context.setattr(ncu, "write_profile_json", interrupted)
+            assert "interrupted publication" in profile()["error"]
+        assert ncu._ncu_entry_complete(profile(resume=True))
+        assert events == ["collect", "export", "collect", "collect", "export"]
 
     def test_ncu_resume_rejects_checkpoint_from_different_repeat(self) -> None:
         task_info = TaskInfo(

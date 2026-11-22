@@ -109,9 +109,11 @@ Torch 匹配已有 CPU/GPU 数据，NCU/Nsys 只用于 GPU 行，Massif 只用�
 补采沿用前述 Massif/Nsys 采样策略，也支持 `--massif-sampling full`、
 `--nsys-sampling per-scale` 或 `--nsys-sampling full`。
 
-NCU 和 Massif 会按 input scale 保存 checkpoint。NCU 可复用匹配的 CSV 或从已有
-`.ncu-rep` 恢复，Massif 可复用匹配的 `.out`；模型 revision、镜像、资源、repeat 和
-NCU metrics（适用时）必须匹配，才能恢复旧报告。分析固定使用不可变镜像 ID，
+NCU 和 Massif 按 input scale 保存 checkpoint。恢复时核对模型 revision、镜像、repeat 和各工具记录的资源条件。NCU 还核对指标列表，并从 CSV 重新计算六项指标，与当前公式版本的 checkpoint 逐项核对。新采集记录 CPU 和内存限额。显式指定补采限额时，缺少资源记录的历史原始报告需要重采。
+
+NCU 先写入本次尝试的 `.partial.ncu-rep`。命令失败留下的文件可用于诊断，续跑会重新采集该尺度。命令成功后才发布正式 `.ncu-rep`，随后的 CSV 导出如果中断，续跑从该报告重新导出，并保留采集时的 GPU 探测信息。历史目录仍支持从完整 CSV 或已有 `.ncu-rep` 恢复；如果已有计划明确记载该尺度采集失败，缺少采集身份的残留文件会触发重采。
+
+Massif 可复用匹配的 `.out`。分析固定使用不可变镜像 ID，
 旧 tag 形式的 Massif checkpoint 与新 ID 不匹配时会重采。Massif 新采集先写入本次尝试的
 `.partial` 文件，命令成功且快照解析通过后才发布正式 `.out` 和 checkpoint。失败或中断留下的
 `.partial` 可用于诊断，续跑时重新采集该尺度。恢复正式 `.out` 时会重新解析快照，并与匹配 checkpoint（历史目录无 checkpoint 时使用已有计划）中该尺度的 heap、heap-extra、stack 峰值、总峰值及其时间逐项核对。记录出错或数值不一致时重采。完整成功的已有 plan 也可复用。

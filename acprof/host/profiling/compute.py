@@ -16,6 +16,7 @@ from acprof.gpu_probe import gpu_compute_value, is_gpu_probe_report, record_gpu_
 from acprof.host.detect import TaskInfo
 from acprof.host.gpu_device import selected_gpu_device
 from acprof.host.profiling.cleanup import discard_profile_artifacts
+from acprof.host.profiling.compute_plan import load_compute_profile_plan
 from acprof.host.profiling.progress import (
     ProfilerProgressCallback,
     report_profiler_completion,
@@ -259,6 +260,7 @@ def collect_compute_profile_plan(
     from acprof.results.layout import ArtifactLayout
     layout = ArtifactLayout.discover(output_dir)
     profile_root = str(layout.path("compute_profiles"))
+    plan_path = str(layout.path(COMPUTE_PROFILE_PLAN_NAME))
     entries = load_input_scale_plan_entries(input_scale_plan_file)
     payload_file = input_scale_plan_file
 
@@ -406,6 +408,9 @@ def collect_compute_profile_plan(
                     profile_root=profile_root,
                     repeat=ncu_repeat,
                     resume_existing=resume_existing_ncu_profiles,
+                    allow_legacy_recovery=compute_profile_cpus is None and compute_profile_mem is None,
+                    previous_plan=load_compute_profile_plan(plan_path, exact_decimals=True)
+                    if resume_existing_ncu_profiles and os.path.isfile(plan_path) else None,
                 ),
             )
             report_profiler_completion(
@@ -491,7 +496,6 @@ def collect_compute_profile_plan(
         "static_metadata": static_metadata,
         "profiles": profiles,
     }
-    plan_path = str(layout.path(COMPUTE_PROFILE_PLAN_NAME))
 
     if not keep_profiles:
         discard_profile_artifacts(profile_root, plan_path)

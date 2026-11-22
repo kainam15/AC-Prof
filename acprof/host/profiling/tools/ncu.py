@@ -7,8 +7,9 @@ import os
 import re
 from collections.abc import Iterable, Sequence
 from typing import Any
+from uuid import uuid4
 
-from acprof.artifacts import atomic_write, read_json_object
+from acprof.artifacts import atomic_write, read_json_object, replace_file_durably
 from acprof.gpu_probe import (
     gpu_compute_value,
     gpu_probe_report,
@@ -18,6 +19,7 @@ from acprof.gpu_probe import (
 )
 from acprof.host.detect import TaskInfo
 from acprof.host.profiling.commands import run_profiler_command
+from acprof.host.profiling.compute_plan import NCU_ERROR_FIELD, find_compute_profile_entry
 from acprof.host.profiling.support import (
     format_scale_value,
     parse_last_json_line,
@@ -373,6 +375,20 @@ def _ncu_checkpoint_matches(
     )
 
 
+def _ncu_checkpoint_identity(
+    task_info: TaskInfo, image_tag: str, input_scale: float, repeat: int, metrics: Sequence[str],
+) -> dict[str, Any]:
+    return {
+        "schema_version": NCU_CHECKPOINT_SCHEMA_VERSION,
+        "model_id": task_info.model_id,
+        "model_revision": task_info.model_revision or "main",
+        "image_tag": image_tag,
+        "input_scale": float(input_scale),
+        "repeat": max(1, int(repeat)),
+        "metrics": list(metrics),
+    }
+
+
 def _write_ncu_checkpoint(
     *,
     checkpoint_path: str,
@@ -383,21 +399,13 @@ def _write_ncu_checkpoint(
     metrics: Sequence[str],
     host_csv: str,
     entry: dict[str, Any],
+    resources: dict[str, int] | None = None,
 ) -> None:
-    write_profile_json(
-        checkpoint_path,
-        {
-            "schema_version": NCU_CHECKPOINT_SCHEMA_VERSION,
-            "model_id": task_info.model_id,
-            "model_revision": task_info.model_revision or "main",
-            "image_tag": image_tag,
-            "input_scale": float(input_scale),
-            "repeat": max(1, int(repeat)),
-            "metrics": list(metrics),
-            "csv_size_bytes": os.path.getsize(host_csv),
-            "entry": entry,
-        },
-    )
+    checkpoint = _ncu_checkpoint_identity(task_info, image_tag, input_scale, repeat, metrics)
+    if resources is not None:
+        checkpoint["resources"] = resources
+    checkpoint.update(csv_size_bytes=os.path.getsize(host_csv), entry=entry)
+    write_profile_json(checkpoint_path, checkpoint)
 
 
 def _resume_ncu_for_entry(
@@ -413,136 +421,88 @@ def _resume_ncu_for_entry(
     tool_mount_roots: Sequence[str],
     entry: dict[str, Any],
     repeat: int,
+    allow_legacy_recovery: bool = True,
 ) -> dict[str, Any] | None:
     input_scale = float(entry["input_scale"])
-    scale_label = format_scale_value(input_scale)
-    report_base, host_csv, host_report, checkpoint_path = _ncu_artifact_paths(
-        profile_root,
-        input_scale,
-    )
-    checkpoint_exists = os.path.isfile(checkpoint_path)
-    checkpoint = _read_ncu_checkpoint(checkpoint_path) if checkpoint_exists else None
-    if checkpoint_exists and (
-        checkpoint is None
-        or not _ncu_checkpoint_matches(
-            checkpoint,
-            task_info=task_info,
-            image_tag=image_tag,
-            input_scale=input_scale,
-            repeat=repeat,
-            metrics=ncu_metrics,
-        )
+    report_base, host_csv, host_report, checkpoint_path = _ncu_artifact_paths(profile_root, input_scale)
+    checkpoint = None
+    if os.path.lexists(checkpoint_path):
+        checkpoint = _read_ncu_checkpoint(checkpoint_path) if os.path.isfile(checkpoint_path) else None
+        if checkpoint is None or not _ncu_checkpoint_matches(
+            checkpoint, task_info=task_info, image_tag=image_tag, input_scale=input_scale,
+            repeat=repeat, metrics=ncu_metrics,
+        ):
+            return None
+
+    record = checkpoint or {}
+    resources = record.get("resources")
+    if "resources" not in record:
+        if not allow_legacy_recovery:
+            return None
+    elif (
+        not isinstance(resources, dict)
+        or type(resources.get("cpu_cores")) is not int or resources["cpu_cores"] != cpu
+        or type(resources.get("mem_cap_gb")) is not int or resources["mem_cap_gb"] != mem
     ):
-        print(
-            f"[compute][ncu][resume] scale={scale_label}: "
-            "checkpoint does not match this run; recollecting"
-        )
         return None
 
-    csv_payload: dict[str, Any] | None = None
-    if checkpoint is not None and os.path.isfile(host_csv):
-        checkpoint_entry = checkpoint.get("entry")
-        expected_size = to_float(checkpoint.get("csv_size_bytes"))
+    if record.get("status") not in (None, "report_ready"):
+        return None
+    report_ready = record.get("status") == "report_ready"
+    recorded_entry = record.get("entry")
+    if checkpoint is not None and not report_ready:
         if (
-            isinstance(checkpoint_entry, dict)
-            and _ncu_entry_complete(checkpoint_entry)
-            and math.isfinite(expected_size)
-            and os.path.getsize(host_csv) == int(expected_size)
+            not isinstance(recorded_entry, dict) or not _ncu_entry_complete(recorded_entry)
+            or type(recorded_entry.get("input_scale")) not in (int, float)
+            or recorded_entry["input_scale"] != input_scale
         ):
-            if checkpoint_entry.get("flop_counting_version") == NCU_FLOP_COUNTING_VERSION:
-                resumed = dict(checkpoint_entry)
-                resumed["report"] = _ncu_report_reference(profile_root, host_csv)
-                print(
-                    f"[compute][ncu][resume] scale={scale_label}: "
-                    f"reusing checkpoint {checkpoint_path}"
-                )
-                return resumed
-            csv_payload = checkpoint_entry
-            print(
-                f"[compute][ncu][resume] scale={scale_label}: "
-                "reparsing CSV with the current FLOP counting version"
-            )
+            return None
 
-    if (checkpoint is None or csv_payload is not None) and os.path.isfile(host_csv):
-        resumed = _ncu_entry_from_csv(
-            entry=entry,
-            host_csv=host_csv,
-            profile_root=profile_root,
-            repeat=repeat,
-            runner_payload=csv_payload,
-        )
-        if _ncu_entry_complete(resumed):
-            _write_ncu_checkpoint(
-                checkpoint_path=checkpoint_path,
-                task_info=task_info,
-                image_tag=image_tag,
-                input_scale=input_scale,
-                repeat=repeat,
-                metrics=ncu_metrics,
-                host_csv=host_csv,
-                entry=resumed,
-            )
-            print(
-                f"[compute][ncu][resume] scale={scale_label}: "
-                f"reusing valid CSV {host_csv}"
-            )
-            return resumed
-        print(
-            f"[compute][ncu][resume] scale={scale_label}: "
-            "existing CSV is incomplete"
+    def read_csv() -> dict[str, Any]:
+        return _ncu_entry_from_csv(
+            entry=entry, host_csv=host_csv, profile_root=profile_root, repeat=repeat,
+            runner_payload=record.get("runner_payload") if report_ready else recorded_entry,
         )
 
-    if os.path.isfile(host_report):
-        print(
-            f"[compute][ncu][resume] scale={scale_label}: "
-            f"exporting existing report {host_report}"
-        )
+    resumed = None
+    # A completed collection whose export was interrupted owns the native report only.
+    # A CSV at the public name can still belong to the previous collection.
+    if not report_ready and os.path.isfile(host_csv):
+        if recorded_entry is not None and record.get("csv_size_bytes") != os.path.getsize(host_csv):
+            return None
+        resumed = read_csv()
+    if resumed is None or not _ncu_entry_complete(resumed):
+        if not os.path.isfile(host_report):
+            return None
         with profiler_container_command(
-            task_info=task_info,
-            image_tag=image_tag,
-            cpu=cpu,
-            mem=mem,
-            use_gpu=True,
-            payload_file=payload_file,
-            profile_root=profile_root,
-            tool_mount_roots=tool_mount_roots,
+            task_info=task_info, image_tag=image_tag, cpu=cpu, mem=mem, use_gpu=True,
+            payload_file=payload_file, profile_root=profile_root, tool_mount_roots=tool_mount_roots,
         ) as base_cmd:
             exported, detail = _export_ncu_report(
-                ncu_bin=ncu_bin,
-                base_cmd=base_cmd,
-                report_base=report_base,
-                host_csv=host_csv,
+                ncu_bin=ncu_bin, base_cmd=base_cmd, report_base=report_base, host_csv=host_csv,
             )
-        if exported:
-            resumed = _ncu_entry_from_csv(
-                entry=entry,
-                host_csv=host_csv,
-                profile_root=profile_root,
-                repeat=repeat,
-                runner_payload=csv_payload,
-            )
-            if _ncu_entry_complete(resumed):
-                _write_ncu_checkpoint(
-                    checkpoint_path=checkpoint_path,
-                    task_info=task_info,
-                    image_tag=image_tag,
-                    input_scale=input_scale,
-                    repeat=repeat,
-                    metrics=ncu_metrics,
-                    host_csv=host_csv,
-                    entry=resumed,
-                )
-                print(
-                    f"[compute][ncu][resume] scale={scale_label}: "
-                    "recovered from existing .ncu-rep"
-                )
-                return resumed
-            detail = str(resumed.get("error") or "exported CSV is incomplete")
-        print(
-            f"[compute][ncu][resume] scale={scale_label}: "
-            f"report recovery failed ({detail[:300]}); recollecting"
+        if not exported:
+            print(f"[compute][ncu][resume] report recovery failed ({detail[:300]}); recollecting")
+            return None
+        resumed = read_csv()
+        if not _ncu_entry_complete(resumed):
+            return None
+    if recorded_entry is not None and recorded_entry.get("flop_counting_version") == NCU_FLOP_COUNTING_VERSION:
+        if any(
+            type(recorded_entry.get(key)) not in (int, float) or recorded_entry[key] != resumed[key]
+            for key in NCU_COMPLETE_ENTRY_FIELDS
+        ):
+            print(f"[compute][ncu][resume] scale={format_scale_value(input_scale)}: "
+                  "CSV disagrees with checkpoint; recollecting")
+            return None
+    else:
+        _write_ncu_checkpoint(
+            checkpoint_path=checkpoint_path, task_info=task_info, image_tag=image_tag,
+            input_scale=input_scale, repeat=repeat, metrics=ncu_metrics, host_csv=host_csv,
+            entry=resumed, resources=resources,
         )
-    return None
+    print(f"[compute][ncu][resume] scale={format_scale_value(input_scale)}: reusing validated CSV {host_csv}")
+    return resumed
 
 
 def _run_ncu_for_entry(
@@ -559,10 +519,12 @@ def _run_ncu_for_entry(
     entry: dict[str, Any],
     repeat: int,
 ) -> dict[str, Any]:
-    report_base, host_csv, _host_report, _checkpoint = _ncu_artifact_paths(
+    report_base, host_csv, host_report, checkpoint_path = _ncu_artifact_paths(
         profile_root,
         float(entry["input_scale"]),
     )
+    attempt_name = f"{os.path.basename(report_base)}.{uuid4().hex}.partial.ncu-rep"
+    attempt_report = os.path.join(profile_root, attempt_name)
     collect_cmd = [
         ncu_bin,
         "--target-processes", "all",
@@ -572,7 +534,7 @@ def _run_ncu_for_entry(
         "--csv",
         "--metrics", ",".join(ncu_metrics),
         "-f",
-        "-o", report_base,
+        "-o", f"/profiles/{attempt_name}",
         *profile_runner_args(entry, repeat, "gpu"),
     ]
     with profiler_container_command(
@@ -587,11 +549,22 @@ def _run_ncu_for_entry(
         requires_gpu_counters=True,
     ) as base_cmd:
         result = run_profiler_command([*base_cmd, *collect_cmd], check=False)
-    if result.returncode != 0:
-        return ncu_error_entries(
-            [entry],
-            f"ncu_failed:{result.stderr.strip() or result.stdout.strip()}",
-        )[0]
+    if result.returncode != 0 or not os.path.isfile(attempt_report):
+        detail = (result.stderr.strip() or result.stdout.strip()) if result.returncode else "report missing"
+        failed = ncu_error_entries([entry], f"ncu_failed:{detail}")[0]
+        if os.path.isfile(attempt_report):
+            failed["report"] = _ncu_report_reference(profile_root, attempt_report)
+        return failed
+
+    runner_payload = _gpu_profile_metadata(parse_last_json_line(result.stdout), {})
+    identity = _ncu_checkpoint_identity(task_info, image_tag, float(entry["input_scale"]), repeat, ncu_metrics)
+    # Invalidate the old CSV/checkpoint before replacing its companion native report.
+    write_profile_json(checkpoint_path, {"status": "publishing"})
+    replace_file_durably(attempt_report, host_report)
+    write_profile_json(checkpoint_path, {
+        **identity, "status": "report_ready", "resources": {"cpu_cores": cpu, "mem_cap_gb": mem},
+        "runner_payload": runner_payload,
+    })
 
     with profiler_container_command(
         task_info=task_info,
@@ -614,14 +587,14 @@ def _run_ncu_for_entry(
             [entry],
             f"ncu_import_failed:{detail}",
         )[0]
-        error_entry["report"] = _ncu_report_reference(profile_root, host_csv)
+        error_entry["report"] = _ncu_report_reference(profile_root, host_report)
         return error_entry
     return _ncu_entry_from_csv(
         entry=entry,
         host_csv=host_csv,
         profile_root=profile_root,
         repeat=repeat,
-        runner_payload=parse_last_json_line(result.stdout),
+        runner_payload=runner_payload,
     )
 
 
@@ -638,6 +611,8 @@ def profile_gpu_entries(
     profile_root: str,
     repeat: int,
     resume_existing: bool = False,
+    allow_legacy_recovery: bool = True,
+    previous_plan: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if ncu_bin is None:
         return {
@@ -678,6 +653,10 @@ def profile_gpu_entries(
         try:
             profile_entry = None
             if resume_existing:
+                previous_error = (
+                    find_compute_profile_entry(previous_plan, "on", entry["input_scale"])[NCU_ERROR_FIELD]
+                    if previous_plan is not None else ""
+                )
                 profile_entry = _resume_ncu_for_entry(
                     ncu_bin=ncu_bin,
                     ncu_metrics=collection_metrics,
@@ -690,6 +669,9 @@ def profile_gpu_entries(
                     tool_mount_roots=mount_roots,
                     entry=entry,
                     repeat=repeat,
+                    allow_legacy_recovery=allow_legacy_recovery and not str(previous_error).startswith(
+                        ("ncu_failed:", "compute_profile_plan_invalid:")
+                    ),
                 )
             if profile_entry is None:
                 scale_label = format_scale_value(float(entry["input_scale"]))
@@ -723,6 +705,7 @@ def profile_gpu_entries(
                         metrics=collection_metrics,
                         host_csv=host_csv,
                         entry=profile_entry,
+                        resources={"cpu_cores": cpu, "mem_cap_gb": mem},
                     )
         except RuntimeCleanupError:
             raise

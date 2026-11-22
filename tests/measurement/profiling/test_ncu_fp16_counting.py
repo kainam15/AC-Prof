@@ -121,7 +121,7 @@ def test_legacy_checkpoint_reparses_raw_counts_and_preserves_gpu_identity(tmp_pa
     assert result["gpu_compute_capability"] == "8.9"
     assert result["gpu_sm_count"] == 24
     assert json.loads(checkpoint.read_text())["entry"] == result
-    with patch.object(ncu, "_ncu_entry_from_csv", side_effect=AssertionError("already current")):
+    with patch.object(ncu, "_write_ncu_checkpoint", side_effect=AssertionError("already current")):
         assert ncu._resume_ncu_for_entry(**kwargs) == result
 
 

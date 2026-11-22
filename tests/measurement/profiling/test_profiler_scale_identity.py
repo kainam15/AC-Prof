@@ -187,7 +187,7 @@ def test_resume_requires_exact_checkpoint_scale(tmp_path, profile_fixture, tool,
     profile, collections, task = profile_fixture
     prefix = "ncu_scale_1" if tool == "ncu" else "massif_cpu_2_mem_4_scale_1"
     raw = tmp_path / (prefix + (".csv" if tool == "ncu" else ".out"))
-    raw.write_text("cached fixture\n" if tool == "ncu" else
+    raw.write_text(f"ID,Kernel Name,{NCU_METRIC},gpu__time_duration.sum\n,,inst,usec\n0,k,21000000,10\n" if tool == "ncu" else
                    "time_unit: ms\nsnapshot=0\ntime=2\nmem_heap_B=42\nmem_heap_extra_B=4\nmem_stacks_B=8\n")
     fields = ncu.NCU_COMPLETE_ENTRY_FIELDS if tool == "ncu" else massif.MASSIF_FIELDS
     checkpoint: dict[str, Any] = {
@@ -200,7 +200,11 @@ def test_resume_requires_exact_checkpoint_scale(tmp_path, profile_fixture, tool,
             image_tag="fixture-image", metrics=[NCU_METRIC, "gpu__time_duration.sum"],
             csv_size_bytes=raw.stat().st_size,
         )
-        checkpoint["entry"]["flop_counting_version"] = 2
+        checkpoint["entry"].update(
+            flop_counting_version=2, gpu_executed_tensor_mflop_per_request_ncu=0.0,
+            gpu_executed_tensor_share_pct_ncu=0.0, gpu_kernel_launch_count_per_request_ncu=1.0,
+            gpu_kernel_time_sum_ms_per_request_ncu=0.01,
+        )
     else:
         checkpoint["entry"].update(massif.parse_massif_output(str(raw)))
         checkpoint.update(derived_image="fixture-image", cpu_cores=2, mem_cap_gb=4, report_size_bytes=raw.stat().st_size)
