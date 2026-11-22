@@ -137,3 +137,31 @@ def test_mixed_model_and_commit_keep_both_diagnoses_under_the_original_failure(t
     assert all(failure["evidence"]["artifact"] == str(layout.path("static_meta.json")) for failure in diagnoses)
     assert "model_id" in diagnoses[0]["detail"]
     assert "revision" in diagnoses[1]["detail"]
+
+
+@pytest.mark.parametrize("embedded", [False, True])
+def test_catalog_preserves_model_and_commit_conflicts_and_prevents_reuse(tmp_path, embedded):
+    from acprof.tui.experiments.catalog import read_experiment_record
+    from acprof.tui.models.candidates import candidate_from_record, model_choice
+
+    metadata = saved_metadata()
+    resolution = metadata["model_resolution"]
+    resolution["provenance"]["sources"]["repository_snapshot"].update(
+        model_id="fixture/different", revision=OTHER_REVISION,
+    )
+    source = tmp_path / "mixed"
+    if not embedded:
+        metadata.pop("model_resolution")
+    layout = write_metadata(source, metadata)
+    if not embedded:
+        layout.path("model_resolution.json").write_text(json.dumps(resolution))
+
+    record = read_experiment_record(source)
+
+    assert record.model_source == "unknown"
+    assert model_choice(candidate_from_record(record, {})).actions == {"view"}
+    artifact_name = "static_meta.json" if embedded else "model_resolution.json"
+    assert len(record.issues) == 2
+    assert all(artifact_name in issue for issue in record.issues)
+    assert "model_id" in record.issues[0]
+    assert "revision" in record.issues[1]

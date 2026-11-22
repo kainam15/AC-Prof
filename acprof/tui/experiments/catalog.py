@@ -218,11 +218,12 @@ def _record(layout: ArtifactLayout, warnings: list[str], *,
         'cpu ' + str(metadata.get('cpu_model', 'unknown')) if options.get('gpus') == 'off' else options.get('gpus', 'unknown')))
     run_id = state.get('run_id')
     try:
-        source = "unknown" if issues else recorded_model_source(metadata, resolution, state)
+        source = "unknown" if issues else recorded_model_source(
+            metadata, resolution, state, resolution_name=resolution_name,
+        )
     except RecordedSourceError as exc:
         source = "unknown"
-        artifact = resolution_name if exc.artifact == "model_resolution.json" else exc.artifact
-        issues.append(f"{artifact}: {exc}")
+        issues.extend(f"{artifact}: {detail}" for artifact, detail in exc.problems)
     if state and state.get('schema_version') != 1:
         issues.append('unsupported_run_state')
     recorded_runtime_env = metadata.get('runtime_environment')
