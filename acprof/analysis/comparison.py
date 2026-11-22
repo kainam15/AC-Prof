@@ -21,11 +21,13 @@ from acprof.analysis.conditions import (
     dimensions,
     effective_thread_evidence,
     hardware_case_binding,
+    planned_input_scale_key,
     unknown,
     workload_case_profile,
     workload_contract_complete,
 )
 from acprof.analysis.workload import actual_workload, merge_workload_cases
+from acprof.artifacts import JsonObjectSnapshot
 from acprof.hardware_conditions import HARDWARE_FIELDS, conditions_path
 from acprof.platform import recorded_identity
 from acprof.quality import QUALITY_FIELDS
@@ -34,6 +36,8 @@ from acprof.results.csv import (
     MISSING_CSV_TEXT,
     ResultCsvSnapshot,
     measurement_key,
+    numeric_coordinate_key,
+    preview_window_phase,
     result_row_status,
     verify_result_source,
 )
@@ -230,14 +234,19 @@ def _metric_contracts(rows: list[dict]) -> dict:
     return _metric_evidence(rows)[1]
 
 
-def _read_snapshot_json(metadata_snapshot: ResultMetadataSnapshot, name: str, issues: list[str]) -> dict:
+def _read_snapshot_record(
+    metadata_snapshot: ResultMetadataSnapshot, name: str, issues: list[str],
+) -> JsonObjectSnapshot | None:
     try:
-        if not metadata_snapshot.exists(name):
-            return {}
-        return metadata_snapshot.read(name).payload
+        return metadata_snapshot.read(name) if metadata_snapshot.exists(name) else None
     except (OSError, ValueError) as error:
         issues.append(f"{name}: {error}")
-        return {}
+        return None
+
+
+def _read_snapshot_json(metadata_snapshot: ResultMetadataSnapshot, name: str, issues: list[str]) -> dict:
+    record = _read_snapshot_record(metadata_snapshot, name, issues)
+    return record.payload if record is not None else {}
 
 
 def _object_field(parent: dict, name: str, issues: list[str]) -> dict:
@@ -291,19 +300,38 @@ def _normalize_hardware_cases(hardware_payload: dict, issues: list[str]) -> dict
     return hardware_cases
 
 
-def _planned_inputs_from_plan(plan: dict, issues: list[str]) -> tuple[str | None, list[dict] | None]:
+def _planned_inputs_from_plan(
+    record: JsonObjectSnapshot | None, issues: list[str],
+) -> tuple[str | None, list[dict] | None, set[str]]:
+    plan = record.payload if record else {}
     entries = plan.get("entries")
-    if not (plan.get("schema_version") == 2 and isinstance(entries, list) and entries):
-        return None, None
+    if record is None or plan.get("schema_version") != 2 or not isinstance(entries, list) or not entries:
+        return None, None, set()
     if not all(isinstance(entry, dict) and isinstance(entry.get("payload"), dict)
                and entry.get("input_scale") is not None for entry in entries):
-        return None, None
+        return None, None, set()
     projected = [{key: entry[key] for key in ("input_scale", "payload")} for entry in entries]
+    for index, exact in record.exact_input_scales.items():
+        projected[index]["exact_input_scale"] = exact
     try:
-        return _digest(projected), projected
+        scales = {planned_input_scale_key(entry) for entry in projected}
+        return _digest(projected), projected, scales
     except (ValueError, TypeError) as error:
         issues.append(f"input_scale_plan.json: {error}")
-        return None, None
+        return None, None, set()
+
+
+def _formal_input_coverage(rows: list[dict], planned_scales: set[str]) -> tuple[list[dict], list[str]]:
+    measured = []
+    recorded_scales = set()
+    for row in rows:
+        status = result_row_status(row)
+        if status in {"ok", "warn"} and preview_window_phase(row) == "0":
+            recorded_scales.add(row["input_scale"])
+            if status == "ok":
+                measured.append(row)
+    observed = {numeric_coordinate_key("input_scale", raw) for raw in recorded_scales}
+    return measured, sorted(observed - planned_scales)
 
 
 def _observed_runtime_threads(
@@ -377,6 +405,7 @@ def load_comparison_snapshot(source: str | Path, *, result_snapshot: ResultCsvSn
 
 def _comparison_evidence(metadata_snapshot: ResultMetadataSnapshot | None, audit: dict, result: AuditedRows) -> dict:
     issues: list[str] = []
+    plan_record = None
     if metadata_snapshot is None:
         state, metadata, plan, hardware_payload = {}, {}, {}, {}
         issues.extend(issue["message"] for issue in audit["issues"])
@@ -384,7 +413,8 @@ def _comparison_evidence(metadata_snapshot: ResultMetadataSnapshot | None, audit
         layout = metadata_snapshot.layout
         state = _read_snapshot_json(metadata_snapshot, "run_state.json", issues)
         metadata = _read_snapshot_json(metadata_snapshot, "static_meta.json", issues)
-        plan = _read_snapshot_json(metadata_snapshot, "input_scale_plan.json", issues)
+        plan_record = _read_snapshot_record(metadata_snapshot, "input_scale_plan.json", issues)
+        plan = plan_record.payload if plan_record else {}
         hardware_payload = _read_snapshot_json(
             metadata_snapshot, str(conditions_path(layout).relative_to(layout.root)), issues,
         )
@@ -420,7 +450,7 @@ def _comparison_evidence(metadata_snapshot: ResultMetadataSnapshot | None, audit
     measurement_environment = (_digest({key: value for key, value in environment.items()
                                        if key not in RUNTIME_ENVIRONMENT})
                                if isinstance(environment, dict) else None)
-    inputs, planned_entries = _planned_inputs_from_plan(plan, issues)
+    inputs, planned_entries, planned_scales = _planned_inputs_from_plan(plan_record, issues)
     threads = _observed_runtime_threads(metadata, environment, issues)
     rows, actual, case_ids = _resolve_actual_workload_and_cases(result, issues) if metadata_snapshot else ([], None, {})
     observed_hardware = {label: hardware_cases.get(case_id, {}) if case_id is not None else {}
@@ -429,7 +459,7 @@ def _comparison_evidence(metadata_snapshot: ResultMetadataSnapshot | None, audit
     # packages and backend hashes continue to belong to the existing run identity.
     host = _object_field(state, "host", issues)
     collector_protocol = _collector_protocol(metadata, issues)
-    measured_rows = [row for row in rows if result_row_status(row) == "ok" and measurement_key(row)[4] == "0"]
+    measured_rows, unmatched_scales = _formal_input_coverage(rows, planned_scales)
     availability, contracts = _metric_evidence(measured_rows)
     formal_count = audit["counts"]["rows"] - audit["counts"]["warmup"]
     return {
@@ -445,6 +475,7 @@ def _comparison_evidence(metadata_snapshot: ResultMetadataSnapshot | None, audit
         **{key: audit[key] for key in QUALITY_FIELDS},
         "valid": audit["valid"] and not issues, "issues": issues,
         "planned_input_entries": planned_entries,
+        "unmatched_input_scales": unmatched_scales,
         "all_formal_measured": bool(measured_rows) and len(measured_rows) == formal_count,
         "verified_limits": {key: record.get("resource_plan", {}) for key, record in hardware_cases.items()},
         "collector_protocol": collector_protocol,
@@ -622,6 +653,9 @@ def compare_snapshots(left: dict, right: dict, *, purpose: str = "same-hardware"
     lhs, rhs = snapshots.values()
     conditions = {name: _condition(value, rhs["conditions"][name])
                   for name, value in lhs["conditions"].items() if name != "actual_workload"}
+    unmatched_scales = {side: snapshot.get("unmatched_input_scales", []) for side, snapshot in snapshots.items()}
+    if any(unmatched_scales.values()):
+        conditions["planned_inputs"]["unmatched_scales"] = unmatched_scales
     left_workload, right_workload = (side["conditions"]["actual_workload"] for side in (lhs, rhs))
     if purpose == "resource-scaling":
         left_workload = _resource_scaling_workload(left_workload)

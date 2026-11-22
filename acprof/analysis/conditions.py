@@ -7,10 +7,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 from collections import defaultdict
 from collections.abc import Iterator
 from fractions import Fraction
+
+from acprof.results.csv import numeric_coordinate_key
 
 PURPOSES = ("same-hardware", "cross-hardware", "resource-scaling")
 REPORT_PURPOSES = ("within-experiment", *PURPOSES)
@@ -168,6 +169,11 @@ def compare_workload_profiles(left, right):
     return status
 
 
+def planned_input_scale_key(entry: dict) -> str:
+    value = entry.get("exact_input_scale", entry["input_scale"])
+    return numeric_coordinate_key("input_scale", str(value))
+
+
 class PreparedComparison:
     """Reuse derived evidence during one read-only snapshot's lifetime.
 
@@ -177,8 +183,8 @@ class PreparedComparison:
 
     def __init__(self, snapshot: dict):
         self._snapshot = snapshot
-        self._input_groups: dict[float, list[dict]] | None = None
-        self._input_digests: dict[float, str | None] = {}
+        self._input_groups: dict[str, list[dict]] | None = None
+        self._input_digests: dict[str, str | None] = {}
         self._workload_profiles: dict[str, dict] = {}
         self._fixed_checks: dict[str, tuple[tuple[str, str | None], ...]] = {}
 
@@ -187,16 +193,11 @@ class PreparedComparison:
         if not entries:
             return None
         if self._input_groups is None:
-            groups: dict[float, list[dict]] = defaultdict(list)
+            groups: dict[str, list[dict]] = defaultdict(list)
             for entry in entries:
-                key = float(entry["input_scale"])
-                # Float equality never matches NaN, even the same object.
-                if not math.isnan(key):
-                    groups[key].append(entry)
+                groups[planned_input_scale_key(entry)].append(entry)
             self._input_groups = groups
-        key = float(scale)
-        if math.isnan(key):
-            return None
+        key = numeric_coordinate_key("input_scale", str(scale))
         if key not in self._input_digests:
             selected = self._input_groups.get(key)
             self._input_digests[key] = digest(selected) if selected else None
@@ -295,6 +296,9 @@ class PreparedComparison:
         conditions["runtime_threads"] = effective_thread_evidence(conditions, hardware)
         checks: dict[str, dict[str, object]] = {}
         self._populate_condition_checks(checks, conditions, hardware, purpose)
+        if case is None and snapshot.get("unmatched_input_scales"):
+            # Retain the whole-plan digest so known plan disagreements remain visible.
+            checks["planned_inputs.coverage"] = {"value": None, "difference": "incompatible"}
         profile = {"purpose": purpose, "valid": snapshot["valid"], "checks": checks, "workload": workload_profiles}
         if purpose == "same-hardware":
             from acprof.hub.repository import model_source

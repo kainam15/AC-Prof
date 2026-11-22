@@ -170,7 +170,7 @@ def test_returned_workload_profiles_do_not_share_mutable_values(multi_case_sourc
     assert profiles["cross-hardware"] == before
 
 
-def test_input_index_keeps_float_equivalence_raw_values_and_entry_order(multi_case_sources):
+def test_input_index_keeps_equivalent_coordinates_raw_values_and_entry_order(multi_case_sources):
     fixture = multi_case_sources(1)
     snapshot = load_comparison_snapshot(fixture.left)
     entries = [
@@ -204,7 +204,7 @@ def test_input_preparation_remains_lazy_and_rejects_invalid_selected_evidence(mu
     prepared = conditions.PreparedComparison(snapshot)
     assert prepared.profile()["status"] == "compatible"
     for _ in range(2):
-        with pytest.raises(ValueError, match="could not convert string to float"):
+        with pytest.raises(ValueError, match="invalid input_scale"):
             prepared.profile(case=("1", "4", "off", "2"))
 
 
@@ -411,3 +411,17 @@ def test_thread_counts_compare_within_their_recorded_source(multi_case_sources, 
             assert check[side] == ({"off": probe} if formal is None else {"1c_4g_off": formal})
         if (left_formal is None) != (right_formal is None):
             assert comparison["status"] == "unknown"
+
+
+@pytest.mark.parametrize("invalid", [True, {}, "Infinity", 0, -1])
+def test_invalid_recorded_plan_scale_has_a_diagnostic_and_keeps_observations(multi_case_sources, invalid):
+    fixture = multi_case_sources(1)
+    fixture.change_json(fixture.left, "input_scale_plan.json",
+                        lambda plan: plan["entries"][0].update(input_scale=invalid))
+    snapshot = load_comparison_snapshot(fixture.left)
+
+    assert not snapshot["valid"]
+    assert any("input_scale_plan.json" in issue and "invalid input_scale" in issue for issue in snapshot["issues"])
+    assert snapshot["metric_availability"]["latency_app_s"]
+    assert snapshot["conditions"]["planned_inputs"] is None
+    assert all(config["metrics"]["latency_app_s"]["n"] == 1 for config in load_analysis([fixture.left]).configs)
