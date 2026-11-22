@@ -139,6 +139,12 @@ class ResultContext:
     resource_cases: list[tuple[int, int, str]]
     scales_by_mode: dict[str, list[float]]
 
+    @property
+    def gpu_uuid(self) -> str | None:
+        device = self.static_meta.get("gpu_device")
+        uuid = device.get("uuid") if isinstance(device, dict) else None
+        return uuid if isinstance(uuid, str) and uuid else None
+
     def cases_for_mode(self, gpu_mode: str) -> list[tuple[int, int, str]]:
         return [case for case in self.resource_cases if case[2] == gpu_mode]
 

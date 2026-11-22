@@ -118,6 +118,16 @@ def gpu_compute_value(field: str, value: object) -> str | int:
     return count
 
 
+def gpu_probe_identity(device: Mapping[str, Any], expected_uuid: str | None) -> tuple[str, str]:
+    """Compare a runner's CUDA UUID (possibly unprefixed) with the selected GPU."""
+    observed = device.get("cuda_uuid") or device.get("uuid")
+    if not expected_uuid or not isinstance(observed, str) or not observed.strip():
+        return "unverified", ""
+    if observed.lower().removeprefix("gpu-") == expected_uuid.lower().removeprefix("gpu-"):
+        return "verified", ""
+    return "mismatch", f"GPU UUID mismatch: expected {expected_uuid}, received {observed}"
+
+
 def require_gpu_identity(
     device: Mapping[str, Any],
     *,

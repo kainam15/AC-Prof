@@ -92,7 +92,9 @@ def compute_plan_covers_tool(
             continue
         found_mode = True
         for scale in scales:
-            profile = find_compute_profile_entry(dict(plan), mode, scale)
+            profile = find_compute_profile_entry(
+                dict(plan), mode, scale, expected_gpu_uuid=context.gpu_uuid,
+            )
             if not all(
                 math.isfinite(finite_float(profile.get(field)))
                 for field in COMPUTE_PLAN_METRIC_FIELDS[tool]

@@ -13,6 +13,7 @@ from typing import Any
 from acprof.artifacts import read_json_object
 from acprof.experiments.constraints import format_input_scale
 from acprof.gpu_mode import normalize_gpu_mode
+from acprof.gpu_probe import gpu_probe_identity
 from acprof.results.measurement_plan import decimal_coordinate
 
 TORCH_PROFILE_KEY = "torch_profiler_eager"
@@ -160,12 +161,30 @@ def _apply_torch_profile(
     )
 
 
+def ncu_identity_mismatch(error: str) -> bool:
+    """Identify the machine-readable reason retained by published profile plans."""
+    return any(part.strip().startswith("gpu_identity_mismatch:") for part in error.split(";"))
+
+
 def _apply_ncu_profile(
     result: dict[str, Any],
     *,
     entry: dict[str, Any],
     error: str,
+    expected_gpu_uuid: str | None,
 ) -> None:
+    if ncu_identity_mismatch(error):
+        result[NCU_ERROR_FIELD] = error
+        return
+    probe = entry.get("gpu_compute_metadata")
+    device = probe.get("device") if isinstance(probe, dict) else None
+    if isinstance(device, dict):
+        expected = expected_gpu_uuid or device.get("expected_uuid")
+        _, detail = gpu_probe_identity(device, expected if isinstance(expected, str) else None)
+        if detail or device.get("identity_status") == "mismatch":
+            mismatch = "gpu_identity_mismatch:" + (detail or "recorded GPU identity mismatch")
+            result[NCU_ERROR_FIELD] = ";".join(filter(None, (error, mismatch)))
+            return
     total_mflop = _to_float_or_nan(entry.get(NCU_TOTAL_MFLOP_FIELD))
     tensor_mflop = _to_float_or_nan(entry.get(NCU_TENSOR_MFLOP_FIELD))
     scalar_mflop = _to_float_or_nan(entry.get(NCU_SCALAR_MFLOP_FIELD))
@@ -199,6 +218,8 @@ def find_compute_profile_entry(
     plan: dict[str, Any],
     gpu_mode: str,
     input_scale: int | float | Decimal | None,
+    *,
+    expected_gpu_uuid: str | None = None,
 ) -> dict[str, Any]:
     """Resolve both FLOP profiles for one device/scale."""
     profile_key = "gpu" if normalize_gpu_mode(gpu_mode) == "on" else "cpu"
@@ -252,6 +273,7 @@ def find_compute_profile_entry(
             result,
             entry=ncu_entry,
             error=ncu_error,
+            expected_gpu_uuid=expected_gpu_uuid,
         )
     return result
 

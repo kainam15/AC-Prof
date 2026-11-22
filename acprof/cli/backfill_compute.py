@@ -30,6 +30,7 @@ from acprof.host.profiling.compute_plan import (
     compute_scale_key,
     find_compute_profile_entry,
     load_compute_profile_plan,
+    ncu_identity_mismatch,
 )
 from acprof.results.csv import allow_large_csv_fields, iter_csv_rows, require_csv_columns
 
@@ -218,6 +219,8 @@ def _apply_ncu_summary(
         )
         return
 
+    if ncu_identity_mismatch(str(entry.get(NCU_ERROR_FIELD) or "")):
+        entry = {NCU_ERROR_FIELD: entry[NCU_ERROR_FIELD]}
     profile.update(
         {
             NCU_TOTAL_MFLOP_FIELD: _to_float_or_nan(

@@ -133,6 +133,6 @@ def test_only_current_ncu_formula_plan_is_reusable(version):
     if version is not None:
         profile["flop_counting_version"] = version
     plan = {"profiles": {"gpu": {"ncu": profile}}}
-    context = SimpleNamespace(scales_by_mode={"on": [1.0]})
+    context = SimpleNamespace(scales_by_mode={"on": [1.0]}, gpu_uuid=None)
 
     assert compute_plan_covers_tool(plan, context, "ncu") is (version == 2)

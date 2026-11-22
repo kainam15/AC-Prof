@@ -184,7 +184,7 @@ def run_posthoc(
 
             if not runtime_validated:
                 if context.cases_for_mode("on") and any("on" in TOOL_GPU_MODES[item] for item in needed):
-                    device_uuid = (context.static_meta.get("gpu_device") or {}).get("uuid")
+                    device_uuid = context.gpu_uuid
                     if not device_uuid:
                         raise PosthocError("GPU profiling requires recorded gpu_device.uuid; regenerate the main experiment")
                     pin_gpu_device(device_uuid)

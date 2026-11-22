@@ -12,7 +12,12 @@ from typing import Any
 from acprof.capabilities import declared_profiler_error
 from acprof.config import DEFAULT_COMPUTE_PROFILE_TOOL
 from acprof.gpu_mode import normalize_gpu_mode
-from acprof.gpu_probe import gpu_compute_value, is_gpu_probe_report, record_gpu_probe_error
+from acprof.gpu_probe import (
+    gpu_compute_value,
+    gpu_probe_identity,
+    is_gpu_probe_report,
+    record_gpu_probe_error,
+)
 from acprof.host.detect import TaskInfo
 from acprof.host.gpu_device import selected_gpu_device
 from acprof.host.profiling.cleanup import discard_profile_artifacts
@@ -183,15 +188,10 @@ def _bind_gpu_profile_identity(profiles: dict[str, Any], expected_uuid: str) -> 
                 raise ValueError("invalid GPU compute metadata report")
             device = report["device"]
             device["expected_uuid"] = expected_uuid or None
-            observed = device.get("cuda_uuid") or device.get("uuid")
-            if not expected_uuid or not isinstance(observed, str) or not observed.strip():
-                device["identity_status"] = "unverified"
+            device["identity_status"], detail = gpu_probe_identity(device, expected_uuid)
+            if not detail:
                 continue
-            if observed.lower().removeprefix("gpu-") == expected_uuid.lower().removeprefix("gpu-"):
-                device["identity_status"] = "verified"
-                continue
-            device["identity_status"] = "mismatch"
-            error = ValueError(f"GPU UUID mismatch: expected {expected_uuid}, received {observed}")
+            error = ValueError(detail)
             record_gpu_probe_error(report, "gpu_identity", "resolve", error)
             record["error"] = ";".join(filter(None, (record.get("error"), f"gpu_identity_mismatch:{error}")))
 

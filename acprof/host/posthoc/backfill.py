@@ -40,6 +40,7 @@ from acprof.host.profiling.compute_plan import (
     TORCH_PROFILE_KEY,
     compute_mflops,
     find_compute_profile_entry,
+    ncu_identity_mismatch,
 )
 from acprof.host.profiling.execution_plan import (
     MASSIF_METRIC_FIELDS,
@@ -185,12 +186,16 @@ def backfill_rows(
                 key = (mode, scale)
                 profile = compute_profiles.get(key)
                 if profile is None:
-                    profile = find_compute_profile_entry(dict(compute_plan), mode, scale)
+                    profile = find_compute_profile_entry(
+                        dict(compute_plan), mode, scale, expected_gpu_uuid=context.gpu_uuid,
+                    )
                     if math.isfinite(scale):
                         compute_profiles[key] = profile
                 if tool == "torch":
                     _backfill_torch_row(row, profile)
                 else:
+                    if ncu_identity_mismatch(profile[NCU_ERROR_FIELD]) and row_tool_complete(row, tool):
+                        continue
                     _backfill_ncu_row(row, profile)
             else:
                 if execution_plan is None:
