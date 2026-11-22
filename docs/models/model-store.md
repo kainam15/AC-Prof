@@ -18,7 +18,7 @@ Python/Debian 对每个待用来源执行代表性 HEAD；Docker manifest 通过
 
 HF 的合理传输路径全部失败时显示失败阶段（Hub／redirect／storage）、DNS／TLS／HTTP／timeout 等原因及最终 host，提供重试、诊断和“改用 ModelScope”。仓库、revision、文件不存在或访问受限时保留对应模型错误，提示修正身份或权限，不统一包装成 VPN 问题。`HF_HUB_OFFLINE` 启用时仍在请求发送前阻止联网，已有完整缓存可继续使用。切换需要用户明确确认 ModelScope 模型 ID 和 revision，生成独立实验配置；不会自动复制同名模型或静默替换 source。`huggingface` 与 `modelscope` 是不同来源，同名、同 revision 文本不证明内容一致。ModelScope 使用官方轻量 `modelscope-hub` SDK；分支／tag 由 `git ls-remote` 固定为仓库 commit，文件按该 commit 下载并校验 SHA256，支持 SDK 的 partial／resume。主机需安装 Git，私有仓库还需自行配置相应 Git 认证；也可直接指定完整 commit SHA。ModelScope 能下载不等于 AC-Prof 支持其所有推理架构；已有显式 HF 依赖继续保留 HF 来源。
 
-ModelScope 的仓库概览任务标签没有绑定 commit。首次检查与读取旧 Model Store 缓存时，AC-Prof 都使用固定快照的架构、接口声明或用户给出的 `--task` 选择任务。
+ModelScope 的仓库概览任务和库标签没有绑定 commit。首次检查与读取旧 Model Store 缓存时，AC-Prof 都使用固定快照的架构、接口声明或用户给出的 `--task` 选择任务。固定快照根目录 `model_index.json` 的 `_class_name` 标识 Diffusers 管线；缺少管线声明时沿用 Transformers 默认值。具体任务和执行能力仍由已登记的接口与实际文件布局决定。
 
 `--max-download 5GB`（十进制）或 `5GiB`（二进制）约束本次计划的批量 payload 及限量模型 GET。先为完整下载预留预算，再使用余量探测；总预算或模型预算为零时不发送模型 GET。总量未知或超限在 payload 传输、OCI pull 或 dependency build 前退出；API、HEAD 和受限配置 JSON 查询仍产生元数据流量。响应体上限不是 TCP/TLS、内核预读及失败重传的精确线速账单。预算模式下 GHCR 失败不继续未规划的本机构建；需显式选择 `ACPROF_RUNTIME_IMAGE_SOURCE=build` 后重新预检。GHCR 未被禁用，国内 OCI registry 可通过现有 `ACPROF_RUNTIME_REGISTRY` 显式选择，仍核验完整身份。
 

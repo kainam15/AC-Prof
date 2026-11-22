@@ -23,7 +23,9 @@ def collect_structured_evidence(task_info, evidence: ModelEvidence) -> dict:
     source = "explicit.task" if selection.get("source") == "explicit" else (
         "hub.pipeline_tag" if task_info.detection_method == "hub_api" else "config.architectures")
     evidence.add("task", task, "derived" if source == "config.architectures" else "declared", source)
-    evidence.add("library", task_info.library_name, "declared", "hub.library_name")
+    library_source = (getattr(task_info, "hub_metadata", {}) or {}).get("library_source")
+    evidence.add("library", task_info.library_name, "derived" if library_source else "declared",
+                 library_source or "hub.library_name")
     for filename, value in sorted(metadata.items()):
         # Preserve original-byte identity when detection observed it. A derived
         # canonical hash is separately named and never substitutes for that source.

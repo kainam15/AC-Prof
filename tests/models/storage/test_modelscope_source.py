@@ -285,8 +285,8 @@ def test_discovery_uses_one_modelscope_inventory_per_lookup(tmp_path, monkeypatc
         {"Type": "blob", "Path": name, "Size": len(content), "Sha256": hashlib.sha256(content).hexdigest()}
         for name, content in files.items()
     ]
-    # The current repository label conflicts with this older masked-LM checkpoint.
-    api.get_repo.return_value = SimpleNamespace(tags=[], tasks=["text-classification"], license="mit")
+    # Both repository-wide labels conflict with this older masked-LM checkpoint.
+    api.get_repo.return_value = SimpleNamespace(tags=["library:diffusers"], tasks=["text-classification"], license="mit")
 
     def download(model_id, repo_type, name, *, revision, local_dir, expected_sha256):
         assert (model_id, repo_type, revision) == ("example/model", "model", commit)

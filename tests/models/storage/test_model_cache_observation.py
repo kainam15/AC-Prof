@@ -24,16 +24,20 @@ REVISION = "a" * 40
 ENTRY_ID = "b" * 64
 
 
-def _write_verified_entry(root, entry_id, payloads, context):
+def _write_verified_entry(root, entry_id, payloads, context, *, source="huggingface"):
     entry = root / "entries" / entry_id
     snapshot = entry / "hf/models--fixture--model/snapshots" / REVISION
     snapshot.mkdir(parents=True)
     for name, content in payloads.items():
-        (snapshot / name).write_bytes(content)
+        path = snapshot / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
     plan = plan_download(model_id=MODEL_ID, revision=REVISION, family="nlp",
         backend="transformers_pipeline", policy="full",
         files={name: {"size": len(content)} for name, content in payloads.items()}, read_json=lambda _: {})
     plan["endpoint"] = "https://huggingface.co"
+    if source == "modelscope":
+        plan.update(source=source, endpoint="https://modelscope.cn")
     plan["requested_revision"] = None
     plan["repository_context"] = context
     # Seal the new context before verifying and publishing the synthetic entry.
@@ -74,11 +78,9 @@ def test_old_modelscope_context_uses_only_pinned_task_evidence(
     context = {"schema_version": 1, "repository_files": list(payloads), "pipeline_tag": "text-classification",
                "library_name": "transformers", "config": {}, "transformers_info": {}, "tags": [],
                "card_data": {}, "safetensors": None}
-    entry = _write_verified_entry(tmp_path, ENTRY_ID, payloads, context)
-    entry.plan.update(source="modelscope", endpoint="https://modelscope.cn")
+    entry = _write_verified_entry(tmp_path, ENTRY_ID, payloads, context, source="modelscope")
     manifest = entry.entry / PLAN_FILENAME
-    original = json.dumps(seal_plan(entry.plan)).encode()
-    manifest.write_bytes(original)
+    original = manifest.read_bytes()
 
     args = [MODEL_ID, "--model-source", "modelscope", "--revision", REVISION]
     with patch("acprof.hub.repository.modelscope_api") as api:
@@ -92,9 +94,49 @@ def test_old_modelscope_context_uses_only_pinned_task_evidence(
         assert raw["metadata"]["config.json"] == json.loads(config)
         assert raw["hub"]["pipeline_tag"] is None
         assert report["model_revision"] == REVISION
+        if declares_task:
+            assert report["contract"]["fields"]["library"] == {
+                "value": "transformers", "state": "derived", "sources": ["modelscope.default_library"]}
         if not selected:
             assert main([*args, "--task", "fill-mask"]) == 0
         api.assert_not_called()
+    assert manifest.read_bytes() == original
+
+
+@pytest.mark.parametrize(("layout", "stale_library", "task", "backend"), [
+    ("bert", "diffusers", "fill-mask", "transformers_pipeline"),
+    ("unrelated-index", "diffusers", "fill-mask", "transformers_pipeline"),
+    ("ddpm", "transformers", "unconditional-image-generation", "diffusers"),
+])
+def test_modelscope_library_of_cached_snapshot(tmp_path, monkeypatch, layout, stale_library, task, backend):
+    from acprof.cli.inspect import main
+
+    monkeypatch.setenv("ACPROF_MODEL_STORE", str(tmp_path))
+    payloads = {"config.json": b'{"model_type":"bert","architectures":["BertForMaskedLM"]}', "model.safetensors": b"x"}
+    if layout == "unrelated-index":
+        payloads["model_index.json"] = b'{"evaluation_results":[]}'
+    if layout == "ddpm":
+        payloads = {"model_index.json": b'{"_class_name":"DDPMPipeline","unet":["diffusers","UNet2DModel"]}',
+                    "unet/config.json": b"{}", "unet/diffusion_pytorch_model.safetensors": b"x"}
+    tags = ["library:diffusers"] if stale_library == "diffusers" else []
+    context = {"schema_version": 1, "repository_files": list(payloads), "pipeline_tag": None,
+               "library_name": stale_library, "config": {}, "transformers_info": {}, "tags": tags,
+               "card_data": {}, "safetensors": None}
+    saved = _write_verified_entry(tmp_path, ENTRY_ID, payloads, context, source="modelscope")
+    manifest = saved.entry / PLAN_FILENAME
+    original = manifest.read_bytes()
+    with patch("acprof.hub.repository.modelscope_api") as sdk:
+        for explicit in (False, True):
+            out = tmp_path / ("explicit" if explicit else "auto")
+            args = [MODEL_ID, "--model-source", "modelscope", "--revision", REVISION, "--output-dir", str(out)]
+            assert main(args + (["--task", task] if explicit else [])) == 0
+            result = json.loads((out / "model_resolution.json").read_text())
+            assert (result["task"], result["backend"]) == (task, backend)
+            assert result["library"] == ("diffusers" if layout == "ddpm" else "transformers")
+            origin = "model_index.json" if layout == "ddpm" else "modelscope.default_library"
+            assert result["provenance"]["raw_evidence"]["hub"]["library_source"] == origin
+            assert result["model_revision"] == REVISION
+        sdk.assert_not_called()
     assert manifest.read_bytes() == original
 
 

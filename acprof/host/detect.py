@@ -619,8 +619,18 @@ def _detect_from_hub(
         model_config.pop("dtype", None)
         model_config.pop("torch_dtype", None)
     model_config.update(pinned_config)
+    index = repository["repository_metadata"].get("model_index.json")
+    declaration = pinned_quantization or (None if hub_diagnostics else hub_quantization)
+    model_metadata = _hub_model_metadata(info, config=model_config, source=source, declaration=declaration)
+    if source == "modelscope" and not library_name:
+        pipeline_class = index.get("_class_name") if isinstance(index, dict) else None
+        if isinstance(pipeline_class, str) and pipeline_class.strip():
+            library_name = "diffusers"
+            model_metadata["hub_metadata"]["library_source"] = "model_index.json"
+        else:
+            library_name = "transformers"
+            model_metadata["hub_metadata"]["library_source"] = "modelscope.default_library"
     if not pipeline_tag and library_name == "diffusers" and not repository["metadata_errors"]:
-        index = repository["repository_metadata"].get("model_index.json")
         pipeline_tag = diffusers_index_task(index)
         if index is not None and pipeline_tag is None:
             _record_failure(diagnostics, "model_index", f"unsupported pipeline class: {index.get('_class_name')!r}")
@@ -651,8 +661,6 @@ def _detect_from_hub(
             f"metadata returned no pipeline_tag (library_name={library_name or 'unknown'})",
         )
 
-    declaration = pinned_quantization or (None if hub_diagnostics else hub_quantization)
-    model_metadata = _hub_model_metadata(info, config=model_config, source=source, declaration=declaration)
     model_metadata["hub_metadata"].update(
         pipeline_tag=hub_pipeline_tag, transformers_info=transformers_info,
         tags=list(getattr(info, "tags", None) or []),
