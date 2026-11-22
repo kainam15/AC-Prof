@@ -22,10 +22,7 @@ def plot_results(csv_path: str, *, only_ok: bool = True, save_png: bool = True) 
     csv_path = str(resolve_result_file(csv_path))
     layout = ArtifactLayout.from_csv(csv_path)
     all_status_df = plotting_data.prepare_df(csv_path, only_ok=False)
-    df = all_status_df.copy()
-    if only_ok and "status" in df.columns:
-        normalized_status = df["status"].astype(str).str.strip().str.lower()
-        df = df[normalized_status == "ok"].copy()
+    df = plotting_data.performance_rows(all_status_df, only_ok=only_ok)
     static_meta = plotting_data.read_static_meta(csv_path)
 
     scale_type = "input_scale"

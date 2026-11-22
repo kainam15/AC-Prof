@@ -3,7 +3,7 @@
 from collections.abc import Mapping
 from decimal import Decimal, InvalidOperation
 
-
+INFERRED_RESULT_ORIGIN = "inferred_not_measured"
 UNRESOLVED_TIMEOUT_ATTEMPT = "client_request_timeout: planned_request_attempted=unknown"
 
 
@@ -14,7 +14,7 @@ def is_unresolved_timeout_attempt(error: str) -> bool:
 
 def is_inferred_result(row: Mapping[str, object]) -> bool:
     """Identify a recorded placeholder whose planned request was never measured."""
-    return str(row.get("result_origin", "")).strip() == "inferred_not_measured"
+    return str(row.get("result_origin", "")).strip() == INFERRED_RESULT_ORIGIN
 
 
 def is_observed_formal_row(row: Mapping[str, object]) -> bool:

@@ -26,7 +26,7 @@ from acprof.plotting.data import (
 )
 from acprof.plotting.output import save_figure
 from acprof.plotting.styles import build_cpu_base_colors
-from acprof.results import is_unresolved_timeout_attempt
+from acprof.results import INFERRED_RESULT_ORIGIN, is_unresolved_timeout_attempt
 
 _UNMEASURED_ERROR = re.compile(
     r"^(not_measured_after_startup_oom_pruning|not_measured_after_timeout)(?![a-z0-9_])"
@@ -146,10 +146,20 @@ def summarize_resource_feasibility(df: pd.DataFrame) -> pd.DataFrame:
             df[column].fillna("").astype(str).str.strip().str.lower()
             if column in df.columns else ""
         )
+    if "result_origin" in df:
+        inferred = df["result_origin"].astype(str).str.strip() == INFERRED_RESULT_ORIGIN
+        if inferred.any():
+            outcomes["inferred"] = inferred
     records = []
     for key, rows in outcomes.groupby(group_cols, dropna=False, sort=True):
         record = dict(zip(group_cols, key, strict=True))
-        record["state"] = _classify_feasibility_outcomes(rows["status"].tolist(), rows["error"].tolist())
+        # A placeholder cannot supply a success or override an actual failure at the same coordinate.
+        observed = rows.loc[~rows["inferred"]] if "inferred" in rows else rows
+        if observed.empty:
+            pruned = rows["error"].map(_feasibility_error_state) == "pruned_startup_oom"
+            record["state"] = "pruned_startup_oom" if pruned.all() else "skipped"
+        else:
+            record["state"] = _classify_feasibility_outcomes(observed["status"], observed["error"])
         records.append(record)
     summary = pd.DataFrame.from_records(records, columns=[*group_cols, "state"])
     if not summary.empty:

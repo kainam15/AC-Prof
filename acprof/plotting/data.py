@@ -17,6 +17,7 @@ from acprof.pixel_metrics import (
 )
 from acprof.platform import recorded_identity
 from acprof.plotting.config import BYTES_PER_GIB, COMPUTE_NUMERIC_COLUMNS, PLOT_OUTPUT_DIRS
+from acprof.results import INFERRED_RESULT_ORIGIN
 from acprof.results.metrics import NUMERIC_FIELDS
 
 
@@ -179,12 +180,24 @@ def _convert_numeric_columns(
     return result
 
 
+def performance_rows(frame: pd.DataFrame, *, only_ok: bool) -> pd.DataFrame:
+    """Select measured plot inputs from a prepared frame, optionally requiring success."""
+    keep = None
+    if "result_origin" in frame:
+        keep = ~frame["result_origin"].isin([INFERRED_RESULT_ORIGIN])
+    if only_ok and "status" in frame:
+        successful = frame["status"].astype(str).str.strip().str.lower() == "ok"
+        keep = successful if keep is None else keep & successful
+    return frame if keep is None else frame.loc[keep].copy()
+
+
 def prepare_df(
     csv_path: str,
     *,
     only_ok: bool = True,
     exclude_warmup: bool = True,
 ) -> pd.DataFrame:
+    """Read plot rows; only_ok=False retains all origins for feasibility diagnostics."""
     from acprof.results.csv import open_result_text, run_id_column
 
     converters = {}
@@ -264,9 +277,8 @@ def prepare_df(
 
     df = _with_pixel_metrics(df, static_meta)
 
-    if only_ok and "status" in df.columns:
-        normalized_status = df["status"].astype(str).str.strip().str.lower()
-        df = df[normalized_status == "ok"].copy()
+    if only_ok:
+        df = performance_rows(df, only_ok=True)
 
     if exclude_warmup and "warmup" in df.columns:
         df = df[df["warmup"].fillna(0).astype(int) == 0].copy()
