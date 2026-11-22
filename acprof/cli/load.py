@@ -167,14 +167,15 @@ def _run_replay(args: argparse.Namespace, parser: argparse.ArgumentParser, outpu
         if not isinstance(options, dict):
             raise ValueError("source options must be an object")
         snapshot = state["runtime"]
-        runtime = execution_runtime(snapshot.get("kind", "docker"))
-        conditions = ExecutionConditions.from_options(options, gpu=args.gpu, runtime_kind=runtime.kind)
+        runtime_kind = snapshot.get("kind", "docker")
+        conditions = ExecutionConditions.from_options(options, gpu=args.gpu, runtime_kind=runtime_kind)
         config = LoadConfig(scenario=args.scenario, connections=args.connections, concurrency=args.concurrency,
                             requests=args.requests, rate=args.rate, arrival=args.arrival, seed=args.seed,
                             max_pending=args.max_pending, timeout_seconds=conditions.request_timeout_seconds).validate()
         config.schedule()  # Reject overflow before input/runtime preparation or output creation.
         if args.warmup < 0:
             raise ValueError("warmup must be nonnegative")
+        runtime = execution_runtime(runtime_kind)
         cpu = _replay_resource(options["cpus"], args.cpu, runtime.kind)
         mem = _replay_resource(options["mems"], args.mem, runtime.kind)
         layout = ArtifactLayout.discover(args.source)
