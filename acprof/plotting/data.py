@@ -190,7 +190,8 @@ def prepare_df(
     def preserve_run_id(fields: Sequence[str]) -> None:
         if column := run_id_column(fields):
             # An index also matches labels whose surrounding spaces Pandas strips.
-            converters[fields.index(column)] = str
+            # Pandas can apply NA inference to converter results that are strings.
+            converters[fields.index(column)] = str.encode
 
     try:
         stream = open_result_text(csv_path, inspect_header=preserve_run_id)
@@ -204,7 +205,9 @@ def prepare_df(
     from acprof.results.csv import require_current_fields
     require_current_fields(df.columns)
     for col in df.columns:
-        if pd.api.types.is_object_dtype(df[col]) or pd.api.types.is_string_dtype(df[col]):
+        if col == "run_id":
+            df[col] = df[col].map(lambda value: value.decode().strip())
+        elif pd.api.types.is_object_dtype(df[col]) or pd.api.types.is_string_dtype(df[col]):
             df[col] = df[col].map(lambda value: value.strip() if isinstance(value, str) else value)
 
     if "gpu_mode" in df:

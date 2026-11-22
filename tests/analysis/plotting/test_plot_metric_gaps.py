@@ -158,25 +158,28 @@ def test_plot_refuses_mixed_run_windows_even_after_caching_the_same_values(tmp_p
     assert not output.exists()
 
 
-@pytest.mark.parametrize("column", ["run_id", " run_id "])
-def test_csv_plot_keeps_text_run_ids_and_historical_missing_markers(tmp_path, column):
+@pytest.mark.parametrize(("column", "recorded_id", "other_id"), [("run_id", "001", "1"), (" run_id ", "NA", "组-B")])
+def test_csv_plot_keeps_text_run_ids_and_historical_missing_markers(tmp_path, column, recorded_id, other_id):
     from acprof.plotting.data import prepare_df
     from acprof.plotting.uncertainty import aggregate_plot_metric
 
     source = tmp_path / "result_all.csv"
     frame = pd.DataFrame([
         _row(1, 2, repeat_idx=i, warmup=0, status="ok", run_id=run_id)
-        for i, run_id in enumerate(("001", "", "N/A"))
+        for i, run_id in enumerate((recorded_id, "", "N/A", "nan"))
     ])
+    frame.loc[2, "latency_app_s"] = None
     frame = frame.rename(columns={"run_id": column})
     frame.insert(0, "extension\nlabel", 7)
     source.write_text("\n" + frame.to_csv(index=False))
     prepared = prepare_df(str(source))
-    assert prepared["extension\nlabel"].tolist() == [7, 7, 7]
+    assert prepared["extension\nlabel"].tolist() == [7, 7, 7, 7]
+    assert prepared["run_id"].tolist() == [recorded_id, "", "N/A", "nan"]
+    assert pd.isna(prepared["latency_app_s"].iloc[2])
     results = aggregate_plot_metric(prepared, "latency_app_s")
     assert results["n_windows"].tolist() == [3]
 
-    frame.loc[2, column] = "1"
+    frame.loc[1, column] = other_id
     frame.to_csv(source, index=False)
     with pytest.raises(ValueError, match="inconsistent run_id"):
         aggregate_plot_metric(prepare_df(str(source)), "latency_app_s")
