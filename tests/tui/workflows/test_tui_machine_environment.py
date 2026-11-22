@@ -242,12 +242,10 @@ async def test_all_machine_checks_run_once_and_ignore_experiment_edits(tmp_path,
     app = AcprofTui(RunConfig.smoke("fixture/model"), settings_path=tmp_path / "settings.json")
     app.configuration.preferences = replace(app.configuration.preferences, language=language)
     async with app.run_test(size=(80, 24)) as pilot:
-        # Preflight completion starts a new worker. Wait until it is registered
-        # before taking WorkerManager's snapshot of workers to await.
-        async with asyncio.timeout(10):
-            while not app.updates.started:
-                await pilot.pause()
-            await app.workers.wait_for_complete()
+        await wait_for_condition(
+            pilot, lambda: app.preflight.check_completed and app.updates.started and not app.updates.checking,
+            timeout=10, description="startup inventory and version check completed",
+        )
         await pilot.pause()
         assert not app.query_one("#start-run", Button).disabled, "an optional host tool cannot block a basic run"
         await pilot.click("#environment-success")
@@ -272,9 +270,14 @@ async def test_all_machine_checks_run_once_and_ignore_experiment_edits(tmp_path,
         assert app.preflight.display_state == "incomplete"
         assert app.query_one("#start-run", Button).disabled
         scan.assert_called_once_with(project_dir=app.project_dir)
-        await pilot.click(app.preflight.panel.retry_button)
-        await asyncio.wait_for(app.workers.wait_for_complete(), 10)
+        retry = app.preflight.panel.retry_button
+        retry.scroll_visible(animate=False, immediate=True)
         await pilot.pause()
+        assert await pilot.click(retry)
+        await wait_for_condition(
+            pilot, lambda: scan.call_count >= 2 and not app.preflight.check_running,
+            timeout=10, description="manual recheck refreshed the machine inventory",
+        )
         assert scan.call_count == 2
 
 

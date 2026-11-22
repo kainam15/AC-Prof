@@ -184,7 +184,7 @@ class TestStartupPreflight:
                 # Explicit preset actions still work after initial events settle.
                 app.experiments.preset_main()
                 await pilot.pause()
-                assert (app.query_one("#cpus", Input).value) == ("auto")
+                assert app.query_one("#cpus", Input).value == "1,2,4,8"
                 notify.assert_called_once()
 
     async def test_error_blocks_all_launch_paths_until_retry_succeeds(self):
@@ -378,10 +378,12 @@ class TestStartupPreflight:
                 assert not (app.query_one("#start-run", Button).disabled)
 
     async def test_quit_during_check_drops_late_callback(self):
+        started = threading.Event()
         release = threading.Event()
         finished = threading.Event()
 
         def slow_check(*_args, **_kwargs):
+            started.set()
             try:
                 if not release.wait(10):
                     raise TimeoutError("test did not release diagnostics")
@@ -393,8 +395,11 @@ class TestStartupPreflight:
         with patch("acprof.tui.run.preflight_controller.quick_preflight", side_effect=slow_check):
             try:
                 async with app.run_test(size=(120, 30)) as pilot:
-                    await pilot.pause()
+                    await wait_for_condition(
+                        pilot, started.is_set, description="diagnostic worker entered quick_preflight", timeout=5,
+                    )
                     token = app.preflight.check_request
+                    assert token is not None
                     app.action_request_quit()
                     assert app._task is not None
                     await asyncio.wait_for(app._task, 5)

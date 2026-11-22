@@ -424,16 +424,11 @@ class TestTuiReports:
             assert table.row_count == 1
             assert ("+2%") in ([str(cell) for cell in table.get_row_at(0)])
             assert ("方向不确定") in ([str(cell) for cell in table.get_row_at(0)])
-            for selector in ("#report-calculate", "#report-table"):
-                widget = app.query_one(selector)
-                widget.scroll_visible(animate=False, immediate=True)
-                await pilot.pause()
-                if selector == "#report-table":
-                    assert widget.region.area == 0
-                    assert widget not in app.screen.focus_chain
-                else:
-                    assert widget.region.height > 0
-                    assert widget.region.bottom <= size[1] - 3
+            calculate = app.query_one("#report-calculate", Button)
+            assert app.query_one("#experiment-source", Input).value == ""
+            for widget in (calculate, table):
+                assert widget.region.area == 0
+                assert widget not in app.screen.focus_chain
             table.focus()
             await pilot.pause()
             assert app.focused is not table
@@ -445,6 +440,10 @@ class TestTuiReports:
             assert ("Uncertain direction") in ([str(cell) for cell in table.get_row_at(0)])
             assert app.query_one("#analysis-details").region.area == 0
             assert "Result" in app.query_one("#main-tabs", TabbedContent).get_tab("results-tab").label.plain
+            app.results.select_result(str(self.csv_path))
+            await self.finish_workers(app, pilot)
+            assert calculate.region.height > 0
+            assert calculate.region.bottom <= size[1] - 3
         assert report.read_bytes() == original
 
     async def test_invalid_or_failed_reports_clear_old_table_and_show_error_on_report_page(self):

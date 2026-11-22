@@ -15,6 +15,7 @@ from acprof.tui.app import AcprofTui
 from acprof.tui.commands import PendingLaunch
 from acprof.tui.run.diagnostics import PreflightCheck
 from acprof.tui.updates import check_pypi_version
+from tests.support.tui_waits import wait_for_condition
 
 
 @pytest.fixture
@@ -152,8 +153,10 @@ async def test_failed_check_is_visible_and_releases_collection(tmp_path, monkeyp
         monkeypatch.setattr("acprof.tui.updates.MAX_RESPONSE_BYTES", 64)
     app = make_app(tmp_path, model="fixture/model")
     async with app.run_test(size=(80, 24), notifications=True) as pilot:
-        await pilot.pause()
-        await app.workers.wait_for_complete()
+        await wait_for_condition(
+            pilot, lambda: app.updates.started and not app.updates.checking,
+            description="startup PyPI check completed", timeout=5,
+        )
         await pilot.pause()
         text = str(app.query_one("#version-status", Static).content)
         assert "无法检查 PyPI 最新版本" in text

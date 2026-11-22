@@ -25,7 +25,9 @@ from acprof.tui.run.results import RunResult
 from acprof.tui.run.stages import Stage
 from acprof.tui.ui.input import BarCursorInput as Input
 from acprof.tui.ui.structured import FactGrid
+from tests.support.tui_actions import open_page
 from tests.support.tui_fixtures import AcprofTui
+from tests.support.tui_waits import wait_for_condition
 
 
 @pytest.fixture
@@ -326,13 +328,17 @@ async def test_finished_run_keeps_compact_status_and_log_space(tmp_path, languag
     app.configuration.preferences = replace(app.configuration.preferences, language=language)
     async with app.run_test(size=size) as pilot:
         # Reproduce a live attempt through its coordinator, not only the UI.
+        await open_page(pilot, "monitor-tab")
         token = app.execution.begin(PendingLaunch(("fixture-run",), "run", config))
-        app.activate_tab("monitor-tab")
         snapshot = ProgressSnapshot(stage=Stage.MEASURING, current_case=1, total_cases=4,
                                     measurement_active=True, measurement_status="running")
         app.consume_process_line("Retained run log", snapshot, True)
-        await pilot.pause()
         log = app.query_one("#run-log", SelectableLog)
+        pause_banner = app.query_one("#measurement-pause-banner")
+        await wait_for_condition(
+            pilot, lambda: pause_banner.region.height > 0 and log.content_region.height >= 3,
+            timeout=3, description="measurement pause banner and monitor log are visible",
+        )
         log_bottom = log.region.bottom
         if stage is Stage.STOPPED:
             assert app.execution.request_stop(token)
@@ -341,7 +347,10 @@ async def test_finished_run_keeps_compact_status_and_log_space(tmp_path, languag
             completed_cases=completed, total_cases=4, new_cases=completed,
         ))
         app.process_finished("run", returncode, snapshot, "")
-        await pilot.pause()
+        await wait_for_condition(
+            pilot, lambda: pause_banner.region.height == 0 and log.content_region.height >= 3,
+            timeout=3, description="retained log is visible after the measurement banner closes",
+        )
         assert app.execution.session.snapshot.stage is stage
         assert not app.execution.session.snapshot.measurement_active
         assert not app.query("#review-run-recovery, #run-recovery-actions")

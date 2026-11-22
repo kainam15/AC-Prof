@@ -17,6 +17,7 @@ from acprof.tui.run.progress import ProgressSnapshot
 from acprof.tui.run.stages import Stage
 from acprof.tui.ui.scrollbar import SolidScrollBarRender
 from acprof.tui.ui.structured import FactGrid
+from tests.support.tui_actions import open_page
 from tests.support.tui_fixtures import AcprofTui, fact_rows
 
 
@@ -78,11 +79,14 @@ class TestTuiLogView:
         app = self.make_app()
         app.configuration.preferences = replace(app.configuration.preferences, language=language)
         async with app.run_test(size=(80, 24)) as pilot:
-            await pilot.pause()
-            app.activate_tab("monitor-tab")
-            await pilot.pause()
+            await open_page(pilot, "monitor-tab")
             log = app.query_one("#run-log", SelectableLog)
             panel = app.query_one("#log-panel", LogPanel)
+            # Restoration focuses the log. Compare the same focus and page
+            # layout before and after maximization.
+            log.focus()
+            await pilot.pause()
+            assert app.focused is log
             normal_height = log.content_region.height
             log.clear_log().write("[build] first line")
             app.query_one("#stop-run", Button).disabled = False

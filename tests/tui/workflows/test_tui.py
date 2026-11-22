@@ -437,12 +437,12 @@ class TestTuiApp:
 
             app.experiments.preset_main()
             await wait_for_condition(
-                pilot, lambda: "--cpus auto" in str(app.query_one("#command-preview", Static).render()),
+                pilot, lambda: "--cpus 1,2,4,8" in str(app.query_one("#command-preview", Static).render()),
                 description="preset CPU list reaches the command preview", timeout=3,
             )
             preset_preview = str(app.query_one("#command-preview", Static).render())
-            assert (app.query_one("#cpus", Input).value) == ("auto")
-            assert ("--cpus auto") in (preset_preview)
+            assert app.query_one("#cpus", Input).value == "1,2,4,8"
+            assert "--cpus 1,2,4,8" in preset_preview
             assert app.query_one("#idle-seconds", Input).value == "20"
             assert app.query_one("#idle-cooldown-seconds", Input).value == "5"
             assert "--idle-seconds 20.0" in preset_preview

@@ -68,6 +68,7 @@ Best-effort 必需窗口指标按[逐字段证据](profiling/measurement.md#prof
 这些入口不改变下表的硬件、真实模型及客户端验收缺口。
 
 Host 分片覆盖 TUI 的模型来源、CLI 重启参数、连续编辑后的预检次数，以及导出 HTML 中可选择的比较视图。
+定向回归也覆盖长输入框缩窄后的光标位置、手动复检完成，以及独立报告和实验来源两种状态下的计算按钮。
 CI 快速预检已覆盖 TUI 的 Profiler 选择和诊断详情、Nsys 命令及 Host 分片依赖；
 本地可选 `pre-push` 在生产 Python 源码变更时也执行 mypy。完整矩阵、无 Torch 的 ONNX 容器和
 逐场景 PNG 像素对比仍是独立检查，见[CI 与发布验收](development/ci.md)。
