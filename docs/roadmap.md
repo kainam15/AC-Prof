@@ -41,7 +41,7 @@ BERT 后处理：Torch CPU/GPU **4/4**、NCU **2/2**、Nsys **2/2**，Massif **0
 
 ### 模型识别与冻结推理配置
 
-静态发现区分固定版本元数据读取失败与文件内容损坏。类型化参数协议、CLI / TUI Auto 与手动审阅、预设选择、输入计划 SHA 冻结及恢复身份检查已接入；`static_meta.json.inference_configuration` 保留配置与来源证据。句向量、Whisper、Chronos、VitPose / SuperPoint 单图关键点检测、多模态和 Diffusers 等有定向离线覆盖，**不代表所有新 checkpoint 均可实测运行**。历史实验复用保留模型来源、已解析的仓库 ID 与固定 commit，严格续跑仍核对冻结请求；coverage 的参数预算保留有效但未命名 dtype 的数量，中断后重试先核验未提交模型行的原清理状态（当前证据为离线回归）。Top 100 目前只有用户提供的 **41 / 25 / 25 / 4 / 4 / 1** 汇总，缺少可逐项复核的原始名单及固定 revision，不能计算真实通过率。[参数协议](models/inference-configuration.md) · [静态元数据](profiling/metadata.md) · [Kokoro 边界](models/adaptation.md#kokoro-原生适配)。
+静态发现区分固定版本元数据读取失败与文件内容损坏。固定配置文件中的量化声明及权重精度已纳入静态报告。类型化参数协议、CLI / TUI Auto 与手动审阅、预设选择、输入计划 SHA 冻结及恢复身份检查已接入；`static_meta.json.inference_configuration` 保留配置与来源证据。句向量、Whisper、Chronos、VitPose / SuperPoint 单图关键点检测、多模态和 Diffusers 等有定向离线覆盖，**不代表所有新 checkpoint 均可实测运行**。历史实验复用保留模型来源、已解析的仓库 ID 与固定 commit，严格续跑仍核对冻结请求；coverage 的参数预算保留有效但未命名 dtype 的数量。新一轮 GPU 预检失败后可修正配置并使用原路径重试。中断续跑仍先核验未提交模型行的原清理状态。上述行为已有离线回归。Top 100 目前只有用户提供的 **41 / 25 / 25 / 4 / 4 / 1** 汇总，缺少可逐项复核的原始名单及固定 revision，不能计算真实通过率。[参数协议](models/inference-configuration.md) · [静态元数据](profiling/metadata.md) · [Kokoro 边界](models/adaptation.md#kokoro-原生适配)。
 
 ### 结果质量、恢复与服务口径
 
