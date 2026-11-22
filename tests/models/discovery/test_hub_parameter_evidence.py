@@ -143,12 +143,12 @@ def discover_pinned(tmp_path, monkeypatch):
     monkeypatch.setenv("HF_HUB_OFFLINE", "1")
     monkeypatch.setattr("acprof.host.model_store.store.cached_model_info", lambda *args, **kwargs: None)
 
-    def discover(file_config, summary_config, *, source="huggingface", safetensors=None, offline=False):
+    def discover(file_config, summary_config, *, source="huggingface", safetensors=None, offline=False, tags=()):
         document = {"architectures": ["BertForMaskedLM"], "model_type": "bert", **file_config}
         content = json.dumps(document).encode()
         file = MetadataFile(tmp_path / "snapshots" / revision / "config.json", content)
         summary = ModelInfo(id=repo, sha=revision, pipeline_tag="fill-mask", library_name="transformers",
-                            config=summary_config.copy(), tags=[], siblings=[{"rfilename": "config.json"}],
+                            config=summary_config.copy(), tags=list(tags), siblings=[{"rfilename": "config.json"}],
                             safetensors=safetensors)
         endpoint = ("huggingface_hub.HfApi.model_info" if source == "huggingface"
                     else "acprof.hub.repository.modelscope_info")
@@ -204,3 +204,18 @@ def test_quantization_follows_pinned_config(discover_pinned, source, summary, fi
 def test_pinned_dtype_alias_and_safetensors_authority(discover_pinned, safetensors, expected, api_dtype, file_dtype):
     task = discover_pinned(file_dtype, api_dtype, safetensors=safetensors)
     assert task.precision_dtype == expected
+
+
+@pytest.mark.parametrize(("configuration", "tags", "method"), [
+    ({"quant_method": " gptq "}, (), "gptq"),
+    ({"quant_method": ["gptq"]}, (), None),
+    ({"quant_method": {"name": "gptq"}}, (), None),
+    ({"quant_method": 4, "quantization_method": "gptq"}, (), "gptq"),
+    ({"quant_method": "   ", "quant_type": "nf4"}, (), "nf4"),
+    ({"quant_method": False, "quantization_method": {}}, ("awq",), "awq"),
+])
+def test_quantization_method_requires_a_recorded_name(discover_pinned, configuration, tags, method):
+    task = discover_pinned({"quantization_config": configuration}, {}, tags=tags)
+    assert task.quantized is True
+    assert task.quantization_config == configuration
+    assert task.quantization_method == method

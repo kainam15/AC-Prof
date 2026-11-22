@@ -23,7 +23,7 @@
 | `input_format` | 实际 `/predict` HTTP JSON 输入协议及其 JSON Schema。 |
 | `output_format` | 实际 `/predict` HTTP JSON 响应协议及其 JSON Schema。 |
 | `quantized` | 是否检测到量化配置、量化 tag 或量化权重 dtype；无法确认时为 `null`。 |
-| `quantization_method` | 量化方法，例如 `gptq`、`awq`；不适用或未知时为 `null`。 |
+| `quantization_method` | 配置中记录的非空方法名，例如 `gptq`、`awq`。无法从配置取得方法名时可采用已识别的量化 tag，仍未知时为 `null`。 |
 | `quantization_config` | 优先记录已验证的同 revision `config.json` 中的完整量化配置，文件未声明该字段时使用 Hub 概览。两者均未声明时为空 object。 |
 | `model_license` | Hugging Face model card 许可证，例如 `apache-2.0`、`mit`；无法确认时为 `null`。 |
 | `model_metadata_source` | 参数、精度、量化和许可证等模型事实的来源。取自 Hugging Face 或 ModelScope 的 Hub 响应时分别记录 `huggingface_hub`、`modelscope_hub`，也可来自缓存中保留的同一份响应。仅从固定快照的配置推断任务时该字段仍为 `null`，精度与量化声明可由已读取的 `config.json` 提供，其 revision 与原始字节 SHA-256 保留在发现记录中。 |

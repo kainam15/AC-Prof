@@ -439,11 +439,12 @@ def _weight_metadata(
             if dtype in _DTYPE_BYTE_WIDTHS or dtype in _QUANTIZED_PRECISIONS:
                 precision_dtype = dtype
 
-    quantization_method = (
-        quantization_config.get("quant_method")
-        or quantization_config.get("quantization_method")
-        or quantization_config.get("quant_type")
-    )
+    quantization_method = None
+    for key in ("quant_method", "quantization_method", "quant_type"):
+        method = quantization_config.get(key)
+        if isinstance(method, str) and method.strip():
+            quantization_method = method.strip()
+            break
     matching_quantization_tags = sorted(tags & _QUANTIZATION_TAGS)
     if not quantization_method and matching_quantization_tags:
         quantization_method = matching_quantization_tags[0]
@@ -460,9 +461,7 @@ def _weight_metadata(
     return {
         "precision_dtype": precision_dtype,
         "quantized": quantized,
-        "quantization_method": (
-            str(quantization_method) if quantization_method else None
-        ),
+        "quantization_method": quantization_method,
         "quantization_config": quantization_config,
     }
 
