@@ -116,3 +116,24 @@ def test_symbolic_refs_dependencies_and_task_overrides_are_not_conflicting_prima
     assert row["status"] == "full_success"
     assert row["source"] == "modelscope"
     assert row["failure"] is None
+
+
+def test_mixed_model_and_commit_keep_both_diagnoses_under_the_original_failure(tmp_path):
+    metadata = saved_metadata()
+    snapshot = metadata["model_resolution"]["provenance"]["sources"]["repository_snapshot"]
+    snapshot.update(model_id="fixture/other", revision=OTHER_REVISION)
+    source = tmp_path / "mixed"
+    layout = write_metadata(source, metadata)
+    layout.path("runtime_failures.json").write_text(json.dumps({"failures": [
+        {"stage": "predict", "reason_code": "request_timeout", "detail": "original failure"},
+    ]}))
+
+    row, = report_results([source], tmp_path / "report")["rows"]
+
+    primary, *diagnoses = row["failures"]
+    assert primary == row["failure"]
+    assert primary["reason_code"] == "request_timeout"
+    assert len(diagnoses) == 2
+    assert all(failure["evidence"]["artifact"] == str(layout.path("static_meta.json")) for failure in diagnoses)
+    assert "model_id" in diagnoses[0]["detail"]
+    assert "revision" in diagnoses[1]["detail"]

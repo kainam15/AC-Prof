@@ -51,26 +51,32 @@ def _recorded_evidence_failure(path: Path, error: Exception) -> dict:
 
 
 class RecordedSourceError(ValueError):
-    def __init__(self, artifact: str, detail: str):
+    def __init__(self, artifact: str, detail: str, *, additional: tuple[tuple[str, str], ...] = ()):
         super().__init__(detail)
         self.artifact = artifact
+        self.problems = ((artifact, detail), *additional)
 
 
 def _check_primary_model_identity(records: tuple[tuple[str, str, object, object], ...]) -> None:
     known: dict[str, tuple[str, str]] = {}
+    conflicts: dict[tuple[str, str], str] = {}
     for artifact, location, model, revision in records:
         for field, value in (("model_id", model), ("revision", revision)):
             if value in (None, ""):
                 continue
             if not isinstance(value, str):
-                raise RecordedSourceError(artifact, f"{location} {field} must be a string")
+                conflicts.setdefault((artifact, field), f"{location} {field} must be a string")
+                continue
             if field == "revision" and not pinned_revision(value):
                 # A saved branch or tag cannot establish a different resolved snapshot.
                 continue
             previous = known.get(field)
             if previous and previous[0] != value:
-                raise RecordedSourceError(artifact, f"{location} {field} conflicts with {previous[1]}")
+                conflicts.setdefault((artifact, field), f"{location} {field} conflicts with {previous[1]}")
             known.setdefault(field, (value, f"{artifact} {location}"))
+    if conflicts:
+        first, *others = [(name, detail) for (name, _field), detail in conflicts.items()]
+        raise RecordedSourceError(*first, additional=tuple(others))
 
 
 def recorded_model_source(metadata: dict, resolution: dict, state: dict, *,
@@ -420,7 +426,8 @@ def _check_identity_consistency(
             interface=interface, interface_name=interface_name,
         )
     except RecordedSourceError as error:
-        _invalid_compatibility_shape(layout, error.artifact, str(error), invalid)
+        for name, detail in error.problems:
+            _invalid_compatibility_shape(layout, name, detail, invalid)
         model_source = "unknown"
     return meta_model, res_model, meta_rev, res_rev, model_source
 
