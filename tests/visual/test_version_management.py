@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 from packaging.version import Version
+from textual.containers import VerticalScroll
 from textual.widgets import Button, Static, TabbedContent
 
 from acprof.experiments.configuration import RunConfig
@@ -20,7 +21,7 @@ pytestmark = pytest.mark.visual
     ("zh", (80, 24), "versions"), ("en", (120, 30), "versions"),
     ("zh", (80, 24), "downgrade"),
 ])
-def test_version_manager_snapshot(snap_compare, tmp_path, monkeypatch, language, size, scene):
+def test_version_manager_snapshot(snap_compare, svg_operations, tmp_path, monkeypatch, language, size, scene):
     app = AcprofTui(RunConfig.smoke(""), settings_path=tmp_path / "tui.json")
     app.configuration.preferences = replace(app.configuration.preferences, language=language)
     controller = app.updates
@@ -40,6 +41,8 @@ def test_version_manager_snapshot(snap_compare, tmp_path, monkeypatch, language,
         str(release.current), str(release.latest), release.channel, str(directory), str(directory / "fixture")))
 
     async def prepare(pilot):
+        # The visible header counts include the startup preflight result.
+        await svg_operations.wait_for_preflight()
         await pilot.pause()
         app.title = f"AC-Prof {controller.current}"
         app.activate_tab("settings-tab")
@@ -53,9 +56,14 @@ def test_version_manager_snapshot(snap_compare, tmp_path, monkeypatch, language,
             controller.request_install()
             await pilot.pause()
             app.screen.query_one("#confirm-no", Button).focus()
-        else:
-            app.query_one("#version-status").scroll_visible(top=True, immediate=True)
-            app.set_focus(None)
+            await pilot.pause()
+            return
+        app.set_focus(None)
+        status = app.query_one("#version-status", Static)
+        status.scroll_visible(animate=False, top=True, immediate=True)
         await pilot.pause()
+        body = app.query_one("#settings-body", VerticalScroll)
+        assert body.scrollable_content_region.contains_region(status.region)
+        assert status.region.y == body.scrollable_content_region.y or body.scroll_y == body.max_scroll_y
 
     assert snap_compare(app, terminal_size=size, run_before=prepare)
