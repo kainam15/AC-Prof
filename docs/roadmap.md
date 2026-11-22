@@ -12,7 +12,7 @@
 | M1 · 采集闭环 | 已完成既有范围 | Docker / Process 从预检、准备、测量到审计已贯通；既有 Process CPU/GPU basic、符合条件的 Native Docker full 有实测。新实验统一 Best-effort，额外硬件覆盖仍需独立验收。 |
 | M2 · 通用适配 | 已完成既有范围 | 六类真实 checkpoint 的 CPU/GPU full、Structured CPU full 已验收；其他模型、任务和后端须分别提供兼容与运行证据。 |
 | M3 · Runtime / Profiler | 进行中 | [统一画像语义](results/runtime-profile.md)、Process 条件性 cgroup / RAPL / DRAM / NVML / PMU / PCAP 和生命周期诊断已接入。同一委派单元内选择资源组及复核继承配额已有模拟 cgroup 验证。Torch、NCU、Nsys 的代表性后处理已验证。NCU 和 Massif 的失败报告隔离与断点恢复已离线验证；NCU 补采已覆盖原始计数核对及物理 GPU 不匹配时的结果保护。Massif 真实双尺度采集、配对开销及资源限制仍待验收。 |
-| M4 · TUI 体验 | 进行中 | 四阶段界面、状态中心、自动预检（Docker 和 Process 的 GPU 选择均已与各自的 CLI 对照）、配置折叠、结果工作台（含报告导入取消）、运行环境修复引导及版本管理已通过定向离线／视觉检查。Linux `uv tool` 的 wheel 筛选、实际升级与版本不匹配回滚已有本地索引验证。用户终端和线上更新仍待验收。 |
+| M4 · TUI 体验 | 进行中 | 四阶段界面、状态中心、自动预检（Docker 和 Process 的 GPU 选择均已与各自的 CLI 对照）、配置折叠、结果工作台（含报告导入取消）、运行环境修复引导及版本管理已通过定向离线／视觉检查。[TUI 流程矩阵](development/png-visual-validation.md#五个流程的证据选择)追踪 19 个检查点，恢复选择、运行验证和结束核验有合成 Pilot 诊断图，设置页 SVG 需经人工审阅后纳入 Golden。Linux `uv tool` 的 wheel 筛选、实际升级与版本不匹配回滚已有本地索引验证。用户终端和线上更新仍待验收。 |
 | M5 · 科研结果 | 进行中 | 窗口身份和冻结输入、结果恢复、逐指标质量审计、统计、精确坐标比较、离线 HTML 与流式 P0 已贯通。安装包绘图已在两个受支持的 Pandas 版本验证历史空标记和文本运行身份。PNG 窗口均值、尾延迟、延迟／能量 Pareto 图及延迟拟合已按字段质量和采样条件筛选实测窗口。能耗稳定性、重复性、真实服务画像仍需补证。 |
 | M6 · 交付使用 | 既有交付完成 | wheel、uv tool、standalone 及安装后 smoke 已验收，双语入口已对齐；预览版发布不等同于当前提交的完整 CI、硬件或正式版验收。 |
 
