@@ -442,6 +442,8 @@ class OpenAIStreamingAdapter:
         if finish is not None:
             if not isinstance(finish, str) or not finish:
                 raise StreamProtocolError("invalid_finish_reason", "finish_reason must be nonempty text")
+            if record["finish_reason"] == "abort" and finish != "abort":
+                raise StreamProtocolError("server_aborted", "server aborted generation before another finish reason")
             record["finish_reason"] = finish
             if chat and (reason := nontext_chat_output(finish, None)):
                 raise StreamProtocolError("unsupported_output", reason)
@@ -616,6 +618,9 @@ class OpenAIStreamingAdapter:
             parser.finish()
             if record["stream_completed_s"] is None:
                 raise StreamProtocolError("incomplete_stream", "stream ended without [DONE]")
+            # An aborted generator can still send its final usage, [DONE] and HTTP EOF.
+            if record["finish_reason"] == "abort":
+                raise StreamProtocolError("server_aborted", "server ended generation with finish_reason=abort")
             if defer_tokenization:
                 record["stream_successful"] = True
             else:

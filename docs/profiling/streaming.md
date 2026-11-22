@@ -551,6 +551,7 @@ SGLang 的[阶段语义讨论](https://github.com/sgl-project/sglang/issues/1430
 | --- | --- |
 | HTTP 非 200／非 SSE 响应 | 失败，保留 HTTP 状态 |
 | HTTP 200 中的 `error` 或 SSE error 事件 | 失败，即使此前已有输出 |
+| Chat 或 Completions 以 `finish_reason=abort` 结束 | 完整流记为 `server_aborted`；保留部分输出、最终 usage 及结束时刻，从成功时延、Token 吞吐和 SLO Goodput 中排除 |
 | 无 `[DONE]`、截断 UTF-8／SSE、无效 JSON、正文断流 | 协议或传输错误，不计完成成功样本 |
 | SSE JSON 含孤立 Unicode 代理 | `invalid_unicode`，请求及实验失败，最终 `load.json` 仍可发布 |
 | 超过 run 级字节／事件硬预算 | 对应 run limit 错误，不发送后续请求，实验不成功 |
@@ -558,6 +559,9 @@ SGLang 的[阶段语义讨论](https://github.com/sgl-project/sglang/issues/1430
 | 用户中断 | cancelled，终止活动连接，保留当前阶段的部分报告；后续清理失败仍报错 |
 | 不支持的多选择、tool/function、无效计数 | 明确失败或明确不可用，不静默替换 |
 | 无 Token 计数证据／非逐 Token 流 | 相应指标 `null`，记录缺失原因 |
+
+[SGLang 的 Completions 实现](https://github.com/sgl-project/sglang/blob/448764da636a8500015f461afbb91e3d2d23c94f/python/sglang/srt/entrypoints/openai/serving_completions.py#L355-L379)
+会让用户主动中止的生成以普通 SSE choice 结束，仍可发送最终 usage 和 `[DONE]`。若发生在预热阶段，正式请求不会启动。
 
 在响应／运行字节预算内，完整事件按顺序记入观测。同一次网络读取中的后续非法 UTF-8、
 超大事件或协议错误，不抹除此前的输出、usage 或 `[DONE]`；先遇到的事件错误优先报告。

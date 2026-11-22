@@ -47,6 +47,17 @@ def _validate_v2_service_declaration(
         raise ValueError("stream load service probe declaration differs")
 
 
+def _validate_abort_outcomes(experiment: Mapping[str, Any]) -> None:
+    for phase_name in ("warmup", "result"):
+        phase = experiment.get(phase_name)
+        rows = phase.get("requests") if isinstance(phase, Mapping) else None
+        if not isinstance(rows, list):
+            continue
+        for index, row in enumerate(rows):
+            if isinstance(row, Mapping) and row.get("finish_reason") == "abort" and row.get("status") == "ok":
+                raise ValueError(f"{phase_name}.requests[{index}]: successful request contradicts finish_reason=abort")
+
+
 def _validate_chat_output(experiment: Mapping[str, Any], identity: Mapping[str, Any], result: Mapping[str, Any]) -> None:
     declared = identity.get("adapter")
     text_only = isinstance(declared, dict) and "output_modalities" in declared
@@ -233,6 +244,7 @@ def analyze_load_report(experiment: dict[str, Any]) -> dict[str, Any]:
             message = "\n".join([message, *load_failure_diagnostics(experiment)])
         raise ValueError(message)
     require_schema_version(result, version, "stream load result")
+    _validate_abort_outcomes(experiment)
     if version == 3:
         validate_dataset_inputs(experiment)
     elif ((isinstance(experiment.get("identity"), dict) and "request_dataset" in experiment["identity"])
