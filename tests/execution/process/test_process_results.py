@@ -42,6 +42,12 @@ def test_audit_accepts_inherited_limits_and_rejects_false_container_metrics(resu
     assert not audit_result(result(container_cpu_util_avg_pct=50))['valid']
 
 
+def test_legacy_process_group_success_cannot_verify_a_missing_reading(result):
+    report = audit_result(result(process_rss_peak_bytes="nan", gpu_utilization_status="verified"))
+    assert report["missing_metrics"]["process_rss_peak_bytes"] == {"unavailable": 1}
+    assert report["missing_metrics"]["gpu_util_avg_pct"] == {"not_applicable": 1}
+
+
 def test_audit_rejects_a_numeric_quota_without_enforcement(result):
     report = audit_result(result(cpu_cores=4))
     assert not report['valid']

@@ -77,6 +77,24 @@ def data_status_text(status: ExperimentDataStatus) -> str:
     lines = [message_id("results.overview.data_counts", status.formal_ok_rows, counts["error"], counts["warn"], counts["warmup"]),
              message_id("results.overview.integrity", message_id("results.overview.verified" if audit["valid"] else "results.overview.issues")),
              render_quality_summary(audit)]
+    missing = audit.get("missing_metrics", {})
+    if missing:
+        from acprof.results.metrics import METRICS
+        by_reason: dict[str, list[str]] = {}
+        for field, reasons in missing.items():
+            for reason in reasons:
+                by_reason.setdefault(reason, []).append(field)
+        lines.append(message_id("results.overview.missing_metrics", len(missing)))
+        for reason, fields in sorted(by_reason.items()):
+            sources = ", ".join(sorted({METRICS[field].source for field in fields}))
+            lines.append(message_id("results.overview.missing_reason", reason, len(fields), sources))
+    if partial := audit.get("partial_metrics"):
+        lines.append(message_id("results.overview.partial_metrics", ", ".join(sorted(partial))))
+    diagnostics = audit.get("window_diagnostics", {})
+    if pmu := diagnostics.get("pmu_multiplexing"):
+        lines.append(message_id("results.overview.pmu_multiplexing", pmu["windows"], pmu["minimum_running_pct"]))
+    if short := diagnostics.get("insufficient_windows"):
+        lines.append(message_id("results.overview.insufficient_windows", short["configurations"], short["minimum_required"]))
     if audit["issues"]:
         lines.append(message_id("results.overview.warnings", "; ".join(item["message"] for item in audit["issues"][:3])))
     return join_messages("\n", lines)

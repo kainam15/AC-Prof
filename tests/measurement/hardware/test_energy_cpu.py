@@ -135,6 +135,22 @@ def test_dram_missing_mid_window_and_unknown_wrap_never_become_zero():
         assert (result.status) == ('error')
         assert (math.isnan(result.window_energy_j))
 
+def test_complete_package_topology_without_dram_reports_unsupported(tmp_path):
+    package = Path(_write_rapl_domain(str(tmp_path), "intel-rapl:0", "package-0"))
+    _write_rapl_domain(str(package), "intel-rapl:0:0", "core")
+    monitor = energy_cpu.CPUEnergyMonitor(powercap_root=str(tmp_path))
+    assert monitor.available
+    assert monitor.dram_status == "unsupported"
+    result = energy_cpu.reduce_dram_samples([], [], float("nan"), monitor.dram_status)
+    assert result.status == "unsupported"
+    assert math.isnan(result.window_energy_j)
+    assert "no DRAM" in result.error
+
+    # An unidentified zone could be DRAM. Its missing name is not proof of absence.
+    (package / "intel-rapl:0:0" / "name").unlink()
+    assert energy_cpu.discover_rapl_topology(tmp_path)["dram_status"] == "unavailable"
+
+
 def test_dram_optional_required_off_and_partial_socket_coverage():
     with tempfile.TemporaryDirectory() as tmp:
         _write_rapl_domain(tmp, 'intel-rapl:0', 'package-0')

@@ -13,6 +13,11 @@ STATISTIC_AXES = (*RESOURCE_AXES, "input_scale")
 COORDINATE_IDENTITY = "recorded_decimal_v1"
 
 
+def window_case_key(row: dict, key: tuple[str, ...]) -> tuple[str, ...]:
+    return (*key[:4], row.get("environment_class", "unknown"), row.get("runtime_kind", "docker"),
+            row.get("runtime_id", ""), row.get("resource_scope", "container_cgroup"))
+
+
 def project_coordinates(axes: Mapping[str, str]) -> dict:
     """Keep JSON numbers when possible and retain any decimal lost by their projection."""
     result: dict = {}

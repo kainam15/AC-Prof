@@ -417,7 +417,11 @@ def reduce_dram_samples(samples, domains, idle_power_w, status="available", erro
                               min_power_interval_s=0.0) -> DRAMEnergyResult:
     result = DRAMEnergyResult(idle_power_w=idle_power_w, status=status, error=error)
     if status != "available":
-        result.error = error or ("DRAM not requested" if status == "not_requested" else "incomplete DRAM domain coverage")
+        result.error = error or {
+            "not_requested": "DRAM not requested",
+            "unsupported": "powercap exposes no DRAM RAPL domain",
+            "permission_denied": "permission denied reading DRAM RAPL domain",
+        }.get(status, "incomplete DRAM domain coverage")
         return result
     if error or len(samples) < 2 or not domains or any(
         sample.dram_energy_uj is None or len(sample.dram_energy_uj) != len(domains) for sample in samples

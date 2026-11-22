@@ -10,8 +10,12 @@ from decimal import MAX_EMAX, MIN_EMIN, ROUND_DOWN, Context, Decimal
 from operator import itemgetter
 
 from acprof.analysis.audit import number
-from acprof.analysis.coordinates import project_coordinates
-from acprof.analysis.precision import assess_mean_precision, validate_precision_target
+from acprof.analysis.coordinates import project_coordinates, window_case_key
+from acprof.analysis.precision import (
+    MIN_WINDOWS_PER_BLOCK,
+    assess_mean_precision,
+    validate_precision_target,
+)
 from acprof.cancellation import cancellable, check_cancelled
 from acprof.results.csv import (
     is_measured_success,
@@ -37,11 +41,6 @@ def ordered_windows(rows: Iterable[dict]) -> list[tuple[Decimal, dict]]:
 def portable_repeat_index(index: Decimal) -> float | str:
     """Preserve the original JSON encoding within the binary64 safe integer range."""
     return float(index) if index <= _MAX_SAFE_INTEGER else decimal_key_text(index)
-
-
-def window_case_key(row: dict, key: tuple[str, ...]) -> tuple[str, ...]:
-    return (*key[:4], row.get("environment_class", "unknown"), row.get("runtime_kind", "docker"),
-            row.get("runtime_id", ""), row.get("resource_scope", "container_cgroup"))
 
 
 def _case_coordinates(case: tuple[str, ...]) -> dict:
@@ -183,7 +182,7 @@ def _summarize_case_metric(
         "ci_high": ci_high,
         "reason": "",
     }
-    if count < max(3, 3 * block_size):
+    if count < MIN_WINDOWS_PER_BLOCK * block_size:
         result["reason"] = "insufficient_windows"
     elif block_size > 1 and count != len(ordered):
         result["reason"] = "missing_windows_break_blocks"
@@ -258,7 +257,7 @@ def bootstrap_mean_interval(values, *, confidence=0.95, resamples=5000, seed=0, 
     if not isinstance(block_size, int) or block_size < 1 or any(not math.isfinite(v) for v in values):
         raise ValueError("invalid bootstrap values or block size")
     count = len(values)
-    if count < max(3, 3 * block_size):
+    if count < MIN_WINDOWS_PER_BLOCK * block_size:
         return None, None
     rng = random.Random(seed)
 

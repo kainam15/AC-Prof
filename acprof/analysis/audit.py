@@ -10,6 +10,8 @@ from collections.abc import Callable
 from decimal import InvalidOperation
 from pathlib import Path
 
+from acprof.analysis.coordinates import window_case_key
+from acprof.analysis.precision import MIN_WINDOWS_PER_BLOCK
 from acprof.analysis.workload import parse_workload_summary
 from acprof.cancellation import cancellable, check_cancelled
 from acprof.capabilities import collection_outcomes
@@ -38,7 +40,9 @@ from acprof.results.measurement_plan import (
 )
 from acprof.results.metadata import ResultMetadataSnapshot, result_input_plan_digest
 from acprof.results.metrics import METRICS, NUMERIC_FIELDS
-from acprof.results.profile import metric_observation
+from acprof.results.profile import QUALITIES, USABLE_QUALITIES, metric_observation
+
+_MISSING_QUALITIES = QUALITIES - USABLE_QUALITIES
 
 type AuditedRows = ResultCsvSnapshot | OSError | ValueError | csv.Error
 
@@ -82,12 +86,14 @@ class MissingReasons:
         if field.startswith("container_") or field.startswith("cold_start_"):
             return "unsupported_by_process_runtime"
         if field in {"process_cpu_time_s", "process_cpu_util_avg_pct", "process_rss_avg_bytes", "process_rss_peak_bytes"}:
-            return str(row.get("process_resource_status", "unavailable"))
-        if field.startswith("gpu_util_"):
-            return str(row.get("gpu_utilization_status", "unavailable"))
-        if field in {"gpu_mem_used_avg_bytes", "gpu_mem_used_peak_bytes"}:
-            return str(row.get("gpu_memory_status", "unavailable"))
-        return None
+            status = row.get("process_resource_status")
+        elif field.startswith("gpu_util_"):
+            status = row.get("gpu_utilization_status")
+        elif field in {"gpu_mem_used_avg_bytes", "gpu_mem_used_peak_bytes"}:
+            status = row.get("gpu_memory_status")
+        else:
+            return None
+        return status if status in _MISSING_QUALITIES else None
 
     def _tool_reason(self, tool: str, row: dict, reasons: dict[str, str | None]) -> str | None:
         if tool not in reasons:
@@ -112,6 +118,8 @@ class MissingReasons:
             quality = metric_observation(row, field)['quality']
             if quality not in {'complete', 'unknown'}:
                 return quality
+            if metric.source == "rapl_dram" and row.get("dram_energy_status") in _MISSING_QUALITIES:
+                return row["dram_energy_status"]
             if process and (process_reason := self._process_reason(row, field)) is not None:
                 return process_reason
             if self._wsl and native_only_metric(metric):
@@ -478,9 +486,22 @@ def _audit_formula_row(index, row, formal, issue):
             issue("formula_mismatch", f"{field}: 实际 {actual_value:g}，应为 {expected_value:g}", row=index, field=field)
 
 
+def _window_diagnostics(windows_per_case, multiplexed_windows, minimum_running_pct):
+    diagnostics: dict[str, dict[str, int | float]] = {}
+    short_cases = sum(windows < MIN_WINDOWS_PER_BLOCK for windows in windows_per_case.values())
+    if short_cases:
+        diagnostics["insufficient_windows"] = {"configurations": short_cases, "minimum_required": MIN_WINDOWS_PER_BLOCK}
+    if multiplexed_windows:
+        diagnostics["pmu_multiplexing"] = {"windows": multiplexed_windows, "minimum_running_pct": minimum_running_pct}
+    return diagnostics
+
+
 def _audit_rows(report, runtime, metadata, hardware, table: ResultCsvSnapshot, issue, cancelled):
     missing: dict[str, Counter[str]] = defaultdict(Counter)
     partial: dict[str, Counter[str]] = defaultdict(Counter)
+    windows_per_case: dict[tuple[str, ...], int] = defaultdict(int)
+    multiplexed_windows = 0
+    minimum_running_pct = 100.0
     missing_reasons = MissingReasons(metadata, environment_class=report["environment_class"])
     header = set(table.fields)
     recorded = tuple(field for field in NUMERIC_FIELDS if field in header)
@@ -493,21 +514,28 @@ def _audit_rows(report, runtime, metadata, hardware, table: ResultCsvSnapshot, i
         if status in {"warn", "error"}:
             report["counts"][status] += 1
         formal = status == "ok" and not warmup
-        inferred = is_inferred_result(row)
-        measured_ok = formal and not inferred
+        observed_window = not warmup and status in {"ok", "warn"} and not is_inferred_result(row)
+        measured_ok = observed_window and status == "ok"
         report["counts"]["formal_ok"] += measured_ok
+        if not warmup and status in {"ok", "warn", "error"}:
+            windows_per_case[window_case_key(row, measurement_key(row))] += measured_ok
+        if observed_window:
+            running_pct = number(row.get("cpu_perf_running_pct"))
+            if running_pct is not None and 0 < running_pct < 100:
+                multiplexed_windows += 1
+                minimum_running_pct = min(minimum_running_pct, running_pct)
         _audit_process_row(report, runtime, metadata, hardware, index, row, status, issue)
         try:
             _check_workload_counts(row)
         except (ValueError, TypeError) as error:
             issue("workload_contract", error, row=index)
-        observed = (not inferred and not warmup and status in {"ok", "warn"}
-                    and row.get("resource_metric_quality", "") not in MISSING_CSV_TEXT)
+        observed = observed_window and row.get("resource_metric_quality", "") not in MISSING_CSV_TEXT
         # The first measured window establishes the existing order of missing metrics.
         numeric_fields = NUMERIC_FIELDS if measured_ok and report["counts"]["formal_ok"] == 1 else recorded
         _audit_numeric_row(report, runtime, numeric_fields, missing_reasons, missing, partial if observed else None,
                            index, row, measured_ok, issue, cancelled)
         _audit_formula_row(index, row, formal, issue)
+    report["window_diagnostics"] = _window_diagnostics(windows_per_case, multiplexed_windows, minimum_running_pct)
     formal_ok = report["counts"]["formal_ok"]
     if formal_ok > 1:
         for field in NUMERIC_FIELDS:

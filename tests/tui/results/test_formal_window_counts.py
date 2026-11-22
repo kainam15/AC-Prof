@@ -2,7 +2,7 @@
 from unittest.mock import patch
 
 import pytest
-from textual.widgets import Button
+from textual.widgets import Button, Static
 
 from acprof.results.csv import ResultValidationError
 from acprof.tui.results.data_status import inspect_experiment_data
@@ -34,6 +34,23 @@ async def test_decimal_formal_window_enables_plot_action(tmp_path):
         pending, = launch.call_args.args
         assert pending.kind == "plot"
         assert str(source) in pending.command
+
+
+async def test_result_status_reports_observed_quality_and_window_limits(tmp_path):
+    source = tmp_path / "result_all.csv"
+    write_rows(source, [row(0, 2, environment_class="unknown", cpu_perf_running_pct=26,
+                            dram_window_energy_j="", dram_energy_status="unsupported")])
+    app = AcprofTui(settings_path=tmp_path / "settings.json")
+    async with app.run_test(size=(100, 30)) as pilot:
+        await open_page(pilot, "results-tab")
+        app.results.select_result(str(source))
+        await wait_for_condition(pilot, lambda: app.results.data_status is not None and not app.read_jobs,
+                                 description="completed result quality audit", timeout=5)
+        text = str(app.query_one("#result-data-status", Static).content)
+        assert "unsupported" in text and "rapl_dram" in text
+        assert "26%" in text and "PMU" in text
+        assert "3 个" in text and "置信区间" in text
+        assert not app.query_one("#report-window-stats", Button).disabled
 
 
 @pytest.mark.parametrize(("phase", "formal", "warmup"), [

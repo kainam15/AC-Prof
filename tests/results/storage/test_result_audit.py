@@ -226,6 +226,40 @@ class TestResultAudit:
         assert (report["counts"]) == ({"rows": 4, "formal_ok": 1, "warmup": 1, "warn": 1, "error": 1})
         assert (report["completion"]) == ("unknown")
 
+    def test_window_diagnostics_use_actual_windows_per_configuration(self):
+        self.write(self.row(cpu_perf_running_pct=26, repeat_in_window=100),
+                   self.row(repeat_idx=1, cpu_perf_running_pct=100),
+                   self.row(repeat_idx=2, warmup=1, cpu_perf_running_pct=4),
+                   self.row(repeat_idx=3, result_origin="inferred_not_measured", cpu_perf_running_pct=2),
+                   self.row(repeat_idx=4, status="error", error="timeout", cpu_perf_running_pct=1),
+                   *(self.row(cpu_cores=2, repeat_idx=i) for i in range(3)))
+        report = audit_result(self.path)
+        assert report["valid"]
+        assert report["window_diagnostics"] == {
+            "insufficient_windows": {"configurations": 1, "minimum_required": 3},
+            "pmu_multiplexing": {"windows": 1, "minimum_running_pct": 26},
+        }
+
+    def test_zero_valid_windows_and_observed_warn_pmu(self):
+        self.write(*(self.row(status="warn", error="idle drift", repeat_idx=i, cpu_perf_running_pct=pct)
+                     for i, pct in enumerate((25, 50, 100))),
+                   self.row(cpu_cores=2, status="error", error="timeout", cpu_perf_running_pct=1),
+                   self.row(cpu_cores=3, result_origin="inferred_not_measured", cpu_perf_running_pct=2),
+                   self.row(cpu_cores=4, warmup=1, cpu_perf_running_pct=3))
+        report = audit_result(self.path)
+        assert report["valid"]
+        assert report["counts"] == {"rows": 6, "formal_ok": 0, "warmup": 1, "warn": 3, "error": 1}
+        assert report["window_diagnostics"] == {
+            "insufficient_windows": {"configurations": 3, "minimum_required": 3},
+            "pmu_multiplexing": {"windows": 2, "minimum_running_pct": 25},
+        }
+
+    def test_explicit_dram_status_explains_legacy_missing_energy(self):
+        self.write(self.row(dram_energy_status="unsupported", cpu_energy_total_j=0))
+        report = audit_result(self.path)
+        assert report["missing_metrics"]["dram_window_energy_j"] == {"unsupported": 1}
+        assert "cpu_energy_total_j" not in report["missing_metrics"]
+
     def test_duplicate_and_invalid_status_are_reported(self):
         for rows, code in (([self.row(), self.row()], "invalid_csv"),
                            ([self.row(status="finished")], "invalid_status")):

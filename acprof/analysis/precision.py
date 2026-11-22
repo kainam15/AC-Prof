@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import math
 
+MIN_WINDOWS_PER_BLOCK = 3
+
 
 def validate_precision_target(target: float) -> float:
     """A target is a finite positive ratio, not a percentage or a stopping rule."""

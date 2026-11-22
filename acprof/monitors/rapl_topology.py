@@ -85,6 +85,10 @@ def discover_rapl_topology(powercap_root="/sys/class/powercap") -> dict:
     if missing and any(e["kind"] == "dram" and e["parent_id"] in missing
                        and e["status"] == "permission_denied" for e in domains):
         dram_status = "permission_denied"
+    elif (selected_ids and not errors
+          and all(entry["name"] and entry["kind"] != "dram" for entry in domains)
+          and all(entry["name"] in selected_packages for entry in domains if entry["kind"] == "package")):
+        dram_status = "unsupported"
     return {"schema_version": 1, "source": str(root), "domains": domains, "errors": errors,
             "dram_status": dram_status, "dram_missing_packages": missing,
             "counter_assumption": "at most one wrap per domain between adjacent samples"}

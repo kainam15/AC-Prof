@@ -115,10 +115,12 @@ def probe_collection_plan(runtime_kind, *, gpu=None, profiling_mode="best_effort
             topology = discover_rapl_topology()
             probes["cpu_energy"] = package_energy_capability(topology)
             dram_status = topology["dram_status"]
-            if dram_status == "unavailable" and not topology.get("errors") and not any(
-                    item["kind"] == "dram" for item in topology["domains"]):
-                dram_status = "unsupported" if probes["cpu_energy"].status == "available" else probes["cpu_energy"].status
-            probes["dram_energy"] = Capability(dram_status, "RAPL DRAM package coverage",
+            if (dram_status == "unavailable" and probes["cpu_energy"].status != "available"
+                    and not any(item["kind"] == "dram" for item in topology["domains"])):
+                dram_status = probes["cpu_energy"].status
+            detail = ("No DRAM RAPL domain exposed by powercap" if dram_status == "unsupported"
+                      else "RAPL DRAM package coverage")
+            probes["dram_energy"] = Capability(dram_status, detail,
                 "rapl_topology", {"missing_packages": topology["dram_missing_packages"]})
         except (OSError, ValueError, RuntimeError) as exc:
             for name in ("cpu_energy", "dram_energy"):

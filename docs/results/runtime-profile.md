@@ -78,6 +78,17 @@ RSS ↔ cgroup memory、HTTP bytes ↔ PCAP、设备能量 ↔ 模型归因均�
 不为得到数值改权限、重跑模型或开启额外 Profiler。必需指标失败继续阻断，
 可选运行错误保留诊断，不能标为无诊断成功。历史缺少新证据时保持 unknown。
 
+TUI 的结果概览在“产物检查详情”中按原因汇总正式成功窗口内缺失的数值字段，列出登记来源，并单列有读数但证据受限的字段。
+`acprof audit <实验目录> --json` 的 `missing_metrics` 和 `partial_metrics` 保留每个字段的原因及窗口数。
+`window_diagnostics` 使用正式成功窗口，按资源配置、输入尺度和运行环境计数。同一窗口内的请求仍为一个统计单位。
+少于 3 个有效窗口的配置无法按默认块长估计均值区间；具体指标的有效样本还可能受数据缺失影响。
+正式窗口的 `cpu_perf_running_pct` 低于 100% 时，概览显示受影响的窗口数和最低运行比例。
+perf 已按运行时间缩放计数，事件调度与工作负载阶段的重合程度会影响代表性。该提示保留原读数及采集成功状态。[Linux perf stat 输出约定](https://github.com/torvalds/linux/blob/master/tools/perf/Documentation/perf-stat.txt)
+
+已识别并可读的 package 完全没有 DRAM zone 时，powercap 拓扑和 DRAM 窗口记录 `unsupported`。
+只有部分 package 有 DRAM zone、zone 身份未知或目录读取不完整时保留 `unavailable` 或具体权限原因；
+DRAM 关闭时记录 `not_requested`。CPU package 能耗仍按自己的读数判定。[Linux powercap zone 约定](https://github.com/torvalds/linux/blob/master/Documentation/power/powercap/powercap.rst)
+
 ## 开销与高级接入边界
 
 无额外采样：请求结果派生、准备阶段静态信息。低开销候选：首尾计数器、轻量
