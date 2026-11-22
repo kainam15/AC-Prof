@@ -5,6 +5,7 @@ from collections.abc import Sequence
 
 import numpy as np
 import pandas as pd
+from packaging.version import Version
 
 from acprof.analysis.inputs import resource_coordinate
 from acprof.analysis.lifecycle import LifecycleConflict, unique_startup_observations
@@ -200,8 +201,9 @@ def prepare_df(
         # Translate only the input-open boundary; parser/renderer bugs propagate.
         raise PlotInputNotFound(exc.errno, exc.strerror, exc.filename or csv_path) from exc
     with stream:
-        # Preserve textual identities such as "001" and let the result protocol handle missing IDs.
-        df = pd.read_csv(stream, skipinitialspace=True, float_precision="round_trip", converters=converters)
+        # Pandas 3.1 made round-trip precision the default and deprecated this option.
+        precision = {"float_precision": "round_trip"} if Version(pd.__version__).release[:2] < (3, 1) else {}
+        df = pd.read_csv(stream, skipinitialspace=True, converters=converters, **precision)
     df.columns = [str(col).strip() for col in df.columns]
     from acprof.results.csv import require_current_fields
     require_current_fields(df.columns)

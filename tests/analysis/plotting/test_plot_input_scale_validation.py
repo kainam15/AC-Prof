@@ -63,6 +63,22 @@ def test_positive_fractional_and_adjacent_float_scales_keep_exact_identity(tmp_p
     assert path.read_bytes() == original
 
 
+@pytest.mark.filterwarnings("error:.*float_precision.*")
+def test_csv_plot_statistics_keep_adjacent_scales_in_separate_windows(tmp_path):
+    from acprof.plotting.uncertainty import aggregate_plot_metric
+
+    scales = [0.12345678901234565, 0.12345678901234566, 0.12345678901234568]
+    path = tmp_path / "result_all.csv"
+    rows = [_row(repr(scale), repeat_idx=0, latency_app_s=repr(scale)) for scale in scales]
+    pd.DataFrame(rows).to_csv(path, index=False)
+
+    summary = aggregate_plot_metric(prepare_df(str(path)), "latency_app_s")
+
+    assert summary["input_scale"].tolist() == scales
+    assert summary["latency_app_s"].tolist() == scales
+    assert summary["n_windows"].tolist() == [1, 1, 1]
+
+
 def test_validation_preserves_integer_dtype_and_precision(tmp_path):
     scales = [2**63 + 7, 2**63 + 9]
     path = _write(tmp_path, [_row(scale) for scale in scales])
