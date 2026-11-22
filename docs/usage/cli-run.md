@@ -108,6 +108,8 @@ GPU mode 在配置、runtime、profiling 和分析入口共用 `acprof.gpu_mode.
 | `--matrix-seed` | `0` | 整数 seed；相同实验身份、probe 结论、算法版本和 seed 生成相同计划。resume 校验并复用已冻结顺序，不重新排序；不能在原目录改变 seed 或 order。 |
 | `--dram-energy` | `auto` | 按可读性采集 DRAM RAPL 域，缺失时保留 `nan`。`off` 不采集，`required` 要求所有选中 package 的 DRAM 都可用且取得有效测量；自动采集需正的 idle 窗口。DRAM 不加入 container-attributed energy。 |
 
+Docker 的 TUI 启动预检和 CLI 均在当前项目环境中查询选定的物理 GPU，并将设备序号解析为 UUID。预检优先使用显式选卡，其次按表中顺序读取环境变量；同一变量以 shell、项目的 `.env.local`、`.env` 为优先级。不存在的设备、非法选择器和启用 MIG 的设备会阻止 GPU 运行，纯 CPU 运行跳过选卡。
+
 GPU device 表格中的主机序号规则适用于 Docker。Process 的数字为 `CUDA_VISIBLE_DEVICES` 内的可见序号，
 不会扩大可见设备范围；记录 CUDA UUID 与共享状态，NVML 指标不可用不等于 GPU 推理不可用。
 Process 自动关闭 Docker startup OOM pruning 并逐格执行；`--rebuild-image`、独立 profiler、

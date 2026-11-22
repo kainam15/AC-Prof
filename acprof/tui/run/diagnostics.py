@@ -8,6 +8,7 @@ import subprocess
 from collections.abc import Callable, Sequence
 from concurrent.futures import CancelledError
 from dataclasses import dataclass, field, replace
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -131,7 +132,7 @@ def quick_preflight(
     config: RunConfig,
     *,
     project_dir: str | os.PathLike[str] | None = None,
-    command_runner: Callable[..., subprocess.CompletedProcess[str]] = completed_command,
+    command_runner: Callable[..., subprocess.CompletedProcess[str]] | None = None,
 ) -> list[PreflightCheck]:
     """Check prerequisites; Process may configure only an existing delegated subtree."""
     checks: list[PreflightCheck] = []
@@ -152,6 +153,9 @@ def quick_preflight(
     if config.runtime == "process":
         return checks + _process_checks(config, project_dir=project_dir)
 
+    from acprof.host.gpu_device import resolve_gpu_device
+    docker_gpu = partial(resolve_gpu_device, command_runner=command_runner)
+    command_runner = command_runner or completed_command
     cgroup_v2 = Path("/sys/fs/cgroup/cgroup.controllers").is_file()
     checks.append(
         PreflightCheck(
@@ -175,8 +179,7 @@ def quick_preflight(
     checks.append(PreflightCheck("Runtime", "ok", "Docker", runtime_kind="docker", check_id="runtime"))
 
     if config.profiling_mode == "best_effort":
-        from acprof.host.gpu_device import resolve_gpu_device
-        return checks + _automatic_checks(config, "docker", resolve_gpu_device, project_dir=project_dir)
+        return checks + _automatic_checks(config, "docker", docker_gpu, project_dir=project_dir)
     for tool in (("tcpdump", "tshark") if measurement_requested(config.profiling_mode, "packet_latency") else ()):
         path = shutil.which(tool)
         checks.append(
@@ -243,39 +246,27 @@ def quick_preflight(
     )
 
     perf = Capability("not_requested", "basic", "profiling_mode")
-    if measurement_requested(config.profiling_mode, "cpu_instructions"):
-        probe_environ = os.environ.copy()
+    need_perf = measurement_requested(config.profiling_mode, "cpu_instructions")
+    need_gpu = _gpu_requested(config)
+    if need_perf or need_gpu:
         try:
-            load_project_env(
-                project_dir if project_dir is not None else Path.cwd(), environ=probe_environ,
-            )
+            probe_env = _project_probe_environment(project_dir)
         except ValueError as exc:
-            perf = Capability("error", str(exc), "environment")
+            if need_perf:
+                perf = Capability("error", str(exc), "environment")
+            if need_gpu:
+                checks.append(PreflightCheck("NVIDIA GPU", "fail", str(exc), check_id="gpu_device", source="environment"))
         else:
-            perf = probe_perf_instructions(env=probe_environ)
+            if need_gpu:
+                _requested_gpu(config, docker_gpu, checks, environ=probe_env, source="nvidia-smi")
+            if need_perf:
+                perf = probe_perf_instructions(env=probe_env)
     perf_status = CapabilityStatus(perf.status).value
     if perf_status == "available":
         detail = message_id('run.preflight.perf_isolation_verified')
         checks.append(PreflightCheck("perf instructions", "ok", detail, perf_status, check_id="cpu_instructions", source=perf.source))
     else:
         checks.append(PreflightCheck("perf instructions", "not_requested" if perf_status == "not_requested" else "fail", f"{perf_status}: {perf.detail}", perf_status, check_id="cpu_instructions", source=perf.source))
-
-    if "on" in [normalize_gpu_mode(value) for value in csv_values(config.gpus)]:
-        nvidia_smi = shutil.which("nvidia-smi")
-        reason_code = ''
-        if nvidia_smi:
-            try:
-                gpu = command_runner(
-                    (nvidia_smi, "--query-gpu=name", "--format=csv,noheader"),
-                    timeout=10.0,
-                )
-                detail = gpu.stdout.strip() or gpu.stderr.strip() or message_id('run.preflight.gpu_query_failed')
-                status = "ok" if gpu.returncode == 0 else "fail"
-            except (OSError, subprocess.TimeoutExpired) as exc:
-                status, detail, reason_code = "fail", str(exc), "error"
-        else:
-            status, detail, reason_code = "fail", message_id('run.preflight.nvidia_smi_missing'), "dependency_unavailable"
-        checks.append(PreflightCheck("NVIDIA GPU", status, detail, check_id="gpu_device", reason_code=reason_code, source="nvidia-smi"))
 
     return checks
 
@@ -340,18 +331,26 @@ def _process_checks(config, *, project_dir=None):
     return checks
 
 
-def _requested_gpu(config, resolve_device, checks, *, environ=None):
-    if "on" not in config.gpus.split(","):
+def _gpu_requested(config: RunConfig) -> bool:
+    return "on" in [normalize_gpu_mode(value) for value in csv_values(config.gpus)]
+
+
+def _requested_gpu(config, resolve_device, checks, *, environ, source="quick_preflight"):
+    if not _gpu_requested(config):
         return {}
     selector = config.extra_options.get("gpu_device")
+    label = "NVIDIA GPU" if source == "nvidia-smi" else "GPU device"
     try:
-        gpu = resolve_device(selector) if environ is None else resolve_device(selector, environ=environ)
+        gpu = resolve_device(selector, environ=environ)
         if not gpu.get("uuid"):
             raise RuntimeError(gpu.get("error") or "CUDA device identity unavailable")
     except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as exc:
-        checks.append(PreflightCheck("GPU device", "fail", str(exc), check_id="gpu_device"))
+        reason = ""
+        if source == "nvidia-smi" and isinstance(exc, (OSError, subprocess.TimeoutExpired)):
+            reason = "dependency_unavailable" if isinstance(exc, FileNotFoundError) else "error"
+        checks.append(PreflightCheck(label, "fail", str(exc), check_id="gpu_device", source=source, reason_code=reason))
         return {"error": str(exc)}
-    checks.append(PreflightCheck("GPU device", "ok", gpu["uuid"], check_id="gpu_device"))
+    checks.append(PreflightCheck(label, "ok", gpu["uuid"], check_id="gpu_device", source=source))
     return gpu
 
 
@@ -360,7 +359,8 @@ def _automatic_checks(config, runtime, resolve_device, *, project_dir=None):
 
     checks: list[PreflightCheck] = []
     probe_env = _project_probe_environment(project_dir)
-    gpu = _requested_gpu(config, resolve_device, checks, environ=probe_env if runtime == "process" else None)
+    gpu = _requested_gpu(config, resolve_device, checks, environ=probe_env,
+                         source="nvidia-smi" if runtime == "docker" else "quick_preflight")
     dram = config.extra_options.get("dram_energy", "auto")
     plan = probe_collection_plan(runtime, gpu=gpu, sniff_iface=config.sniff_iface, dram_energy=dram, env=probe_env,
                                  service_cgroup=config.cpus != "auto" or config.mems != "auto")

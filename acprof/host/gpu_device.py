@@ -3,8 +3,11 @@ from __future__ import annotations
 
 import csv
 import os
+from collections.abc import Callable, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
+from functools import partial
+from subprocess import CompletedProcess
 
 from acprof.system.command import run_command
 
@@ -25,18 +28,22 @@ def selected_gpu_device() -> dict:
     return dict(_SELECTED.get() or {})
 
 
-def resolve_gpu_device(selector: str | None = None) -> dict:
-    if selector is None and _SELECTED.get() is not None:
+def resolve_gpu_device(selector: str | None = None, *, environ: Mapping[str, str] | None = None,
+                       command_runner: Callable[..., CompletedProcess[str]] | None = None) -> dict:
+    """An explicit probe environment resolves a fresh request, outside the run's pin."""
+    if selector is None and environ is None and _SELECTED.get() is not None:
         return selected_gpu_device()
+    environment = os.environ if environ is None else environ
     selector = str(selector if selector is not None else
-                   os.environ.get("ACPROF_GPU_DEVICE", os.environ.get("DEVICE_INDEX", "0"))).strip()
+                   environment.get("ACPROF_GPU_DEVICE", environment.get("DEVICE_INDEX", "0"))).strip()
     if not (selector.isdecimal() or selector.startswith("GPU-")) or any(c in selector for c in ",\n\r "):
         raise ValueError("GPU selector must be one physical GPU index or UUID; all and MIG are unsupported")
-    result = run_command(
+    query = command_runner or partial(run_command, env=environ)
+    result = query(
         ["nvidia-smi", f"--id={selector}",
          "--query-gpu=uuid,index,pci.bus_id,name,memory.total,mig.mode.current",
          "--format=csv,noheader,nounits"],
-        capture_output=True, text=True, check=False, timeout=10,
+        timeout=10,
     )
     if result.returncode:
         raise RuntimeError(f"Cannot resolve GPU {selector}: {result.stderr.strip()}")

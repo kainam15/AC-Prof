@@ -55,7 +55,8 @@ class TestTuiPreflight:
         elif tool == "ip":
             stdout = "docker0"
         elif tool == "nvidia-smi":
-            stdout = "test GPU"
+            assert "--id=0" in command
+            stdout = "GPU-fixture, 0, 0000:01:00.0, test GPU, 1024, Disabled\n"
         elif tool == 'getcap':
             stdout = '/usr/bin/tcpdump cap_net_raw=ep'
         elif tool == "perf":
@@ -64,7 +65,7 @@ class TestTuiPreflight:
             raise AssertionError(f"unexpected host command: {command}")
         return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
 
-    def run_check(self, responses):
+    def run_check(self, responses, *, gpu_status="ok"):
         with patch("acprof.monitors.perf_mips.run_command", side_effect=responses) as run:
             checks = quick_preflight(
                 RunConfig(model="", gpus="on", profiling_mode="full"), project_dir=self.project_dir,
@@ -73,7 +74,11 @@ class TestTuiPreflight:
         # A perf failure must leave the remaining independent checks usable.
         assert all(check.check_id for check in checks)
         assert len({check.check_id for check in checks}) == len(checks)
-        assert (next(check for check in checks if check.label == "NVIDIA GPU").status) == ("ok")
+        gpu = next(check for check in checks if check.check_id == "gpu_device")
+        assert gpu.status == gpu_status
+        if gpu_status == "fail":
+            assert gpu.source == "environment"
+            assert "ACPROF_SUDO_PASSWORD" in gpu.detail
         for call in run.call_args_list:
             assert (call.kwargs["timeout"]) == (PERF_PROBE_TIMEOUT_S)
         return next(check for check in checks if check.label == "perf instructions"), run
@@ -122,7 +127,7 @@ class TestTuiPreflight:
 
     def test_local_password_configuration_has_a_migration_error(self):
         (self.project_dir / '.env.local').write_text('ACPROF_SUDO_PASSWORD=test-file-secret\n')
-        check, run = self.run_check([])
+        check, run = self.run_check([], gpu_status='fail')
         assert (check.status) == ('fail')
         assert ('ACPROF_SUDO_PASSWORD') in (check.detail)
         assert ('test-file-secret') not in (check.detail)
@@ -130,7 +135,7 @@ class TestTuiPreflight:
 
     def test_process_password_configuration_has_a_migration_error(self):
         with patch.dict(os.environ, {'ACPROF_SUDO_PASSWORD': 'test-process-secret'}):
-            check, run = self.run_check([])
+            check, run = self.run_check([], gpu_status='fail')
         assert (check.status) == ('fail')
         assert ('test-process-secret') not in (check.detail)
         run.assert_not_called()
