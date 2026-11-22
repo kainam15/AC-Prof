@@ -10,6 +10,7 @@ from decimal import MAX_EMAX, MIN_EMIN, ROUND_DOWN, Context, Decimal
 from operator import itemgetter
 
 from acprof.analysis.audit import number
+from acprof.analysis.coordinates import project_coordinates
 from acprof.analysis.precision import assess_mean_precision, validate_precision_target
 from acprof.cancellation import cancellable, check_cancelled
 from acprof.results.csv import (
@@ -26,7 +27,6 @@ from acprof.results.profile import USABLE_QUALITIES, metric_observation, observa
 WINDOW_FILTER = "status=ok and warmup=0 and result_origin!=inferred_not_measured"
 _ORDINAL_GAP = Context(prec=1, rounding=ROUND_DOWN, Emin=MIN_EMIN, Emax=MAX_EMAX)
 _MAX_SAFE_INTEGER = 2**53 - 1
-STATISTIC_AXES = ("cpu_cores", "mem_cap_gb", "input_scale")
 
 
 def ordered_windows(rows: Iterable[dict]) -> list[tuple[Decimal, dict]]:
@@ -45,19 +45,10 @@ def window_case_key(row: dict, key: tuple[str, ...]) -> tuple[str, ...]:
 
 
 def _case_coordinates(case: tuple[str, ...]) -> dict:
-    result: dict = {"cpu_cores": None, "mem_cap_gb": None, "gpu_mode": case[2],
-                    "environment_class": case[4], "runtime_kind": case[5], "runtime_id": case[6],
-                    "resource_scope": case[7], "input_scale": None}
-    exact = {}
-    for axis, raw in zip(STATISTIC_AXES, (case[0], case[1], case[3]), strict=True):
-        if raw != "inherited":
-            display = float(raw)
-            result[axis] = display if math.isfinite(display) else None
-            if decimal_coordinate(raw) != decimal_coordinate(str(display)):
-                exact[axis] = raw
-    if exact:
-        result["exact_coordinates"] = exact
-    return result
+    axes = project_coordinates({"cpu_cores": case[0], "mem_cap_gb": case[1], "input_scale": case[3]})
+    return {**axes,
+            "gpu_mode": case[2], "environment_class": case[4], "runtime_kind": case[5],
+            "runtime_id": case[6], "resource_scope": case[7]}
 
 
 def validate_window_options(metrics, *, confidence=0.95, resamples=5000, block_size=1,

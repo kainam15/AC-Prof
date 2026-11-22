@@ -11,10 +11,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from acprof.analysis.audit import number, require_consistent_run_identity
+from acprof.analysis.audit import require_consistent_run_identity
 from acprof.analysis.changes import metric_change
 from acprof.analysis.comparison import compare_snapshots, load_comparison_snapshot
 from acprof.analysis.conditions import ALLOWED_RESOURCE_DIMENSIONS
+from acprof.analysis.coordinates import COORDINATE_IDENTITY, project_coordinates
 from acprof.analysis.uncertainty import finite_metric_values, validate_window_options
 from acprof.artifacts import file_sha256
 from acprof.hardware_conditions import conditions_path
@@ -129,12 +130,13 @@ def _collect_run_case_groups(
         measured = [row for row in windows if is_measured_success(row)]
         failed_count = sum(result_row_status(row) != "ok" for row in windows)
         inferred_count = sum(is_inferred_result(row) for row in windows)
+        resources = project_coordinates({"cpu_cores": case[0], "mem_cap_gb": case[1]})
         for metric in metrics:
             window_values = finite_metric_values(measured, metric)
             groups[(*comparison_case, metric)] = {
                 "run_id": run_id,
                 "mean": statistics.fmean(window_values) if window_values and complete else None,
-                "resource_coordinates": {"cpu_cores": number(case[0]), "mem_cap_gb": number(case[1])},
+                "resource_coordinates": resources,
                 "valid_windows": len(window_values),
                 "failed_windows": failed_count,
                 "missing_windows": len(measured) - len(window_values),
@@ -151,22 +153,24 @@ def _summarize_group_metric(
     sources: dict[str, list],
     checks: list[dict[str, Any]],
     status: str,
-    purpose: str,
     confidence: float,
     resamples: int,
     seed: int,
 ) -> dict[str, Any]:
-    cpu, mem, gpu, scale, metric = case_metric
+    _, _, gpu, scale, metric = case_metric
     coordinates = {side: records[0]["resource_coordinates"] if records else None for side, records in sides.items()}
-    baseline_coordinates = coordinates["left"] or coordinates["right"]
-    if purpose == "resource-scaling":
-        if baseline_coordinates is None:
-            raise ValueError("resource-scaling case has no recorded resource coordinates")
-        cpu, mem = baseline_coordinates["cpu_cores"], baseline_coordinates["mem_cap_gb"]
+    # Resource-scaling can change quotas between sides. The group describes its first recorded side.
+    resources = coordinates["left"] or coordinates["right"]
+    if resources is None:
+        raise ValueError("comparison case has no recorded resource coordinates")
+    inputs = project_coordinates({"input_scale": scale})
+    axes = {**resources, **inputs}
+    if "exact_coordinates" in inputs and "exact_coordinates" in resources:
+        axes["exact_coordinates"] = {**resources["exact_coordinates"], **inputs["exact_coordinates"]}
     result: dict[str, Any] = {
-        "cpu_cores": number(cpu), "mem_cap_gb": number(mem), "gpu_mode": gpu,
-        "resource_coordinates": coordinates,
-        "input_scale": float(scale), "metric": metric, "unit": METRICS[metric].unit,
+        **axes,
+        "gpu_mode": gpu, "resource_coordinates": coordinates,
+        "metric": metric, "unit": METRICS[metric].unit,
         "difference": None, "ratio": None, "percent": None, "performance_ratio": None,
         "difference_ci": None, "ratio_ci": None, "reason": "",
     }
@@ -323,7 +327,7 @@ class ExperimentComparisonSession:
         output = [
             _summarize_group_metric(
                 case_metric, sides, sources=sources, checks=checks,
-                status=status, purpose=purpose, confidence=confidence,
+                status=status, confidence=confidence,
                 resamples=resamples, seed=seed,
             )
             for case_metric, sides in sorted(groups.items())
@@ -331,6 +335,7 @@ class ExperimentComparisonSession:
         for artifact, digest in fingerprints.items():
             _verify_source(artifact, digest)
         return {"schema_version": 1, "kind": "independent_experiment_comparison", "status": status,
+                "coordinate_identity": COORDINATE_IDENTITY,
                 "allowed_resource_dimensions": ALLOWED_RESOURCE_DIMENSIONS if purpose == "resource-scaling" else [],
                 "purpose": purpose, "confidence": confidence, "resamples": resamples, "seed": seed,
                 "resampling_unit": "independent_run_mean", "method": "unpaired_percentile_bootstrap",

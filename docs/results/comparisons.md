@@ -144,6 +144,13 @@ acprof compare --left results/a1/model --left results/a2/model --left results/a3
 `compare_experiments` 结果。CSV 目标须以 `.csv` 结尾。各目标须为新文件，且任何一个文件都不能占用另一个文件的父目录。
 HTML 附带各来源的资源矩阵和窗口统计；HTML 筛选沿用生成时的独立运行分组和区间。
 
+比较 JSON 的 `coordinate_identity=recorded_decimal_v1` 表示各组按 CSV 记录的十进制坐标标识。
+通常可直接使用数值字段；若数值舍入会丢失精度，`exact_coordinates` 保存该轴的规范十进制字符串。
+例如输入尺度 `2` 和 `2.0000000000000001` 有各自的均值，后者由 `exact_coordinates.input_scale` 标识。
+超出浮点数上限的坐标使用 `null` 加精确字符串。继承 CPU 或内存配额时，该轴为 `null` 且没有精确字符串。
+`resource_coordinates.left/right` 和各运行记录分别保存自己的配额；某侧没有对应窗口时，整个侧坐标为 `null`。
+CSV 将对应字段展开为列，报告版本标记位于 `analysis.coordinate_identity`。
+
 多格式导出先在各目标所在的文件系统暂存内容，再核对所有文件名，包括大型 HTML 需要的
 `*.windows-N.json`。发布期间，其他进程可以看到部分文件，HTML 最后出现。渲染失败或其他写入方先占目标时，
 命令会报错，并撤回本次已发布且仍属于本次的部分文件；排除冲突后可用原路径重试。

@@ -8,11 +8,11 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 from acprof.analysis.audit import MissingReasons, number
+from acprof.analysis.coordinates import STATISTIC_AXES
 from acprof.analysis.model import AnalysisModel, verify_analysis_sources
 from acprof.analysis.precision import assess_mean_precision, validate_precision_target
 from acprof.analysis.statistics_report import DEFAULT_STATISTICS_METRICS
 from acprof.analysis.uncertainty import (
-    STATISTIC_AXES,
     WINDOW_FILTER,
     ordered_windows,
     portable_repeat_index,

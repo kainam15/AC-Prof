@@ -34,7 +34,7 @@ def _prepare_statistics_csv(payload: dict) -> tuple[list[str], Iterator[dict]]:
     parameters = {
         name: payload.get(name) for name in (
             "schema_version", "kind", "confidence", "resamples", "seed", "block_size",
-            "method", "resampling_unit", "filter", "assumption", "direction", "purpose", "precision",
+            "method", "resampling_unit", "coordinate_identity", "filter", "assumption", "direction", "purpose", "precision",
             "result_csv", "result_sha256", "source_sha256", "status",
             "run_status", "measurement_status", "quality_status", "quality_reasons",
         ) if name in payload
