@@ -79,6 +79,25 @@ TOML、冲突标记、文件大小和 Python 代码。大文件检查对所有�
 约 938 KiB 的固定音频输入；Markdown 的两个行尾空格保留为换行。临时证据目录和禁止修改的
 `docs/Original_Project_Definition.md` 不参与 hooks。
 
+### Codex 编辑反馈
+
+在准备编辑的 worktree 运行 `uv sync --locked`，再从该目录启动 Codex CLI。首次使用时输入
+`/hooks`，找到项目的 `.codex/hooks.json`，逐项审阅并信任下表的三个定义。定义变更后需重新审阅。
+项目检查使用该 worktree 的锁定依赖离线运行。个人可选的 Git `pre-push` 独立安装，在推送时触发。[Codex 官方 hooks 文档](https://developers.openai.com/codex/hooks/#review-and-trust-hooks)
+
+| 事件 | 检查时机 |
+| --- | --- |
+| `UserPromptSubmit` | 提交提示时记录初始 worktree 的 HEAD 和已有改动，作为本轮比较基准。 |
+| `PostToolUse` | 每次 `apply_patch` 完成后，立即按补丁涉及的文件选择检查。 |
+| `Stop` | Codex 准备结束本轮时，检查初始 worktree 相对基准的净改动，包括 shell 写入、未跟踪文件和本轮已经提交的改动。 |
+
+Ruff 检查改动的 Python 文件。修改 `acprof/` 下的 Python 源码、`pyproject.toml` 或 `uv.lock` 时运行项目 mypy。
+修改 CI 预检清单或其中登记的测试文件时，用 `pytest --collect-only` 核对测试名称，及时发现删除或重命名后失效的条目。
+
+行为检查按相关文件选跑六个离线用例中的对应项。TUI 覆盖 80×24 结果页的报告按钮可见性、启动预检保留既有预设、自动预检失败后手动重试。
+结果与测量覆盖错误行缺少诊断时的整批回滚、实验目录中重复运行的内容冲突、服务未就绪时的错误矩阵。
+首项失败的命令与原始诊断会返回当前 AI 会话，Codex 可据文件、行号或失败断言继续修改。
+
 ### AI 提交信息与格式校验
 
 VS Code 的 Source Control 面板中，点击 ✨ **Generate Commit Message** 生成提交信息。

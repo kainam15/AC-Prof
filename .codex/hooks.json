@@ -1,0 +1,41 @@
+{
+  "description": "Check AC-Prof edits and return diagnostics to Codex.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "root=$(git rev-parse --show-toplevel) && { test ! -f \"$root/.codex/hooks.json\" || exec python3 \"$root/scripts/codex_edit_feedback.py\"; }",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "^apply_patch$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "root=$(git rev-parse --show-toplevel) && { test ! -f \"$root/.codex/hooks.json\" || exec python3 \"$root/scripts/codex_edit_feedback.py\"; }",
+            "timeout": 120,
+            "statusMessage": "Checking the AC-Prof patch"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "root=$(git rev-parse --show-toplevel) && { test ! -f \"$root/.codex/hooks.json\" || exec python3 \"$root/scripts/codex_edit_feedback.py\"; }",
+            "timeout": 120,
+            "statusMessage": "Checking changes in this AC-Prof worktree"
+          }
+        ]
+      }
+    ]
+  }
+}

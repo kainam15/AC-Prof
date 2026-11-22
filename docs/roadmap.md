@@ -20,7 +20,7 @@
 
 | 优先级 | 事项 | 完成条件／仍缺证据 |
 | --- | --- | --- |
-| P0 | **同提交 CI 与发布门禁** | 既往 CI 失败及 TUI / PNG 等旧断言已有本地定向修复；仍需核实**当前源码提交**的远端完整 CI、独立 checkout / 虚拟环境硬件作业及发行门禁。历史成功或本地通过不能替代。见 [CI 与发布验收](development/ci.md)。 |
+| P0 | **同提交 CI 与发布门禁** | 既往 CI 失败及 TUI / PNG 等旧断言已有本地定向修复。[Codex 编辑反馈](development/quality.md#codex-编辑反馈)已接入静态检查、代表性离线回归和 CI 测试清单校验。仍需核实**当前源码提交**的远端完整 CI、独立 checkout / 虚拟环境硬件作业及发行门禁。见 [CI 与发布验收](development/ci.md)。 |
 | P1 | **Docker / Process 实机配对** | 在相同模型、CPU / 内存精确配额和输入尺度下核对两种 Runtime 的窗口数据、质量与开销；验证 Native Linux cgroup 委派和强制配额、RAPL / DRAM、PMU 事件运行比例及 I/O `io.stat`，再补 WSL2 场景。Process 的 inherited 资源不能当作 Docker 数值限额。见 [运行时覆盖](results/runtime-coverage.md) 与 [Linux Runtime](platforms/linux-runtimes.md)。 |
 | P1 | **Profiler、能耗与重复性** | 完成 BERT CPU 两档 Massif（目前 **0/2**），验证正式窗口中断／续跑后的补采；以足量独立样本检查空闲基线、负残差、能耗与性能的稳定性。不得以少量 `ok` 行直接排名。见 [Profiler](profiling/profilers.md) 与 [测量协议](profiling/measurement.md)。 |
 | P1 | **模型识别与真实适配** | 冻结 Hugging Face / ModelScope Top 100 原始名单、revision 和判定证据；按模型／设备／后端补齐真实 checkpoint、GPU 与 Process 验收。Kokoro 原生路线目前只有静态、Fixture / Mock 证据，不能宣称真实音频或 Docker 通过。见 [识别与覆盖](usage/cli-discovery.md) 和 [模型适配](models/adaptation.md)。 |

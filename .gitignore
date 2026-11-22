@@ -26,6 +26,9 @@ results/
 !acprof/results/
 # TUI result readers are source modules, not generated experiment output.
 !acprof/tui/results/
+# Keep new result protocol and TUI regression tests visible to Git and edit hooks.
+!tests/results/
+!tests/tui/results/
 /result-past/
 /internal-testing/
 
