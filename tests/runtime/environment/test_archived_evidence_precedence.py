@@ -1,9 +1,11 @@
 """Archive fallback is based on file presence and reports the selected physical source."""
+import csv
 import json
 
 import pytest
 
 from acprof.analysis.compatibility import report_results
+from acprof.cli.coverage import main as coverage
 from acprof.failures import Failure
 from acprof.results.layout import ArtifactLayout
 
@@ -88,3 +90,40 @@ def test_v2_embedded_failure_points_to_the_real_metadata_path(tmp_path):
     path.write_text(json.dumps({"model_resolution": {"failure": {"stage": "invalid"}}}))
     row, = report_results([layout.root], tmp_path / "out")["rows"]
     assert row["failure"]["evidence"]["artifact"] == str(path)
+
+
+@pytest.mark.parametrize("artifact", ["static_meta.json", "quality_checks.json", "runtime_validation.json"])
+def test_coverage_report_isolates_invalid_unicode_and_exports_healthy_siblings(tmp_path, artifact):
+    bad = archive(tmp_path, static_meta={"model_name": "fixture/damaged"})
+    blocker = {"code": "shape_error", "severity": "error", "detail": "Unexpected shape", "evidence": {}}
+    if artifact == "static_meta.json":
+        payload = {"model_name": "fixture/\ud800"}
+    elif artifact == "quality_checks.json":
+        damaged = {**blocker, "code": "bad_check", "evidence": {"items": [{"\udc00": 1}]}}
+        payload = {"schema_version": 1, "checks": [damaged, blocker]}
+    else:
+        payload = {"devices": {"\ud800": {"quality_checks": [blocker]}, "off": {"quality_checks": [blocker]}}}
+    (bad / artifact).write_text(json.dumps(payload), encoding="utf-8")
+    good = tmp_path / "healthy"
+    good.mkdir()
+    model = "fixture/模型😀"
+    (good / "static_meta.json").write_text(json.dumps({"model_name": model}), encoding="utf-8-sig")
+    (good / "runtime_validation.json").write_text('{"status":"ok"}', encoding="utf-8")
+    out = tmp_path / "report"
+    assert coverage(["report", str(bad), str(good), "--output-dir", str(out)]) == 0
+    damaged_row, healthy = json.loads((out / "coverage.json").read_text(encoding="utf-8"))["rows"]
+    if artifact != "quality_checks.json":
+        assert damaged_row["status"] == "inconclusive"
+        assert damaged_row["failure"]["reason_code"] == "recorded_evidence_invalid"
+        assert damaged_row["failure"]["evidence"]["artifact"] == str(bad / artifact)
+    if artifact != "static_meta.json":
+        assert damaged_row["quality_status"] == "blocked"
+        assert damaged_row["quality_reasons"] == ["quality_evidence_invalid", "shape_error"]
+        warning, = (c for c in damaged_row["quality_checks"] if c["code"] == "quality_evidence_invalid")
+        assert warning["evidence"]["artifact"] == str(bad / artifact)
+    assert (healthy["model_id"], healthy["status"]) == (model, "ok")
+    with (out / "models.csv").open(encoding="utf-8", newline="") as stream:
+        invalid_csv, valid_csv = csv.DictReader(stream)
+    assert invalid_csv["status"] == damaged_row["status"]
+    assert valid_csv["model_id"] == model
+    assert model in (out / "REPORT.md").read_text(encoding="utf-8")

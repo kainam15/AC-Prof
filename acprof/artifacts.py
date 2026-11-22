@@ -76,7 +76,7 @@ def finite_json_decimal(raw: str) -> Decimal:
     return value
 
 
-def loads_finite_json(content: str, *, exact_decimals: bool = False) -> Any:
+def loads_finite_json(content: str | bytes, *, exact_decimals: bool = False) -> Any:
     """Decode JSON while rejecting non-standard or overflowed finite numbers."""
     return json.loads(
         content,

@@ -203,6 +203,7 @@ run/report 同时输出 `coverage.json`、`models.csv` 和 `REPORT.md`。失败�
 不执行模型，不修改源结果，也不从旧日志猜测缺少的原因。
 独立的模型解析、能力、Runtime 验证和接口验证文件优先。即使内容为 `{}`，也只表示该文件没有记录结论；
 仅缺少独立文件时才使用相应的内嵌对象。损坏或不可读的文件会列出错误及实际来源，其他实验可以继续报告。
+例如，JSON 字符串含未配对的 Unicode 代理码时，报告会指出问题产物。质量检查中的此类错误按条目记录，同批其他实验和同一列表里的有效检查仍会导出。
 准备失败时，即使尚未写出静态元数据或仓库快照，报告也会从 `run_state.json` 的冻结参数读取模型来源。
 读取已有结果的 `coverage report` 沿用 schema v1。`coverage.json` 每行的 `status`、`models.csv` 的状态、Markdown 和 TUI 使用同一结论。
 `run_status` 和可选的 `run_outcome` 来自主实验的 `run_state.json`；`runtime_status` 保留已记录的 Runtime Validation 结论。

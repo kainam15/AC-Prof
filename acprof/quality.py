@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from acprof.artifacts import read_json_object
+from acprof.artifacts import read_json_object, reject_isolated_surrogates
 from acprof.cancellation import cancellable, check_cancelled
 
 if TYPE_CHECKING:
@@ -146,8 +146,16 @@ def _quality_from_checks(checks: object, path: Path, *, device: str | None = Non
         target = evidence.get("device")
         if target is not None and (not isinstance(target, str) or not target.strip()):
             result.append(_invalid_quality_check(path, ValueError(f"invalid device in quality check at index {index}")))
-        if device is None or target in (None, device):
-            result.append({**check, "evidence": evidence})
+        try:
+            if device is not None and target not in (None, device):
+                reject_isolated_surrogates(target)
+                continue
+            item = {**check, "evidence": evidence}
+            reject_isolated_surrogates(item)
+            result.append(item)
+        except ValueError as error:
+            result.append(_invalid_quality_check(path, ValueError(f"quality check at index {index}: {error}"),
+                                                 device=recorded_device))
     return summarize_quality(result)
 
 
@@ -157,6 +165,11 @@ def _validation_quality(validation: object, path: Path, device: str | None,
         raise ValueError("invalid runtime-validation device records")
     summaries = []
     for mode, record in cancellable(validation.get("devices", {}).items(), cancelled):
+        try:
+            reject_isolated_surrogates(mode)
+        except ValueError as error:
+            summaries.append(summarize_quality([_invalid_quality_check(path, error)]))
+            continue
         if device is not None and mode != device:
             continue
         try:

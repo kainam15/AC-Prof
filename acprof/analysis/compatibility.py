@@ -5,11 +5,15 @@ from __future__ import annotations
 import csv
 import io
 import json
-import math
 from pathlib import Path
 from typing import NamedTuple, TextIO
 
-from acprof.artifacts import atomic_write, recorded_artifact_present
+from acprof.artifacts import (
+    atomic_write,
+    loads_finite_json,
+    recorded_artifact_present,
+    reject_isolated_surrogates,
+)
 from acprof.failures import Failure, compatibility_status, ordered_validation_failures
 from acprof.hub.repository import MODEL_SOURCES
 from acprof.models.evidence import pinned_revision
@@ -23,22 +27,15 @@ from acprof.system.redaction import redact_text
 MAX_COMPATIBILITY_ARTIFACT_BYTES = 4 * 1024 * 1024
 
 
-def _finite_json_number(raw: str) -> float:
-    value = float(raw)
-    if not math.isfinite(value):
-        raise ValueError("non-finite number")
-    return value
-
-
 def _read_recorded_object(path: Path) -> dict:
     with path.open("rb") as stream:
         content = stream.read(MAX_COMPATIBILITY_ARTIFACT_BYTES + 1)
     if len(content) > MAX_COMPATIBILITY_ARTIFACT_BYTES:
         raise ValueError("artifact exceeds the 4 MiB read limit")
-    payload = json.loads(content, parse_float=_finite_json_number,
-                         parse_constant=_finite_json_number)
+    payload = loads_finite_json(content)
     if not isinstance(payload, dict):
         raise ValueError("top-level JSON value must be an object")
+    reject_isolated_surrogates(payload)
     return payload
 
 
