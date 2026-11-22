@@ -133,3 +133,16 @@ async def test_worker_admission_recovers_after_project_gpu_selection_is_correcte
                                  description="corrected project GPU allows the configured run", timeout=6)
         row, = (row for row in app.preflight.checks if row.check_id == "gpu_device")
         assert row.detail == "GPU-7"
+
+
+@pytest.mark.parametrize("mode", ["basic", "full"])
+def test_legacy_gpu_selection_error_remains_a_device_row(process_project, mode):
+    project, helper, plan = process_project
+    (project / ".env.local").write_text("CUDA_VISIBLE_DEVICES=4,7\nACPROF_GPU_DEVICE=99\n")
+    config = replace(RunConfig.smoke("fixture/model"), runtime="process", profiling_mode=mode, gpus="on")
+    rows = {row.check_id: row for row in quick_preflight(config, project_dir=project)}
+    assert rows["gpu_device"].status == "fail"
+    assert "exceeds CUDA_VISIBLE_DEVICES" in rows["gpu_device"].detail
+    assert rows["process_resources"].status == "ok"
+    assert plan.call_args.kwargs["gpu"]["error"] == rows["gpu_device"].detail
+    helper.assert_not_called()

@@ -326,7 +326,7 @@ def _process_checks(config, *, project_dir=None):
                                      check_id="uv", reason_code="" if uv else "not_installed"))
         return checks
     probe_env = _project_probe_environment(project_dir)
-    gpu = process_gpu_device(config.to_namespace().gpu_device, environ=probe_env) if "on" in config.gpus.split(",") else {}
+    gpu = _requested_gpu(config, process_gpu_device, checks, environ=probe_env)
     plan = probe_collection_plan("process", gpu=gpu, profiling_mode=config.profiling_mode, env=probe_env)
     for name, item in plan["probes"].items():
         required = config.profiling_mode == "full" and name in {
@@ -340,23 +340,27 @@ def _process_checks(config, *, project_dir=None):
     return checks
 
 
+def _requested_gpu(config, resolve_device, checks, *, environ=None):
+    if "on" not in config.gpus.split(","):
+        return {}
+    selector = config.extra_options.get("gpu_device")
+    try:
+        gpu = resolve_device(selector) if environ is None else resolve_device(selector, environ=environ)
+        if not gpu.get("uuid"):
+            raise RuntimeError(gpu.get("error") or "CUDA device identity unavailable")
+    except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as exc:
+        checks.append(PreflightCheck("GPU device", "fail", str(exc), check_id="gpu_device"))
+        return {"error": str(exc)}
+    checks.append(PreflightCheck("GPU device", "ok", gpu["uuid"], check_id="gpu_device"))
+    return gpu
+
+
 def _automatic_checks(config, runtime, resolve_device, *, project_dir=None):
     from acprof.host.runtimes.capabilities import probe_collection_plan
 
-    checks = []
-    gpu = {}
+    checks: list[PreflightCheck] = []
     probe_env = _project_probe_environment(project_dir)
-    if "on" in config.gpus.split(","):
-        try:
-            selector = config.extra_options.get("gpu_device")
-            gpu = resolve_device(selector, environ=probe_env) if runtime == "process" else resolve_device(selector)
-            if not gpu.get("uuid"):
-                raise RuntimeError(gpu.get("error") or "CUDA device identity unavailable")
-        except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as exc:
-            gpu = {"error": str(exc)}
-            checks.append(PreflightCheck("GPU device", "fail", str(exc), check_id="gpu_device"))
-        else:
-            checks.append(PreflightCheck("GPU device", "ok", gpu["uuid"], check_id="gpu_device"))
+    gpu = _requested_gpu(config, resolve_device, checks, environ=probe_env if runtime == "process" else None)
     dram = config.extra_options.get("dram_energy", "auto")
     plan = probe_collection_plan(runtime, gpu=gpu, sniff_iface=config.sniff_iface, dram_energy=dram, env=probe_env,
                                  service_cgroup=config.cpus != "auto" or config.mems != "auto")
