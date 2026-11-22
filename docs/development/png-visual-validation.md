@@ -85,12 +85,13 @@ VHS 只操作该测试应用，没有向 AC-Prof CLI 添加截图选项。
 
 现有 SVG、PNG 与交互测试通过 [流程场景索引](../../tests/visual/flow_catalog.json) 汇总，不新增平行截图框架：
 
-- `tests/visual/flow_catalog.json` 定义五个主页面（“补采实验”作为“实验结果”子标签）及按采集阶段排列的检查点，标注触发条件、预期状态、可选/异常路径，并引用现有 PNG、SVG 与 Pilot 测试文件；索引由 `scripts/tui_flow_catalog.py` 校验。页面顺序与可见标签通过 headless TUI 回归核对；图标入口用可选的 `tab_label` 记录实际标签，`title` 保留可读页面名称。图库数量按 Git 追踪的 SVG 清单验证。新增并纳入 Git 的 SVG 自动出现在图库中，未关联场景会明确提示；未跟踪的本地截图不会公开。
+- `tests/visual/flow_catalog.json` 定义五个主页面（“补采实验”作为“实验结果”子标签）及 19 个检查点，标注触发条件、预期状态、可选/异常路径，并引用现有 PNG、SVG 与 Pilot 测试文件；索引由 `scripts/tui_flow_catalog.py` 校验。页面顺序与可见标签通过 headless TUI 回归核对；图标入口用可选的 `tab_label` 记录实际标签，`title` 保留可读页面名称。图库数量按 Git 追踪的 SVG 清单验证。新增并纳入 Git 的 SVG 自动出现在图库中，未关联场景会明确提示；未跟踪的本地截图不会公开。
 - 打开报告先看「视觉对比」：有变更或证据缺失的场景排在前面并展开；已匹配的场景按名称收起，可展开查看当前截图和基准。只有实际产出比较差异的场景才展示差异图或其缺失提示。筛选按钮同时显示场景数，不另列计数卡片。
 - `report.json` 是**唯一 PNG 比较结论**来源。文件缺失标为「未比较」，空列表标为没有场景记录，均不推断通过。「流程走查」查看步骤与证据，「覆盖矩阵」查看数量；视觉对比页底部可展开历史 SVG 图库，图库不代表本次 CI 结果。
 - **历史 SVG 的网页预览**：`uv run --locked --no-default-groups --group test python scripts/tui_svg_preview_png.py` 只读取 Git 追踪的 `tests/visual/__snapshots__/*.svg`，在隔离的无头 Chrome 中去掉 Rich 的外部 Fira Code 字体引用，固定使用 `Noto Sans Mono CJK SC`，调整字符宽度渲染，将 PNG 写入 `internal-testing/shared/tui-png/svg-preview/` 并记录源文件和预览的 SHA-256。HTML 优先展示这些 PNG，可展开原始 SVG。预览是**旧 SVG 的可读渲染版本**，不等于现有 VHS 真实终端 PNG，也不属于 Golden，不改变 SVG/PNG 比较规则、覆盖数量或结论。旧 SVG 的原始定位和字符内容不会被修改，极端历史字距异常未必能完全修复。未运行生成器时 HTML 保留原 SVG 作为回退；无有效 manifest 或源哈希不一致时不接受旧预览。
 - 使用 `uv run --locked --no-default-groups --group test python scripts/tui_svg_preview_png.py --smoke` 仅验证一张已追踪的中文 SVG 能用当前无头 Chrome 生成有效 PNG，不触碰 Golden 或完整预览目录；CI 在批量生成前独立执行这一验证。截图进程使用独立进程组，取得有效图片后会清理浏览器及子进程，避免 Chrome 延迟退出造成假超时。若生成失败，限定的 HTML、stderr/stdout 及可能存在的 PNG 会写入 `internal-testing/shared/tui-png/svg-preview-failures/scene-*/` 并上传到 CI Artifact，不公开到 GitHub Pages；未成功完成批量生成时不写入 `manifest.json`，报告保持原 SVG 回退。
-- 流程检查点的测试文件只表示**可追溯的交互测试入口**，不代表这些测试已在本次运行通过；缺少固定截图的节点会列为视觉覆盖缺口。只有高价值稳定场景才需要增加长期 Golden。
+- 每个检查点分别登记交互测试文件、Golden 和需在走查中取得的 `pilot` 帧。多个检查点可以引用同一帧。CI 在截图后执行 `python3 -m scripts.tui_flow_catalog`，逐项核对仓库中的固定基准和经过验证的本次 manifest。缺少已登记的状态帧或一个检查点完全没有视觉依据时失败。各格式没有最低张数要求。
+- 报告的「测试文件」是源码索引。「运行与证据」中的 Pilot 用例数来自该次 pytest 的 JUnit，并按 [pytest 用例清单](../../tests/visual/pilot_cases.txt)核对身份。帧数来自该次走查。SVG / PNG Golden 对比结果另列，真实模型采集由独立实验验收。
 - 所有嵌入网页的截图仅来自受版本控制的 `tests/visual*/__snapshots__/` 或现有隔离 PNG 夹具输出；报告不读取真实采集日志、实验结果、用户配置或密钥。GitHub Pages 是公开网站，禁止将真实运行证据合并到自动发布的报告中。
 
 直接执行 `python3 scripts/render_tui_png_report.py` 即可重新生成带流程视图的离线 HTML；既有 PNG 截图、差异计算、Artifact 与 Pages 发布命令不变。需要真实采集验收时继续使用独立的硬件验证入口，并在受控位置保存证据，不能把它当作 Golden 图片来源。
@@ -99,13 +100,27 @@ VHS 只操作该测试应用，没有向 AC-Prof CLI 添加截图选项。
 ## 连续 Pilot 跨阶段走查（无真实采集）
 
 `uv run --locked --no-default-groups --group test python scripts/capture_tui_journey.py`
-会在独立的临时配置目录中运行 **同一个 Textual 应用实例**，模拟实际鼠标点击、恢复检查、下载确认、下载进度、正式窗口、完成核验、结果读取与页面切换。测试夹具从不启动真实模型、Docker、下载、计量或 profiler；成功状态通过明确的合成 `RunResult` 注入，不代表生产采集结果已验证。
+会在独立的临时配置目录中运行 **同一个 Textual 应用实例**，模拟实际鼠标点击、恢复检查、下载确认、下载进度、正式窗口、完成核验、结果读取与页面切换。模型准备和进程事件由夹具模拟，结束时由 TUI 的归属核验代码读取临时目录中的合成窗口、状态和能力报告。
 
 - 截图放在 `internal-testing/shared/tui-png/journey/`，包含 `zh-wide`（120×36）、`zh-small`（80×24）、`en-small`（80×24）三组可复现的 SVG、ANSI 终端状态与一个 `manifest.json`。每个步骤记录动作、Tab、屏幕、焦点、按钮与布局位置。它们是**每次执行生成的诊断证据**，不是 Golden SVG，不添加到 `tests/visual/__snapshots__/`，也不进入 PNG 像素比较。
 - 使用 `--png-preview` 时，复用现有 VHS/xterm.js 与 `Noto Sans Mono CJK SC` 从同一实例的 ANSI 状态生成清晰的 PNG 预览（不启动真实采集）；HTML 优先显示 PNG，SVG 留作诊断。Rich 原生 SVG 的字体默认是 Fira Code，且其 CJK `textLength` 在浏览器的 `<img>` 中可能挤压字符，单纯替换字体无法保证排版。生成的诊断 SVG 也会改为引用本机 Noto 字体，不再请求 Fira Code CDN，但不以此代替 PNG 验收。对走查过程中动态变为 80×24 的检查点，使用独立终端尺寸生成 PNG，避免错用宽屏图。缺少 VHS 时仍能运行不带该选项的原有 Pilot 测试；正式运行和普通 pytest 不需要 VHS。
 - 现有 HTML 报告的「流程走查」会把连续 Pilot 截图按顺序展示，并在「覆盖矩阵」标明每个检查点的新截图数量；若未执行走查，报告必须标注证据不可用。合成截图不得与真实采集的通过证据混同。
 - `tests/tui/workflows/test_tui_visual_journey.py` 提供交互回归，核验 80×24 下的实际按钮点击、任务执行时配置锁定、窗口结束后停留监控页，以及点击结果页后的成功 CSV 读取。测试同时说明：**新目录直接启动监控；已有实验目录才显示恢复检查弹窗**。
 - TUI PNG Visual 工作流会在生成 HTML 之前以 `--png-preview` 自动采集这些纯合成截图和 Noto PNG 预览；可公开的报告仅嵌入经过固定场景身份校验的证据，不接受任意路径、当前项目日志或真实实验目录。任何真实模型及硬件验收仍使用原有独立入口。
+
+### 五个流程的证据选择
+
+| 检查点 | 可审阅画面 | 交互断言 |
+| --- | --- | --- |
+| 已有目录的启动检查 | `launch-review` 显示可重试的准备中断及可用按钮 | 有旧实验时等待选择，全新目录直接进入监控页 |
+| 恢复 / 新建实验 | 共用 `launch-review` | 重试沿用原目录与配置，新建使用独立目录，继续采集保留原 run ID 与已完成的 case |
+| 模型运行验证 | 中文宽屏的 `validation-running`、`validation-failed`、`validation-passed` | 隐藏旧下载信息，显示失败详情，重试后同一模拟进程显示通过 |
+| 结束采集与核验 | `finished`、`finish-partial`、`finish-failed` | 匹配本次结果且请求指标齐全时显示完成，指标不全时显示部分完成，PID 不符时拒绝归属 |
+| 应用设置 | 中文 120×38 设置页 SVG | 语言、主题、日志、权限确认及保存反馈由对应的 Pilot 用例验证 |
+
+新增的分支画面集中在中文宽屏走查，使用每次运行生成的诊断图。设置页采用固定输入的独立 SVG。首次建基准时，设置
+`ACPROF_SNAPSHOT_OUTPUT_DIR` 后运行 `pytest tests/visual/test_settings.py` 可保留候选图。没有已审阅基准时比较会失败。
+审阅者确认画面后，将对应候选放入该用例的 `__snapshots__` 目录，再执行普通 SVG 比较。
 
 ## 长期维护的 Golden PNG
 
@@ -159,13 +174,13 @@ SVG 在这个工作流重新运行，是为了避免跨工作流状态竞争；�
 完成（或失败、跳过）后，`scripts/tui_ci_status.py` 使用三个 `steps.<id>.outcome` 和各自的真实产物
 核对状态，再写入 `internal-testing/shared/tui-png/ci-status.json`：
 
-- **SVG**：工作流的 SVG pytest 步骤成功，JUnit XML 有实际执行的通过用例且没有失败/错误；
+- **SVG** 步骤成功，JUnit XML 中有具名的 SVG 用例，数量与汇总一致，无失败、错误或跳过。
 - **PNG**：VHS/pytest 步骤成功，`report.json` 与本次全部 Golden 场景一一对应、每张状态为 `passed`，并有实际 PNG 文件；
-- **Pilot**：Pilot 交互 pytest 与连续截图步骤均成功，并且合成走查 manifest 与截图通过安全校验。
+- **Pilot** 需要定向交互 pytest 成功、`pilot-tests.xml` 有实际用例且无失败、错误或跳过、走查 manifest 和截图有效，以及流程视觉覆盖检查通过。
 
 三个视图上方始终显示 SVG、PNG 与 Pilot 的状态。「运行与证据」可展开查看各项证据说明、Commit SHA 前缀、生成时间及 GitHub Actions Run 链接。
 **任何一步失败、跳过、缺失产物、数据损坏或发现不同提交 / 不同 CI Run 时均不能显示通过**。没有可核验的本次 CI 元数据时显示「未核验」，不列通过数，也不凭已有截图猜测成功。
-这份 JSON 与 SVG JUnit 也保存在该次 Actions Artifact，可用于人工诊断；不改写长期 Golden，也不包含真实模型采集数据。
+状态格式 v2 核对 JUnit 用例明细。旧版状态文件在新版报告中显示为「未核验」。这份 JSON 与 SVG、Pilot 两份 JUnit 均保存在该次 Actions Artifact，可用于人工诊断；不改写长期 Golden，也不包含真实模型采集数据。
 
 当前 Pages 行为**保持不变**：main 的工作流即便出现视觉回归，仍可发布红色诊断报告；如无法生成 HTML 则
 保留上一次已部署的网页。PR 仅产生 Artifact，不发布。若要实现「只有全部通过才覆盖正式首页」，需要另行

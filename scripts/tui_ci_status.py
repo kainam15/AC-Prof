@@ -22,7 +22,7 @@ from scripts.tui_journey_contract import load_manifest
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_ACTUAL = ROOT / "internal-testing/shared/tui-png"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 CHECKS = ("svg", "png", "pilot")
 OUTCOMES = {"success", "failure", "cancelled", "skipped"}
 STATUSES = {"passed", "failed", "not_run"}
@@ -51,32 +51,74 @@ def _check_file(path: Path, max_bytes: int) -> bool:
     return path.is_file() and not path.is_symlink() and 0 < path.stat().st_size <= max_bytes
 
 
-def _svg_results(actual: Path) -> tuple[int, str]:
-    source = actual / "svg-tests.xml"
+class _InvalidJUnit(ValueError):
+    """An evidence problem safe to describe in the public report."""
+
+
+def _pilot_targets(source: Path) -> set[str]:
+    """Convert the same pytest @file used by CI into JUnit class/function identities."""
+    rows = source.read_text(encoding="utf-8").splitlines()
+    if not rows or len(set(rows)) != len(rows):
+        raise _InvalidJUnit("Pilot 测试清单为空或有重复项")
+    targets = set()
+    for row in rows:
+        if not re.fullmatch(r"tests/tui/(?:\w+/)*test_\w+\.py::(?:\w+::)*test_\w+", row):
+            raise _InvalidJUnit("Pilot 测试清单包含无效的 pytest selector")
+        path, *parts = row.split("::")
+        targets.add(".".join([path.removesuffix(".py").replace("/", "."), *parts]))
+    return targets
+
+
+def _suite_cases(suite: ET.Element, prefix: str) -> list[str]:
+    cases = suite.findall("testcase")
+    if len(cases) != int(suite.attrib["tests"]):
+        raise _InvalidJUnit("汇总数量与 testcase 数量不一致")
+    for key in ("failures", "errors", "skipped"):
+        if int(suite.attrib[key]) != 0:
+            raise _InvalidJUnit(f"JUnit {key} 计数非零")
+    identities = []
+    for case in cases:
+        module = case.attrib["classname"]
+        name = case.attrib["name"]
+        if (
+            not module.startswith(prefix)
+            or not all(part.isidentifier() for part in module.split("."))
+            or not re.fullmatch(r"test_\w+(?:\[.*\])?", name, re.DOTALL)
+        ):
+            raise _InvalidJUnit("测试用例缺少有效名称或不属于指定测试模块")
+        if any(child.tag in {"failure", "error", "skipped"} for child in case):
+            raise _InvalidJUnit("测试用例存在失败、错误或跳过")
+        identities.append(f"{module}.{name}")
+    return identities
+
+
+def _junit_results(
+    source: Path, label: str, prefix: str, *, selectors: Path | None = None
+) -> tuple[int, str]:
     if not _check_file(source, 2_000_000):
-        return 0, "缺少本次 SVG 测试 JUnit 结果"
+        return 0, f"缺少本次 {label} 测试 JUnit 结果"
     try:
         root = ET.fromstring(source.read_bytes())
         suites = (
             [root] if root.tag == "testsuite" else list(root) if root.tag == "testsuites" else []
         )
         if not suites or any(suite.tag != "testsuite" for suite in suites):
-            raise ValueError("invalid JUnit root")
-        counts = {
-            key: sum(int(suite.attrib.get(key, 0)) for suite in suites)
-            for key in ("tests", "failures", "errors", "skipped")
-        }
-    except (ValueError, ET.ParseError, OSError) as exc:
-        return 0, f"SVG JUnit 数据无效：{type(exc).__name__}"
-    count = counts["tests"]
-    if count < 1 or count == counts["skipped"] or counts["failures"] or counts["errors"]:
-        return 0, (
-            f"SVG JUnit：{count} 项、失败 {counts['failures']}、"
-            f"错误 {counts['errors']}、跳过 {counts['skipped']}"
-        )
-    return count - counts[
-        "skipped"
-    ], f"通过 {count - counts['skipped']} 项，跳过 {counts['skipped']} 项"
+            raise _InvalidJUnit("无效的 JUnit 根节点")
+        identities = [name for suite in suites for name in _suite_cases(suite, prefix)]
+        if not identities or len(set(identities)) != len(identities):
+            raise _InvalidJUnit("测试用例为空或有重复身份")
+        if selectors is not None:
+            expected = _pilot_targets(selectors)
+            observed = {name.partition("[")[0] for name in identities}
+            if observed != expected:
+                raise _InvalidJUnit(
+                    f"与 Pilot 清单不符，缺少 {len(expected - observed)} 项，多出 {len(observed - expected)} 项"
+                )
+    except _InvalidJUnit as exc:
+        return 0, f"{label} JUnit 数据无效：{exc}"
+    except (KeyError, ValueError, ET.ParseError, OSError) as exc:
+        return 0, f"{label} JUnit 数据无效：{type(exc).__name__}"
+    return len(identities), f"通过 {len(identities)} 项，跳过 0 项"
 
 
 def _png_results(actual: Path, root: Path) -> tuple[int, str]:
@@ -115,7 +157,19 @@ def _png_results(actual: Path, root: Path) -> tuple[int, str]:
     return len(expected), f"{len(expected)} 张当前 PNG 与 Golden 一致"
 
 
-def _pilot_results(actual: Path) -> tuple[int, str]:
+def pilot_junit_results(actual: Path, root: Path) -> tuple[int, str]:
+    return _junit_results(
+        actual / "pilot-tests.xml",
+        "Pilot",
+        "tests.tui.",
+        selectors=root / "tests/visual/pilot_cases.txt",
+    )
+
+
+def _pilot_results(actual: Path, root: Path) -> tuple[int, str]:
+    passed, detail = pilot_junit_results(actual, root)
+    if not passed:
+        return 0, detail
     try:
         manifest = load_manifest(actual / "journey")
         if not manifest:
@@ -126,7 +180,10 @@ def _pilot_results(actual: Path) -> tuple[int, str]:
             raise ValueError("empty Pilot manifest")
     except (ValueError, OSError, TypeError, KeyError, json.JSONDecodeError) as exc:
         return 0, f"Pilot 证据无效：{type(exc).__name__}"
-    return count, f"{len(scenarios)} 种终端条件 · {count} 帧连续交互证据"
+    return count, (
+        f"模拟 Pilot：{passed} 项断言用例通过 · {len(scenarios)} 种终端条件 · "
+        f"{count} 帧诊断截图 · 真实模型采集未执行"
+    )
 
 
 def record_status(
@@ -156,9 +213,9 @@ def record_status(
     if set(outcomes) != set(CHECKS) or any(value not in OUTCOMES for value in outcomes.values()):
         raise ValueError("invalid GitHub step outcome")
     validators = {
-        "svg": lambda: _svg_results(actual),
+        "svg": lambda: _junit_results(actual / "svg-tests.xml", "SVG", "tests.visual."),
         "png": lambda: _png_results(actual, root),
-        "pilot": lambda: _pilot_results(actual),
+        "pilot": lambda: _pilot_results(actual, root),
     }
     checks = {}
     for name in CHECKS:
@@ -260,6 +317,7 @@ def load_status(path: Path, *, environ: Mapping[str, str] | None = None) -> dict
     if environment.get("GITHUB_ACTIONS") == "true" and (
         data["commit"] != environment.get("GITHUB_SHA")
         or data["run_id"] != environment.get("GITHUB_RUN_ID")
+        or str(data["run_attempt"]) != environment.get("GITHUB_RUN_ATTEMPT")
         or data["repository"] != environment.get("GITHUB_REPOSITORY")
     ):
         return None
@@ -319,10 +377,11 @@ def main() -> None:
     for name in CHECKS:
         parser.add_argument(f"--{name}-outcome", required=True, choices=sorted(OUTCOMES))
     args = parser.parse_args()
+    outcomes = {name: getattr(args, f"{name}_outcome") for name in CHECKS}
     data = record_status(
         actual=args.actual,
         root=ROOT,
-        outcomes={name: getattr(args, f"{name}_outcome") for name in CHECKS},
+        outcomes=outcomes,
         commit=os.environ.get("GITHUB_SHA", ""),
         repository=os.environ.get("GITHUB_REPOSITORY", ""),
         run_id=os.environ.get("GITHUB_RUN_ID", ""),
@@ -338,6 +397,12 @@ def main() -> None:
             {name: check["status"] for name, check in data["checks"].items()}, ensure_ascii=False
         )
     )
+
+    if any(
+        outcomes[name] == "success" and data["checks"][name]["status"] != "passed"
+        for name in CHECKS
+    ):
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

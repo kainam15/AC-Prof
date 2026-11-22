@@ -103,7 +103,10 @@ async def test_monitor_shows_only_the_current_phase(tmp_path, size, language):
         assert "Model files verified" not in text
         app.consume_process_line("", replace(snapshot, runtime_status="passed"), True)
         await pilot.pause()
-        assert ("通过" if language == "zh" else "Passed") in screen_text(app)
+        runtime_label = "运行验证" if language == "zh" else "Runtime validation"
+        checks = dict(fact_rows(app.query_one("#status-preparation", FactGrid)))
+        assert ("通过" if language == "zh" else "Passed") in checks[runtime_label]
+        assert not app.query_one("#download-progress").display
 
         snapshot = replace(snapshot, stage=Stage.MEASURING, current_case=1, total_cases=4,
                            cpu="2", mem="4", gpu="on", runtime_status="passed",

@@ -524,35 +524,10 @@ class TestTuiReliability:
         app = self.make_app()
         directory = app.configuration.initial_config.result_dir(self.directory)
         script = f'''
-import csv, json, os
+import os
 from pathlib import Path
-from acprof.results.layout import ArtifactLayout
-layout = ArtifactLayout.for_new_run(Path({str(directory)!r}))
-layout.initialize()
-case_path = str(layout.case("demo/model", 1, 4, "off").csv.relative_to(layout.root))
-state = dict(schema_version=1, layout_version=2, run_id="child-run", status="complete", outcome="ok",
-             host={{}}, artifacts={{}},
-             attempts=[dict(attempt_id="child-attempt", pid=os.getpid(), resume=False,
-                            started_at="start", ended_at="end")],
-             options=dict(cpus="1", mems="4", gpus="off", warmup=0, repeat=1),
-             runtime=dict(task=dict(model_id="demo/model", pipeline_tag="text-classification",
-                                    task_family="nlp", runtime_backend="transformers_pipeline",
-                                    library_name="transformers", model_revision="a" * 40,
-                                    detection_method="fixture"),
-                          image=dict(tag="sha256:" + "a" * 64),
-                          planned=dict(scales=[64], source="manual"),
-                          compute_plan="", execution_plan=""),
-             cases={{case_path: dict(status="complete", sha256="0" * 64)}})
-layout.path("run_state.json").parent.mkdir(parents=True, exist_ok=True)
-layout.path("run_state.json").write_text(json.dumps(state))
-layout.path("capability_report.json").write_text(json.dumps({{"requested_measurements_complete": True}}))
-from acprof.results.layers import publish_result_rows
-publish_result_rows(["cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale", "warmup",
-                     "repeat_idx", "status", "latency_app_s", "environment_class"],
-                    [dict(cpu_cores="1", mem_cap_gb="4", gpu_mode="off", input_scale="64",
-                          warmup="0", repeat_idx="0", status="ok",
-                          environment_class="unknown", latency_app_s="0.02")],
-                    layout.root)
+from tests.support.tui_run_artifacts import publish_synthetic_window
+publish_synthetic_window(Path({str(directory)!r}), model="demo/model", pid=os.getpid(), metrics_complete=True)
 print("Profiling complete!", flush=True)
 '''
         async with app.run_test(size=(150, 45)) as pilot:

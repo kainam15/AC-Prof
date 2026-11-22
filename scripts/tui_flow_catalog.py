@@ -9,7 +9,10 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+from collections.abc import Collection
 from pathlib import Path
+
+from scripts.tui_journey_contract import CHECKPOINTS, load_manifest
 
 ROOT = Path(__file__).resolve().parents[1]
 CATALOG = ROOT / "tests" / "visual" / "flow_catalog.json"
@@ -30,7 +33,9 @@ def _string(value: object, label: str) -> str:
     return str(value)
 
 
-def _source(root: Path, raw: object, prefix: Path, suffix: str) -> Path:
+def _source(
+    root: Path, raw: object, prefix: Path, suffix: str, *, require_file: bool = True
+) -> Path:
     name = _string(raw, "source")
     path = Path(name)
     _require(
@@ -42,11 +47,12 @@ def _source(root: Path, raw: object, prefix: Path, suffix: str) -> Path:
     _require(
         destination.is_relative_to((root / prefix).resolve()), f"source escaped {prefix}: {name!r}"
     )
-    _require(destination.is_file(), f"missing source {name!r}")
+    if require_file:
+        _require(destination.is_file(), f"missing source {name!r}")
     return destination
 
 
-def load_catalog(*, source: Path = CATALOG, root: Path = ROOT) -> dict:
+def load_catalog(*, source: Path = CATALOG, root: Path = ROOT, require_baselines: bool = True) -> dict:
     """Validate explicit references; unmatched new SVGs are discovered automatically."""
     data = json.loads(source.read_text(encoding="utf-8"))
     _require(
@@ -88,7 +94,7 @@ def load_catalog(*, source: Path = CATALOG, root: Path = ROOT) -> dict:
     for item in checkpoints:
         _require(
             isinstance(item, dict)
-            and set(item)
+            and set(item) - {"pilot"}
             == {
                 "id",
                 "title",
@@ -115,20 +121,62 @@ def load_catalog(*, source: Path = CATALOG, root: Path = ROOT) -> dict:
         for key in ("png", "svg", "tests"):
             _require(isinstance(item[key], list), f"{checkpoint}.{key} must be a list")
         _require(bool(item["tests"]), f"{checkpoint}: missing interaction evidence references")
+        pilot = item.get("pilot", [])
+        _require(
+            isinstance(pilot, list)
+            and all(isinstance(step, str) and step in CHECKPOINTS for step in pilot)
+            and len(pilot) == len(set(pilot)),
+            f"{checkpoint}: unknown or duplicate Pilot step",
+        )
+        for step in pilot:
+            _require(
+                CHECKPOINTS[step] == checkpoint or (checkpoint, step) == ("recover", "launch-review"),
+                f"{checkpoint}: unrelated Pilot step {step}",
+            )
         for png in item["png"]:
             name = _string(png, "PNG scene")
             _require(bool(SAFE_ID.fullmatch(name)), f"invalid PNG scene {name!r}")
             _require(name not in seen_png, f"PNG scene mapped multiple times: {name}")
             seen_png.add(name)
-            _source(root, str(PNG_DIR / f"{name}.png"), PNG_DIR, ".png")
+            _source(root, str(PNG_DIR / f"{name}.png"), PNG_DIR, ".png", require_file=require_baselines)
         for svg in item["svg"]:
-            path = _source(root, svg, SVG_DIR, ".svg")
+            path = _source(root, svg, SVG_DIR, ".svg", require_file=require_baselines)
             relative = path.relative_to(root.resolve()).as_posix()
             _require(relative not in seen_svg, f"SVG mapped multiple times: {relative}")
             seen_svg.add(relative)
         for test in item["tests"]:
             _source(root, test, TEST_DIR, ".py")
     return data
+
+
+def missing_visual_evidence(
+    item: dict, *, captured: Collection[str], svg: Collection[str], png: Collection[str]
+) -> list[str]:
+    if not (item["svg"] or item["png"] or item.get("pilot")):
+        return ["未登记视觉证据"]
+    return (
+        [step for step in item.get("pilot", []) if step not in captured]
+        + [name for name in item["svg"] if name not in svg]
+        + [name for name in item["png"] if name not in png]
+    )
+
+
+def check_visual_coverage(catalog: dict, manifest: dict | None, *, root: Path = ROOT) -> None:
+    """CI requires the promised frames to actually exist in the validated capture."""
+    captured = {
+        step["id"]
+        for scenario in (manifest or {}).get("scenarios", [])
+        for step in scenario["steps"]
+    }
+    svg = set(svg_inventory(root=root))
+    png = set(png_inventory(root=root))
+    gaps = []
+    for item in catalog["checkpoints"]:
+        missing = missing_visual_evidence(item, captured=captured, svg=svg, png=png)
+        if missing:
+            gaps.append(f"{item['id']}: {', '.join(missing)}")
+    if gaps:
+        raise ValueError("TUI flow coverage gaps:\n" + "\n".join(gaps))
 
 
 def svg_inventory(*, root: Path = ROOT) -> list[str]:
@@ -149,9 +197,16 @@ def svg_inventory(*, root: Path = ROOT) -> list[str]:
             if (name := raw.decode("utf-8")) and name.endswith(".svg") and (root / name).is_file()
         )
     # In a Git-less source export, display only explicitly reviewed fixture paths.
-    return sorted({name for step in load_catalog(root=root)["checkpoints"] for name in step["svg"]})
+    steps = load_catalog(root=root, require_baselines=False)["checkpoints"]
+    return sorted({name for step in steps for name in step["svg"] if (root / name).is_file()})
 
 
 def png_inventory(*, root: Path = ROOT) -> list[str]:
     directory = (root / PNG_DIR).resolve()
     return [path.stem for path in sorted(directory.glob("*.png")) if path.is_file()]
+
+
+if __name__ == "__main__":
+    catalog = load_catalog(require_baselines=False)
+    check_visual_coverage(catalog, load_manifest(ROOT / "internal-testing/shared/tui-png/journey"))
+    print(f"Visual evidence found for {len(catalog['checkpoints'])} TUI checkpoints")

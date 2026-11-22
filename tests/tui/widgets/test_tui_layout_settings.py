@@ -294,7 +294,8 @@ class TestTuiLayoutSettings:
             assert "自动保存" in str(app.query_one("#settings-status", Static).content)
             assert (await pilot.click("#save-ui-settings", offset=(3, 1)))
             await pilot.pause()
-            assert (self.settings_path.is_file())
+            assert str(app.query_one("#settings-status", Static).content) == "✓ 界面设置已保存"
+            assert self.settings_path.is_file()
             # Connection status badges render safely without exposing secret values.
             badges = str(app.query_one("#settings-connection-status", Static).content)
             assert "Hugging Face Token" in badges

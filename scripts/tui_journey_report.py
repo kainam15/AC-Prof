@@ -26,7 +26,7 @@ def _safe(value: object) -> str:
     return html.escape(str(value), quote=True)
 
 
-def render_journey(actual: Path) -> tuple[str, dict[str, int]]:
+def render_journey(actual: Path) -> tuple[str, dict[str, list[str]]]:
     """Use fixed scenario identities; never import live-run data or arbitrary SVGs."""
     folder = actual / "journey"
     manifest = load_manifest(folder)
@@ -37,16 +37,16 @@ def render_journey(actual: Path) -> tuple[str, dict[str, int]]:
             "</section>",
             {},
         )
-    counts: dict[str, int] = {}
+    captures: dict[str, list[str]] = {}
     sections = [
         '<section class="pilot-section"><h3>连续 Pilot 走查 · 同一实例逐步操作</h3>'
         '<p class="pilot-note">真实 Pilot 点击、页面切换与模拟事件。模型准备、下载、'
-        "正式测量和成功归属均由测试夹具模拟，绝非真实采集验收。</p>"
+        "正式测量和结果文件均由离线夹具提供。真实模型采集另行验收。</p>"
     ]
     for scenario in manifest["scenarios"]:
         cards: list[str] = []
         for number, step in enumerate(scenario["steps"], 1):
-            counts[step["checkpoint"]] = counts.get(step["checkpoint"], 0) + 1
+            captures.setdefault(step["id"], []).append(scenario["id"])
             path = folder / step["image"]
             preview = step.get("preview")
             if preview:
@@ -82,4 +82,4 @@ def render_journey(actual: Path) -> tuple[str, dict[str, int]]:
                 '<div class="pilot-grid">' + "".join(cards) + "</div></details>"
             )
     sections.append("</section>")
-    return "".join(sections), counts
+    return "".join(sections), captures

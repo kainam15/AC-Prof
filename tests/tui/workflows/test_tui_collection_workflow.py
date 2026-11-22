@@ -196,6 +196,8 @@ async def test_start_button_keeps_real_child_alive_through_answer_and_retry():
                 assert (app.execution.session.snapshot.interface_status) == ("passed")
                 assert (app.execution.session.snapshot.runtime_status) == ("failed")
                 assert (app.execution.session.snapshot.measurement_status) == ("not_started")
+                assert "ultravox_config.py" in app.screen.query_one("#preparation-traceback", SelectableLog).text
+                assert not app.query_one("#download-progress").display
                 assert (await pilot.click("#preparation-continue"))
                 await app.workers.wait_for_complete()
                 await pilot.pause()

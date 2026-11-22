@@ -31,6 +31,12 @@ async def test_complete_pilot_sequence_without_real_collection(tmp_path, languag
     ]
     assert names.index("measurement") < names.index("measurement-config") < names.index("finished")
     assert names.index("finished") < names.index("result-overview")
+    if language == "zh" and size == (120, 36):
+        assert names[5:8] == ["validation-running", "validation-failed", "validation-passed"]
+        assert names[-2:] == ["finish-partial", "finish-failed"]
+        failure = next(row for row in steps if row["id"] == "validation-failed")
+        assert failure["screen"] == "PreparationScreen"
+        assert "preparation-continue" in failure["buttons"]
     assert all(row["terminal"][0] <= size[0] for row in steps)
     assert next(row for row in steps if row["id"] == "launch-review")["screen"] == "RecoveryScreen"
     assert (

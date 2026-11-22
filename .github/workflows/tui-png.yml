@@ -26,8 +26,8 @@ on:
       - 'scripts/tui_svg_preview_png.py'
       - 'scripts/tui_journey_contract.py'
       - 'scripts/tui_journey_report.py'
-      - 'tests/tui/workflows/visual_journey.py'
-      - 'tests/tui/workflows/test_tui_visual_journey.py'
+      - 'tests/support/tui_*.py'
+      - 'tests/tui/**'
       - 'scripts/tui_flow_catalog.py'
       - 'scripts/tui_flow_report.py'
       - '.github/workflows/tui-png.yml'
@@ -55,8 +55,8 @@ on:
       - 'scripts/tui_svg_preview_png.py'
       - 'scripts/tui_journey_contract.py'
       - 'scripts/tui_journey_report.py'
-      - 'tests/tui/workflows/visual_journey.py'
-      - 'tests/tui/workflows/test_tui_visual_journey.py'
+      - 'tests/support/tui_*.py'
+      - 'tests/tui/**'
       - 'scripts/tui_flow_catalog.py'
       - 'scripts/tui_flow_report.py'
       - '.github/workflows/tui-png.yml'
@@ -99,7 +99,7 @@ jobs:
           PYTHONHASHSEED: '0'
         run: |
           mkdir -p internal-testing/shared/tui-png
-          uv run --locked --no-default-groups --group test python -m pytest tests/visual -q \
+          uv run --locked --no-default-groups --group test python -m pytest tests/visual -q --require-no-skips \
             --junitxml=internal-testing/shared/tui-png/svg-tests.xml
       - name: Install optional headless terminal tooling
         id: tooling
@@ -208,15 +208,16 @@ jobs:
           ACPROF_PNG_VISUAL: '1'
           TZ: UTC
           PYTHONHASHSEED: '0'
-        run: uv run --locked --no-default-groups --group test python -m pytest tests/visual_png -v
+        run: uv run --locked --no-default-groups --group test python -m pytest tests/visual_png -v --require-no-skips
       - name: Capture continuous synthetic TUI Pilot journey
         id: pilot_regression
         if: ${{ always() && steps.install_deps.outcome == 'success' && steps.terminal_smoke.outcome == 'success' }}
         run: |
           uv run --locked --no-default-groups --group test python -m pytest \
-            tests/tui/workflows/test_tui_visual_journey.py -q
+            @tests/visual/pilot_cases.txt -q --require-no-skips --junitxml=internal-testing/shared/tui-png/pilot-tests.xml
           uv run --locked --no-default-groups --group test python \
             scripts/capture_tui_journey.py --png-preview
+          python3 -m scripts.tui_flow_catalog
       - name: Record same-run SVG, PNG and Pilot CI statuses
         if: always()
         env:
@@ -246,6 +247,7 @@ jobs:
             internal-testing/shared/tui-png/report.json
             internal-testing/shared/tui-png/ci-status.json
             internal-testing/shared/tui-png/svg-tests.xml
+            internal-testing/shared/tui-png/pilot-tests.xml
             internal-testing/shared/tui-png/journey/manifest.json
             internal-testing/shared/tui-png/journey/**/*.svg
             internal-testing/shared/tui-png/journey/**/*.png

@@ -104,6 +104,9 @@ def test_pilot_journey_is_visible_separately_from_golden_comparisons(tmp_path):
     assert 'id="pilot-step-zh-wide-download-review"' in page
     assert 'id="pilot-step-zh-wide-finished"' in page
     assert 'id="pilot-step-zh-wide-result-overview"' in page
+    # Both recovery checkpoints link to the same captured frame.
+    assert page.count('href="#pilot-step-zh-wide-launch-review"') == 2
+    assert "缺少证据 · validation-running" in page
     assert page.count("data:image/svg+xml;base64,") >= 21
     assert "连续 Pilot 图像由测试夹具生成" in page
     assert "未生成 report.json，无法判断通过或失败" in page
