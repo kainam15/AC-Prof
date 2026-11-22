@@ -12,6 +12,7 @@ from typing import TextIO
 from acprof.artifacts import atomic_write, recorded_artifact_present
 from acprof.failures import Failure, compatibility_status, ordered_validation_failures
 from acprof.hub.repository import MODEL_SOURCES
+from acprof.models.evidence import pinned_revision
 from acprof.quality import combine_quality, read_quality, summarize_quality
 from acprof.results.validation_cleanup import (
     cleanup_summary as _cleanup_summary,
@@ -55,23 +56,52 @@ class RecordedSourceError(ValueError):
         self.artifact = artifact
 
 
-def recorded_model_source(metadata: dict, resolution: dict, state: dict) -> str:
-    """Resolve the source from saved evidence, including preparation-only runs."""
+def _check_primary_model_identity(records: tuple[tuple[str, str, object, object], ...]) -> None:
+    known: dict[str, tuple[str, str]] = {}
+    for artifact, location, model, revision in records:
+        for field, value in (("model_id", model), ("revision", revision)):
+            if value in (None, ""):
+                continue
+            if not isinstance(value, str):
+                raise RecordedSourceError(artifact, f"{location} {field} must be a string")
+            if field == "revision" and not pinned_revision(value):
+                # A saved branch or tag cannot establish a different resolved snapshot.
+                continue
+            previous = known.get(field)
+            if previous and previous[0] != value:
+                raise RecordedSourceError(artifact, f"{location} {field} conflicts with {previous[1]}")
+            known.setdefault(field, (value, f"{artifact} {location}"))
+
+
+def recorded_model_source(metadata: dict, resolution: dict, state: dict, *,
+                          resolution_name: str = "model_resolution.json", interface: dict | None = None,
+                          interface_name: str = "interface_validation.json") -> str:
+    """Resolve the source of consistent primary-model evidence, including preparation-only runs."""
     provenance = resolution.get("provenance", {})
     if not isinstance(provenance, dict):
-        raise RecordedSourceError("model_resolution.json", "model provenance must be an object")
+        raise RecordedSourceError(resolution_name, "model provenance must be an object")
     sources = provenance.get("sources", {})
     if not isinstance(sources, dict):
-        raise RecordedSourceError("model_resolution.json", "model provenance sources must be an object")
+        raise RecordedSourceError(resolution_name, "model provenance sources must be an object")
     snapshot = sources.get("repository_snapshot", {})
     if not isinstance(snapshot, dict):
-        raise RecordedSourceError("model_resolution.json", "repository snapshot provenance must be an object")
+        raise RecordedSourceError(resolution_name, "repository snapshot provenance must be an object")
     task = _dict_or_empty(_dict_or_empty(state.get("runtime")).get("task"))
     options = _dict_or_empty(state.get("options"))
+    iface = interface or {}
+    _check_primary_model_identity((
+        ("static_meta.json", "static metadata", metadata.get("model_id"), metadata.get("model_revision")),
+        ("static_meta.json", "model_name", metadata.get("model_name"), None),
+        (resolution_name, "model resolution", resolution.get("model_id"), resolution.get("model_revision")),
+        (resolution_name, "provenance", provenance.get("model_id"), provenance.get("revision")),
+        (resolution_name, "repository_snapshot", snapshot.get("model_id"), snapshot.get("revision")),
+        (interface_name, "interface validation", iface.get("model_id"), iface.get("revision")),
+        ("run_state.json", "runtime.task", task.get("model_id"), task.get("model_revision")),
+    ))
     source = None
     for artifact, record, key in (
         ("static_meta.json", metadata, "model_source"),
-        ("model_resolution.json", snapshot, "source"),
+        (resolution_name, snapshot, "source"),
         ("run_state.json", task, "model_source"),
         ("run_state.json", options, "model_source"),
         ("run_state.json", _dict_or_empty(options.get("extra_options")), "model_source"),
@@ -368,33 +398,29 @@ def _dict_or_empty(value: object) -> dict:
 
 
 def _check_identity_consistency(
-    layout, metadata: dict, resolution: dict, state: dict, invalid: list[dict], *, resolution_name: str,
+    layout, metadata: dict, resolution: dict, state: dict, invalid: list[dict], *,
+    resolution_name: str = "model_resolution.json", interface: dict | None = None,
+    interface_name: str = "interface_validation.json",
 ) -> tuple[object, object, object, object, str]:
     provenance = _dict_or_empty(resolution.get("provenance"))
     sources_map = _dict_or_empty(provenance.get("sources"))
     snapshot = _dict_or_empty(sources_map.get("repository_snapshot"))
     meta_model = metadata.get("model_id") or metadata.get("model_name")
     res_model = resolution.get("model_id") or provenance.get("model_id") or snapshot.get("model_id")
-    if isinstance(meta_model, str) and meta_model and isinstance(res_model, str) and res_model and meta_model != res_model:
-        _invalid_compatibility_shape(
-            layout, resolution_name, "recorded model_id conflicts with static_meta.json", invalid,
-        )
     meta_rev = metadata.get("model_revision")
     res_rev = resolution.get("model_revision") or provenance.get("revision") or snapshot.get("revision")
-    if isinstance(meta_rev, str) and meta_rev and isinstance(res_rev, str) and res_rev and meta_rev != res_rev:
-        _invalid_compatibility_shape(
-            layout, resolution_name, "recorded model_revision conflicts with static_meta.json", invalid,
-        )
     invalid_identity = any(
         problem["evidence"]["artifact_name"] in {"static_meta.json", "model_resolution.json", "run_state.json"}
         for problem in invalid
     )
     try:
         # Corrupt identity evidence is not a historical document with missing fields.
-        model_source = "unknown" if invalid_identity else recorded_model_source(metadata, resolution, state)
+        model_source = "unknown" if invalid_identity else recorded_model_source(
+            metadata, resolution, state, resolution_name=resolution_name,
+            interface=interface, interface_name=interface_name,
+        )
     except RecordedSourceError as error:
-        name = resolution_name if error.artifact == "model_resolution.json" else error.artifact
-        _invalid_compatibility_shape(layout, name, str(error), invalid)
+        _invalid_compatibility_shape(layout, error.artifact, str(error), invalid)
         model_source = "unknown"
     return meta_model, res_model, meta_rev, res_rev, model_source
 
@@ -491,6 +517,7 @@ def _report_single_source(source: Path, pre_invalid: list[dict]) -> dict:
 
     meta_model, res_model, meta_rev, res_rev, model_source = _check_identity_consistency(
         layout, metadata, resolution, state, invalid, resolution_name=origins["resolution"],
+        interface=interface, interface_name=origins["interface"],
     )
     failures = _collect_compatibility_failures(
         layout, failure_report, validation, resolution, [*invalid, *stage_errors], origins,
