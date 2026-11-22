@@ -55,7 +55,7 @@ ModelScope 自动识别依据固定版本的配置与模型声明选择任务和
 
 11 月新榜单中，MS MARCO MiniLM 与 BGE reranker 的已审阅版本默认按查询与文档成对评分。MS MARCO MiniLM 的原生 Torch 下载计划从 23 个文件缩至 8 个，预计大小从 849 MiB 降至 87.6 MiB。超出静态读取上限的权重索引会显示字节数与上限。ModelScope 返回限流业务码时会保留稍后重试的原因，同次识别只继续读取本地缓存。冻结榜单中的两款 OpenAI CLIP 通过静态回放确认了零样本图像分类路径，默认处理器使用图片和候选标签。覆盖审计可按已记录的重试条件筛选，暂时限流与固定版本元数据超限可分别处理。[参数协议](models/inference-configuration.md) · [静态元数据](profiling/metadata.md) · [Kokoro 边界](models/adaptation.md#kokoro-原生适配)。
 
-冻结样本现在可逐模型指定一个已发现的语义任务或配置组。T5 的英译法与摘要已按固定 revision 对照各自的验证输入和采集输入；Qwen3-0.6B 的文本生成通过静态检查，对话任务仍保留当前运行时的阻塞原因。两款模型的单项回放不计入整榜的运行时通过率。[冻结样本与覆盖审计](usage/cli-discovery.md)
+冻结样本可逐模型指定一个已发现的语义任务或配置组。T5 的英译法与摘要已按固定 revision 对照各自的验证输入和采集输入。Qwen3-0.6B 的续写和单轮对话分别经过静态检查；对话请求按固定 tokenizer 的默认模板编码，回复处理已有离线验证。真实 checkpoint 的对话生成仍待验收。[冻结样本与覆盖审计](usage/cli-discovery.md) · [NLP 任务与输入尺度](models/supported-tasks.md#nlp音频表格和策略任务)
 
 ### 结果质量、恢复与服务口径
 

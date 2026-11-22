@@ -34,7 +34,7 @@ acprof run --model Salesforce/blip-image-captioning-base \
 
 ### NLP、音频、表格和策略任务
 
-以下 24 个任务类别接入统一输入计划与采集流程。适配范围以表中模型接口／文件格式为准，同一个 Hub 标签可能包含多种不兼容的框架。适配代码或依赖变化后需使用匹配指纹的镜像，构建与复用按[上述契约](images.md#构建复用和验证)执行。
+下表列出已接入统一输入计划与采集流程的任务。适配范围以表中模型接口／文件格式为准，同一个 Hub 标签可能包含多种不兼容的框架。适配代码或依赖变化后需使用匹配指纹的镜像，构建与复用按[上述契约](images.md#构建复用和验证)执行。
 
 | Hugging Face 任务 | 适配接口／格式 | 输入尺度 |
 | --- | --- | --- |
@@ -47,6 +47,7 @@ acprof run --model Salesforce/blip-image-captioning-base \
 | `summarization` | Transformers 摘要 pipeline | 输入 token 数 |
 | `feature-extraction` | SentenceTransformer 完整模块图的句向量，或普通 Transformers token 特征 pipeline；依据 library／`modules.json` 选择 | 输入正文 token 数，prompt 另占模型容量 |
 | `text-generation` | Transformers 生成 pipeline | 输入 token 数 |
+| `conversational` | 原生因果语言模型的单轮对话，使用 tokenizer 默认对话模板和 Transformers `text-generation` pipeline | 每个样本套用模板后的完整提示 token 数，含角色标记 |
 | `fill-mask` | Transformers 掩码填充 pipeline，自动使用 tokenizer 的 mask token | 输入 token 数 |
 | `replaced-token-detection` | Transformers `ElectraForPreTraining` 判别头，直接模型推理，输出逐 Token 二分类 **logits** 的 `[batch, sequence]` 形状摘要（不是掩码填充/文本分类，也不是训练损失） | 输入 token 数 |
 | `sentence-similarity` | SentenceTransformer 编码并计算相似度；后端 `sentence_transformers` | 候选文本 token 数的最大值，query 和候选数量固定 |
@@ -65,6 +66,8 @@ acprof run --model Salesforce/blip-image-captioning-base \
 | `graph-ml` | TorchScript `forward(x, edge_index, batch)` | 每张图的节点数 |
 
 NLP 的输入计划保存真实 payload，句子相似度／排序每次重新编码 query 和文档，零样本分类完整运行候选标签对应的 NLI 推理。表格问答固定列结构并改变行数，超出模型容量时失败，不通过删行伪装成原尺度。音频任务要求 `--batch-size 1`；读取音频的任务默认复用有来源与 SHA256 的内置 LibriSpeech 前缀，文本到音频使用确定性文本。生成音频仅返回形状、采样率、样本数和时长摘要。需要额外声码器／说话人资产的 SpeechT5、FastSpeech2Conformer 暂未适配，会在加载时明确拒绝。
+
+对同时提供续写和对话的模型，使用 `acprof inspect MODEL --tasks conversational` 检查对话路径。原生对话将一条输入文本作为一条 `user` 消息，按模型模板开启助手回复，并为生成保留上下文空间。输出文本统计只覆盖新生成的回复。缺少默认模板时，对话检查会给出原因；可单独检查 `--tasks text-generation` 的续写路径。[Transformers 对话输入协议](https://github.com/huggingface/transformers/blob/v4.57.6/src/transformers/pipelines/text_generation.py)
 
 SentenceTransformer 保留仓库的 Pooling、Normalize 和默认 prompt；特征提取输出为 `[batch, embedding_dim]`
 摘要，不再把 token 隐状态当作句向量。可通过 [NLP workload 参数](../usage/cli-run.md#nlp-workload-参数)

@@ -69,6 +69,7 @@ client 追加到字段集合相同的已有文件时沿用原表头，避免数�
 | `repeat_in_window` | 本行内部连续发送的 request 数量。`latency_app_s` 和 `latency_s` 都是该 window 内 request 的平均值。 |
 
 NLP 输出统计属于 `/predict` 响应后处理，因此包含在应用请求延迟中；不额外运行模型。
+原生 `conversational` 的 `input_scale` 按每个样本套用对话模板后的完整输入 token 数计量。已观测的 `actual_input_tokens` 为整个请求的输入 token 总数；仅有预处理计数时，`workload_contract.input.text.token_scope` 标明每个样本的模板口径。输出长度和重新分词计数只统计所有新回复。
 旧版本未采集的 NLP 输出统计仍保留 `nan`，不能从实际生成 Token IDs 数回填。
 
 pcap 后处理通过一次 `tshark` 扫描逐行消费 HTTP 关联字段和 TCP 字节，保留 HTTP 重组、
