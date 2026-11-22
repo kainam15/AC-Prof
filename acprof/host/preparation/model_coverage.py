@@ -59,7 +59,8 @@ def validate_sample(sample: dict) -> None:
 
 
 def snapshot_sample(strata: list[str], limit: int) -> dict:
-    from huggingface_hub import HfApi
+    from huggingface_hub import HfApi, ModelInfo
+    from huggingface_hub.utils import build_hf_headers, paginate
 
     from acprof.hub.huggingface.endpoints import hf_endpoints
     from acprof.hub.huggingface.transport import configure_hf_transport
@@ -67,24 +68,35 @@ def snapshot_sample(strata: list[str], limit: int) -> dict:
         raise ValueError("limit must be positive")
     configure_hf_transport()
     endpoint = hf_endpoints()[0]
-    api = HfApi(endpoint=endpoint, token=hf_token_for_url(endpoint))
+    token = hf_token_for_url(endpoint)
+    api = HfApi(endpoint=endpoint, token=token)
+    headers = build_hf_headers(token=token)
     models = {}
+    strata = list(dict.fromkeys(strata))
     for stratum in strata:
         task, separator, library = stratum.partition(":")
         if not separator or not task or not library:
             raise ValueError("stratum must be TASK:LIBRARY")
-        selected = 0
-        for info in api.list_models(pipeline_tag=task, filter=library, sort="downloads", limit=limit * 20, full=True):
+        selected: set[str] = set()
+        # list_models(limit=...) caps the whole iterator; bound only the HTTP page here.
+        params = {"pipeline_tag": task, "filter": library, "sort": "downloads", "limit": max(20, min(limit, 100)),
+                  "expand": ["library_name", "pipeline_tag", "sha", "downloads"]}
+        for row in paginate(f"{endpoint}/api/models", params=params, headers=headers):
+            info = ModelInfo(**row)
             # Hub tag filtering can include wrappers tagged with multiple libraries.
-            if info.library_name != library or info.pipeline_tag != task:
+            if info.library_name != library or info.pipeline_tag != task or info.id in selected:
                 continue
+            if type(info.downloads) is not int or info.downloads < 0:
+                raise ValueError(f"cannot freeze {info.id}: downloads must be a nonnegative integer")
             revision = info.sha
             if not pinned_revision(revision):
-                revision = api.model_info(info.id).sha
+                revision = api.model_info(info.id, expand=["sha"]).sha
+                if not pinned_revision(revision):
+                    raise ValueError(f"cannot freeze {info.id}: Hub did not return a full commit SHA")
             models[(info.id, revision)] = {"source": "huggingface", "model_id": info.id, "revision": revision,
-                                          "weight": info.downloads or 0, "stratum": stratum}
-            selected += 1
-            if selected == limit:
+                                          "weight": info.downloads, "stratum": stratum}
+            selected.add(info.id)
+            if len(selected) == limit:
                 break
     sample = {"schema_version": 1, "sampling": "head_per_task_library; selected_sample_only",
               "captured_at": datetime.now(UTC).isoformat(),

@@ -178,7 +178,10 @@ acprof coverage report results/model-a results/model-b \
   --output-dir internal-testing/shared/coverage-recorded
 ```
 
-snapshot 按 `TASK:LIBRARY` 各取下载量前 N 个，属于所选样本统计，不代表全 Hub 或随机长尾。
+snapshot 按 `TASK:LIBRARY` 各取下载量前 N 个不同仓库。Hub 的库标签也可能命中其他加载库，
+因此会按下载量顺序逐页核对实际任务和库，收满 N 个或读完该层时停止。同一仓库跨页重复出现时，
+保留首次匹配的 revision 和下载量。入选仓库缺少下载量会终止快照并报告模型 ID。已知的零下载保留为零。
+统计范围限于所选样本。[Hugging Face Hub SDK 分页实现](https://github.com/huggingface/huggingface_hub/blob/v1.28.0/src/huggingface_hub/utils/_pagination.py)
 run 默认只做静态检查，可以与正式采集并行。`--validate-runtime` 的验证时间限制不包含构建和下载。
 启用运行时验证后，整个批次持有同机同用户的测量锁，逐模型验证和重试清理共用这把锁，每个模型的验证目录另有写锁。
 新建报告前先检查输出路径、选定设备并读取批次配置。GPU 选择或查询失败时，修正设备条件后可用原命令和原路径重试。

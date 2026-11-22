@@ -217,10 +217,9 @@ def test_unreadable_source_evidence_remains_unknown_instead_of_defaulting_to_hf(
 
 
 def test_hub_snapshot_records_its_source_explicitly(monkeypatch):
-    from types import SimpleNamespace
-    model = SimpleNamespace(id="example/model", sha=REVISION, downloads=5,
-                            pipeline_tag="text-generation", library_name="transformers")
-    monkeypatch.setattr("huggingface_hub.HfApi.list_models", lambda *args, **kwargs: [model])
+    model = {"id": "example/model", "sha": REVISION, "downloads": 5,
+             "pipeline_tag": "text-generation", "library_name": "transformers"}
+    monkeypatch.setattr("huggingface_hub.utils.paginate", lambda *args, **kwargs: [model])
     result = snapshot_sample(["text-generation:transformers"], 1)
     assert result["models"][0]["source"] == "huggingface"
 

@@ -6,7 +6,6 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -254,11 +253,11 @@ def test_support_failure_updates_the_final_static_decision(tmp_path):
 
 
 def test_snapshot_freezes_sha_and_weights_without_creating_semantic_oracles():
-    model = SimpleNamespace(id="example/model", sha="a" * 40, downloads=7, pipeline_tag="text-generation",
-                            library_name="transformers")
-    wrapper = SimpleNamespace(id="timm/wrapper", sha="b" * 40, downloads=9, pipeline_tag="text-generation",
-                              library_name="timm")
-    with tempfile.TemporaryDirectory() as directory, patch("huggingface_hub.HfApi.list_models", return_value=[wrapper, model]), patch(
+    model = {"id": "example/model", "sha": "a" * 40, "downloads": 7, "pipeline_tag": "text-generation",
+             "library_name": "transformers"}
+    wrapper = {"id": "timm/wrapper", "sha": "b" * 40, "downloads": 9, "pipeline_tag": "text-generation",
+               "library_name": "timm"}
+    with tempfile.TemporaryDirectory() as directory, patch("huggingface_hub.utils.paginate", return_value=[wrapper, model]), patch(
             "acprof.host.env_utils.bootstrap_project_env"), contextlib.redirect_stdout(io.StringIO()):
         path = Path(directory, "sample.json")
         assert (main(["coverage", "snapshot", "--stratum", "text-generation:transformers",
