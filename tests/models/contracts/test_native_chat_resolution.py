@@ -145,6 +145,23 @@ def test_legacy_chat_without_a_recorded_protocol_requires_a_new_run():
     validate_execution_identity(task, restoring=True)
 
 
+@pytest.mark.parametrize(("pipeline_tag", "selected", "requires_new_run"), [
+    ("conversational", {}, True),
+    ("text-generation", {"task_id": "conversational"}, True),
+    ("conversational", {"task_id": "text-generation"}, False),
+    ("text-generation", {}, False),
+])
+def test_legacy_selection_without_interface_uses_recorded_task(pipeline_tag, selected, requires_new_run):
+    task = native_task("{{ messages }}")
+    task.pipeline_tag = pipeline_tag
+    task.selected_tasks = [selected]
+    if requires_new_run:
+        with pytest.raises(ValueError, match="native chat execution identity changed"):
+            validate_execution_identity(task, restoring=True)
+    else:
+        validate_execution_identity(task, restoring=True)
+
+
 def test_pending_legacy_chat_collection_keeps_history_and_cannot_dispatch(tmp_path):
     from dataclasses import replace
 

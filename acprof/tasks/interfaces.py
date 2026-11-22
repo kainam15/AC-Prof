@@ -173,7 +173,8 @@ def validate_execution_identity(task_info: Any, *, restoring: bool = False) -> N
         profile = selected.get("execution_profile", {})
         signature = profile.get("signature", {})
         if "execution" not in signature:
-            if (signature or restoring) and native_chat(selected["interface"], signature.get("backend", task_info.runtime_backend)):
+            interface = selected.get("interface") or selected.get("task_id") or task_info.pipeline_tag
+            if (signature or restoring) and native_chat(interface, signature.get("backend", task_info.runtime_backend)):
                 raise ValueError("native chat execution identity changed; start a new experiment")
             continue  # Historical experiment identities are not rewritten.
         if (task_fingerprint(selected) != selected["fingerprint"] or
