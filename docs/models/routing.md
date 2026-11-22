@@ -219,6 +219,16 @@ Hugging Face 上的 `BAAI/bge-reranker-v2-m3@953dc6f6f85a1b2dbfca4c34a2796e7dde0
 `CrossEncoder.predict`。上述 MiniLM 通过配置指定 Identity，BGE 的单输出配置使用该库默认的 Sigmoid；
 两者的分数尺度不同。[Sentence Transformers 的激活函数选择](https://github.com/huggingface/sentence-transformers/blob/v5.6.0/sentence_transformers/cross_encoder/model.py#L406-L427) · [BGE 固定版本的作者模型卡](https://huggingface.co/BAAI/bge-reranker-v2-m3/blob/953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e/README.md)
 
+对于完整的原生 CLIP checkpoint（`model_type=clip`、`architectures=["CLIPModel"]`），
+`zero-shot-image-classification` 使用图像与候选标签，沿用现有 CV pipeline。
+当仓库声明此任务时，通用 `AutoModel` 登记不会额外生成 `feature-extraction` 或
+`image-feature-extraction` 工作负载。AC-Prof 的默认 NLP／CV handler 对这两个任务都调用
+Transformers pipeline，分别只传文本或图像，而 `CLIPModel.forward` 需要同时接收
+`input_ids` 和 `pixel_values`，显式选择这些单输入路径会给出原因。
+独立保存的 `CLIPTextModel` 与 `CLIPVisionModel` 可分别使用对应的特征提取任务。
+已声明的自定义 Pipeline、远程 loader 及具备独立输入契约的 adapter 仍按各自契约预检。
+[原生 CLIP 输入](https://github.com/huggingface/transformers/blob/v4.57.6/src/transformers/models/clip/modeling_clip.py#L982-L996) · [文本特征提取](https://github.com/huggingface/transformers/blob/v4.57.6/src/transformers/pipelines/feature_extraction.py#L64-L70) · [图像特征提取](https://github.com/huggingface/transformers/blob/v4.57.6/src/transformers/pipelines/image_feature_extraction.py#L67-L76)
+
 对原生 SuperPoint，Hub 主任务 `keypoint-detection`、配置中的单一检测头（包括旧名 `SuperPointModel`）
 和 `AutoImageProcessor` 共同指明单图关键点协议。此时嵌套的 `AutoModel + feature-extraction`
 保留为 `loader_hint`。此规则要求模型没有自定义 loader 或 Pipeline。具体的不同任务声明仍需显式选择。[固定 revision 的模型卡和调用示例](https://huggingface.co/magic-leap-community/superpoint/blob/734450e9ffe229074f5998494ddc615475cdb20a/README.md)

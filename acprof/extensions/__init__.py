@@ -27,6 +27,26 @@ class UnregisteredLibraryError(UnsupportedExtensionError):
     """The library has no automatic catalog route for this model."""
 
 
+_SINGLE_INPUT_FEATURE_HANDLERS = {
+    "feature-extraction": "acprof.container.handlers.nlp:NLPHandler",
+    "image-feature-extraction": "acprof.container.handlers.cv:CVHandler",
+}
+
+
+def _check_native_pipeline_inputs(task: str, backend: str, declaration: ExtensionDeclaration, config: dict) -> None:
+    # Both family-default backend names use transformers.pipeline for these tasks.
+    # Neither unary pipeline calls CLIP's dedicated get_text_features/get_image_features.
+    if (_SINGLE_INPUT_FEATURE_HANDLERS.get(task) == declaration.handler_entrypoint
+            and backend in {"transformers_pipeline", "transformers_model"} and declaration.adapter == "family-default"
+            and config.get("model_type") == "clip" and config.get("architectures") == ["CLIPModel"]
+            and not config.get("auto_map") and not config.get("custom_pipelines")):
+        raise UnsupportedExtensionError(
+            f"The {task} pipeline supplies only one input modality. CLIPModel.forward requires both "
+            "pixel_values and input_ids. Use zero-shot-image-classification with candidate labels "
+            "or a dedicated single-tower checkpoint or adapter."
+        )
+
+
 @dataclass(frozen=True)
 class Resolution:
     task: str
@@ -153,6 +173,7 @@ class ExtensionCatalog:
                     "Custom multimodal architecture requires a registered runtime/adapter or "
                     "--model-spec declaring its multimodal custom pipeline protocol"
                 )
+        _check_native_pipeline_inputs(task_info.pipeline_tag, task_info.runtime_backend, declaration, config)
         return declaration
 
     def resolve(self, task: str | None = None, family: str | None = None,
@@ -208,6 +229,7 @@ class ExtensionCatalog:
         declaration = self.get_extension(family, backend, models[0].adapter if models else adapter, task)
         if declaration.model_ids and not models:
             raise UnsupportedExtensionError("Model identity does not match its registered runtime/adapter")
+        _check_native_pipeline_inputs(task, backend, declaration, config)
         precision = dict(declaration.precision)
         if not precision and precision_dtype:
             precision = {"cpu": precision_dtype, "gpu": precision_dtype}
