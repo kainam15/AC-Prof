@@ -13,6 +13,7 @@ from acprof.host.images import runtime as runtime_images
 from acprof.host.measurement.config import ClientConfig
 from acprof.monitors import energy_cpu, energy_nvml, resource_readers, resource_usage
 from acprof.results.layout import case_sidecar
+from tests.support.platform_fixtures import native_policy
 
 
 def test_io_counter_reset_is_not_reported_as_zero():
@@ -54,8 +55,6 @@ def test_resource_errors_keep_distinct_gpu_queries_and_other_causes():
 
 @pytest.mark.parametrize("kind", ["gpu", "cpu"])
 def test_full_mode_propagates_energy_monitor_errors_to_csv(tmp_path, request, kind):
-    from tests.support.platform_fixtures import native_policy
-
     native_policy(request)
 
     class BrokenEnergyMonitor:
@@ -106,7 +105,8 @@ def test_full_mode_propagates_energy_monitor_errors_to_csv(tmp_path, request, ki
     assert float(rows[0]["latency_app_s"]) == 0.5
 
 
-def test_ready_failure_materializes_full_error_matrix_without_packet_misdiagnosis(tmp_path):
+def test_ready_failure_materializes_full_error_matrix_without_packet_misdiagnosis(tmp_path, request):
+    native_policy(request)
     task_info = TaskInfo(
         model_id="google-bert/bert-base-uncased", pipeline_tag="fill-mask",
         task_family="nlp", runtime_backend="transformers_pipeline",
