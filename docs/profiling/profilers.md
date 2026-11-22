@@ -138,7 +138,7 @@ runner 的运行环境中显式执行 `--force-reprofile`，不能把旧值重�
 NCU plan 和 checkpoint 的 `flop_counting_version=2` 表示已按双 lane 计算 FP16 指令；
 静态元数据对应记录 `ncu_flop_counting_version`。未标版本或旧版本的派生 plan 不用于补齐新值，
 匹配的 raw CSV 则重新解析并更新 checkpoint，保留原 GPU 身份与采集证据，无需重采。
-默认保留已有成功 CSV 值；`--force-reprofile` 强制重新采集并替换所选 profiler 字段。
+默认保留已有成功 CSV 值。`--force-reprofile` 强制重新采集并替换所选 profiler 字段。NCU 如果确认探测到的物理 GPU UUID 与原实验不符，补采会在计划中保留实际设备、计数和错卡诊断；目标结果层中缺少的指标及派生速率继续留空，已有完整成功行保留原值。历史记录缺少设备 UUID 时保留 `unverified`。
 此默认规则也保留历史公式产生的成功值，不会自动迁移已有实验数据。
 CSV 错误列的[缺失标记](../results/metrics.md#分层结果-csv唯一正式结果)不计为失败：
 指标不完整时显示“尚未采集”或“部分完成”，全部必要指标有效且没有真实错误时保留已有值。
