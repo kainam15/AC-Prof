@@ -16,7 +16,7 @@ from acprof.analysis.changes import metric_change
 from acprof.analysis.comparison import compare_snapshots, load_comparison_snapshot
 from acprof.analysis.conditions import ALLOWED_RESOURCE_DIMENSIONS
 from acprof.analysis.coordinates import COORDINATE_IDENTITY, project_coordinates
-from acprof.analysis.uncertainty import metric_values_and_signature, validate_window_options
+from acprof.analysis.uncertainty import validate_window_options, window_metric_evidence
 from acprof.artifacts import file_sha256
 from acprof.hardware_conditions import conditions_path
 from acprof.quality import QUALITY_FIELDS, combine_quality
@@ -108,6 +108,7 @@ def _record_experiment_fingerprints(
 class _RunMetric:
     summary: dict[str, Any]
     signature: str | None
+    reason: str
 
 
 def _collect_run_case_groups(
@@ -138,7 +139,7 @@ def _collect_run_case_groups(
         inferred_count = sum(is_inferred_result(row) for row in windows)
         resources = project_coordinates({"cpu_cores": case[0], "mem_cap_gb": case[1]})
         for metric in metrics:
-            window_values, signature = metric_values_and_signature(measured, metric)
+            window_values, signature, reason = window_metric_evidence(measured, metric)
             groups[(*comparison_case, metric)] = _RunMetric({
                 "run_id": run_id,
                 "mean": statistics.fmean(window_values) if window_values and complete else None,
@@ -148,8 +149,23 @@ def _collect_run_case_groups(
                 "missing_windows": len(measured) - len(window_values),
                 "inferred_windows": inferred_count,
                 "eligible": complete,
-            }, signature)
+            }, signature, reason)
     return groups
+
+
+def _case_comparison_reason(sides: dict[str, list[_RunMetric]], values: dict[str, list[float]], status: str) -> str:
+    if status != "compatible":
+        return "conditions_" + status
+    reasons = {run.reason for runs in sides.values() for run in runs}
+    for reason in ("incomplete_metric_quality", "mixed_or_missing_metric_contract"):
+        if reason in reasons:
+            return reason
+    if not all(values.values()):
+        return "missing_comparable_runs"
+    signatures = {run.signature for runs in sides.values() for run in runs}
+    if None in signatures:
+        return "missing_measurement"
+    return "different_source_scope_window_or_sampling" if len(signatures) > 1 else ""
 
 
 def _summarize_group_metric(
@@ -179,8 +195,6 @@ def _summarize_group_metric(
         "difference": None, "ratio": None, "percent": None, "performance_ratio": None,
         "difference_ci": None, "ratio_ci": None, "reason": "",
     }
-    signatures = {run.signature for runs in sides.values() for run in runs}
-    result["comparability"] = "not comparable"
     values: dict[str, list[float]] = {}
     for side in ("left", "right"):
         records = [run.summary for run in sides[side]]
@@ -197,14 +211,9 @@ def _summarize_group_metric(
             "inferred_windows": sum(record["inferred_windows"] for record in records),
             "runs": records,
         }
-    if status != "compatible":
-        result["reason"] = "conditions_" + status
-    elif not values["left"] or not values["right"]:
-        result["reason"] = "missing_comparable_runs"
-    elif len(signatures) != 1 or None in signatures:
-        result["reason"] = "not comparable"
-    else:
-        result["comparability"] = "comparable"
+    result["reason"] = _case_comparison_reason(sides, values, status)
+    result["comparability"] = "not comparable" if result["reason"] else "comparable"
+    if not result["reason"]:
         a, b = result["left"]["mean"], result["right"]["mean"]
         changes = metric_change(a, b, direction=METRICS[metric].direction)
         result.update(difference=changes["delta"], ratio=changes["ratio"], percent=changes["percent"],

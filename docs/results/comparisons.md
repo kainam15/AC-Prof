@@ -210,7 +210,9 @@ CSV 状态读取统一忽略首尾空白和大小写，工作负载、硬件证�
 每个配置的指标单独核对读数质量及来源、范围、窗口和采样设置。例如，某个输入尺度的 cgroup
 内存读数已标记为部分观测时，该尺度的差值和区间留空，其他尺度仍使用各自的证据。两侧均有完整运行的
 有效均值，且各运行在该配置使用同一指标口径时，才计算差值。历史读数缺少质量元数据时，仍可按一致的历史口径比较。
-整次运行的指标诊断保留在 `condition_checks`。实验条件不兼容或未知仍会阻断所有配置的比较。
+分组的 `reason` 用 `incomplete_metric_quality` 标记已知不完整的读数，用 `mixed_or_missing_metric_contract`
+标记运行内混合口径，用 `different_source_scope_window_or_sampling` 标记独立运行之间的口径差异。
+任一侧没有可用均值时，缺数原因是 `missing_comparable_runs`。整次运行的指标诊断保留在 `condition_checks`。实验条件不兼容或未知仍会阻断所有配置的比较。
 
 报告 `kind=independent_experiment_comparison`、schema v1，逐项包含有效／请求的实验数、缺失实验、
 失败与缺失窗口、各次均值、标准差、差值／比值及区间；保留完整条件检查和源文件 SHA256。

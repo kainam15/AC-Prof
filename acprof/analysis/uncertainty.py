@@ -95,8 +95,8 @@ def _collect_window_cases(rows, *, cancelled, precision_target):
     return cases, excluded
 
 
-def metric_values_and_signature(ordered, name: str) -> tuple[list[float], str | None]:
-    """Keep descriptive readings and the common contract eligible for comparison."""
+def window_metric_evidence(ordered, name: str) -> tuple[list[float], str | None, str]:
+    """Return usable values, their common signature and any observed contract failure."""
     values = []
     signatures = set()
     incomplete = False
@@ -110,14 +110,15 @@ def metric_values_and_signature(ordered, name: str) -> tuple[list[float], str | 
             signatures.add(observation_signature(observation))
         else:
             incomplete = True
-    if len(signatures) != 1:
-        return [], None
-    return values, None if incomplete else signatures.pop()
+    reason = "incomplete_metric_quality" if incomplete else ""
+    if len(signatures) > 1:
+        return [], None, reason or "mixed_or_missing_metric_contract"
+    return values, next(iter(signatures), None), reason
 
 
 def finite_metric_values(ordered, name: str) -> list[float]:
     """Collect usable readings for a registered metric with one observation contract."""
-    values, _ = metric_values_and_signature(ordered, name)
+    values, _, _ = window_metric_evidence(ordered, name)
     return values
 
 

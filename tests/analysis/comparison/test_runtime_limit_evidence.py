@@ -82,3 +82,14 @@ def test_cross_runtime_latency_requires_exact_observed_quotas(runtime_pair, runt
 def test_inherited_and_nonnumeric_limits_cannot_bind_cross_runtime_metrics(key, cpu, memory):
     allocation = {"verified": True, "method": "docker_cgroup_v2", "observed": {"cpu_quota": cpu, "memory_gib": memory}}
     assert not _verified_limits(allocation, key, "docker")
+
+def test_matching_cross_runtime_latency_stays_descriptive_in_independent_comparison(runtime_pair):
+    from acprof.analysis.independent_comparison import compare_experiments
+
+    fixture, process = runtime_pair
+    report = compare_experiments([fixture.left], [process], metrics=["latency_app_s"], resamples=10)
+    assert report["status"] == "incompatible"
+    assert any(check["metric_comparability"]["latency_app_s"]["status"] == "descriptive"
+               for check in report["condition_checks"])
+    group, = report["groups"]
+    assert (group["comparability"], group["difference"], group["difference_ci"]) == ("not comparable", None, None)
