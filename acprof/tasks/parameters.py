@@ -7,9 +7,9 @@ Nothing in this module loads weights, probes hardware or runs during measurement
 from __future__ import annotations
 
 import copy
-import math
 from typing import Any
 
+from acprof.experiments.constraints import format_input_scale
 from acprof.extensions.parameters import (
     ParameterSpec,
     parameter_spec_to_dict,
@@ -20,6 +20,7 @@ from acprof.extensions.schema import declaration_from_dict
 from acprof.models.configuration import parameter_declaration
 from acprof.tasks.workloads import (
     merge_generation_parameters,
+    parse_task_input_scales,
     task_fingerprint,
     task_label,
     validate_generation,
@@ -132,25 +133,8 @@ def _validated_value(field: dict, value: Any) -> Any:
         if type(value) is not int or value < 1:
             raise ValueError(f"{name} must be a positive integer")
     elif kind == "scales":
-        if not isinstance(value, str):
-            raise ValueError("input_scales must be text")
-        if not value.strip():
-            return ""
-        parts = value.split(",")
-        if len(parts) > 128 or any(not part.strip() for part in parts):
-            raise ValueError("input_scales must be at most 128 comma-separated positive values")
-        try:
-            numbers = [float(part.strip()) for part in parts]
-        except ValueError as exc:
-            raise ValueError("input_scales must contain numbers") from exc
-        if any(not math.isfinite(number) or number <= 0 for number in numbers):
-            raise ValueError("input_scales must contain finite positive values")
-        if field.get("task_family") in {"nlp", "timeseries"} and any(
-            not number.is_integer() for number in numbers
-        ):
-            raise ValueError("this task requires integer input scales")
-        return ",".join(str(int(item)) if item.is_integer() else str(item)
-                        for item in sorted(set(numbers)))
+        numbers = parse_task_input_scales(value, field.get("task_family"))
+        return ",".join(format_input_scale(number) for number in sorted(set(numbers)))
     else:
         raise ValueError(f"unsupported parameter input kind: {kind}")
     return value

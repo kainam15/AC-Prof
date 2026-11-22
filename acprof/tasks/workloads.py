@@ -8,6 +8,7 @@ from __future__ import annotations
 import copy
 import re
 
+from acprof.experiments.constraints import ConstraintViolation, parse_input_scale
 from acprof.models.evidence import content_digest
 
 LANGUAGES = {
@@ -202,6 +203,28 @@ def inference_workload_inputs(batch_size: int, input_scales: str, specification:
     return inputs
 
 
+def parse_task_input_scales(value: object, task_family: str | None) -> list[float]:
+    """Validate task-specific input scales before review or execution."""
+    if not isinstance(value, str):
+        raise ValueError("input_scales must be text")
+    if not value.strip():
+        return []
+    parts = value.split(",")
+    if len(parts) > 128 or any(not part.strip() for part in parts):
+        raise ValueError("input_scales must be at most 128 comma-separated positive values")
+    try:
+        numbers = [parse_input_scale(part.strip()) for part in parts]
+    except ConstraintViolation as error:
+        if error.code == "number":
+            raise ValueError("input_scales must contain numbers") from error
+        if error.code == "precision":
+            raise ValueError(f"input_scales: {error}") from error
+        raise ValueError("input_scales must contain finite positive values") from error
+    if task_family in {"nlp", "timeseries"} and any(not number.is_integer() for number in numbers):
+        raise ValueError("this task requires integer input scales")
+    return numbers
+
+
 def task_experiment_overrides(selected: dict) -> dict:
     """Only batch size and input scales may override the experiment for one task."""
     overrides = selected["config"].get("user_experiment_overrides", {})
@@ -211,8 +234,11 @@ def task_experiment_overrides(selected: dict) -> dict:
         type(overrides["batch_size"]) is not int or overrides["batch_size"] < 1
     ):
         raise ValueError("invalid task batch_size override")
-    if "input_scales" in overrides and not isinstance(overrides["input_scales"], str):
-        raise ValueError("invalid task input_scales override")
+    if "input_scales" in overrides:
+        from acprof.extensions import CATALOG
+        if not isinstance(overrides["input_scales"], str):
+            raise ValueError("invalid task input_scales override")
+        parse_task_input_scales(overrides["input_scales"], CATALOG.task_families.get(selected.get("interface", "")))
     return overrides
 
 

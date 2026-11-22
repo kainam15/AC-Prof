@@ -2,6 +2,7 @@
 import copy
 import io
 import json
+from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
@@ -230,9 +231,58 @@ def test_task_snapshot_cannot_override_runtime_or_result_destination(tmp_path):
         collection.child_config(task)
 
 
+@pytest.mark.parametrize(("scale", "error"), [
+    ("2.0000000000000001", "round-trip"), ("2.5", "integer"), ("2e0, 1", None),
+])
+def test_child_checks_recorded_task_scales_before_writing_its_workload(tmp_path, scale, error):
+    from dataclasses import replace
+
+    from acprof.application.task_runs import TaskCollection
+    from acprof.experiments.configuration import RunConfig
+
+    info = model()
+    task = selected(info)[0]
+    task["config"]["user_experiment_overrides"] = {"input_scales": scale}
+    task["fingerprint"] = task_fingerprint(task)
+    info.selected_tasks = [task]
+    collection = TaskCollection(replace(RunConfig.smoke("fixture/model"), output_dir=str(tmp_path)), info)
+    if error:
+        with pytest.raises(ValueError, match=error):
+            collection.child_config(task)
+        assert not collection.root.exists()
+    else:
+        assert collection.child_config(task).input_scales == scale
+    assert task_fingerprint(task) == task["fingerprint"]
+
+
+def test_review_preserves_the_decimal_coordinate_of_a_large_task_scale():
+    info = model()
+    tasks = selected(info)
+    answers = question_answers(parameter_review(info, tasks))
+    answers["task_0.input_scales"] = "1000000000000000100,2e0, 2.0,1.0000000000000001e18"
+    reviewed = apply_parameter_review(info, tasks, answers)
+    text = reviewed[0]["config"]["user_experiment_overrides"]["input_scales"]
+    assert [Decimal(token) for token in text.split(",")] == [2, 1_000_000_000_000_000_100]
+    assert reviewed[0]["fingerprint"] == task_fingerprint(reviewed[0])
+
+
+@pytest.mark.parametrize(("interface", "integer_only"), [("time-series-forecasting", True), ("audio-classification", False)])
+def test_recorded_fractional_task_scales_follow_the_interface_family(interface, integer_only):
+    from acprof.tasks.workloads import task_experiment_overrides
+
+    task = parse_task(interface, {}, encoder_decoder=False, source="fixture")
+    task["config"]["user_experiment_overrides"] = {"input_scales": "2.5"}
+    if integer_only:
+        with pytest.raises(ValueError, match="integer"):
+            task_experiment_overrides(task)
+    else:
+        assert task_experiment_overrides(task) == {"input_scales": "2.5"}
+
+
 @pytest.mark.parametrize(("scale", "message"), [
     ("1,,2", "comma-separated"), ("nan", "finite"), ("0,16", "positive"),
     ("32.5", "integer"), ("1e999", "finite"), ("1,foo", "numbers"),
+    ("2.0000000000000001", "round-trip"), ("9007199254740993", "round-trip"),
 ])
 def test_invalid_input_scales_fail_before_preparing_a_model(scale, message):
     info = model()
