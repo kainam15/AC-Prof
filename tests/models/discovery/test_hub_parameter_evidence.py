@@ -1,4 +1,6 @@
 """Hub parameter metadata remains descriptive and exact through public task discovery."""
+import hashlib
+import json
 from inspect import Parameter, signature
 from unittest.mock import patch
 
@@ -133,3 +135,72 @@ def test_modelscope_fallback_preserves_local_config_provenance(tmp_path, monkeyp
     assert hub.model_source == "modelscope"
     assert hub.model_metadata_source == "modelscope_hub"
     assert hub.model_license == "mit"
+
+
+@pytest.fixture
+def discover_pinned(tmp_path, monkeypatch):
+    repo, revision = "fixture/weight-metadata", "c" * 40
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+    monkeypatch.setattr("acprof.host.model_store.store.cached_model_info", lambda *args, **kwargs: None)
+
+    def discover(file_config, summary_config, *, source="huggingface", safetensors=None, offline=False):
+        document = {"architectures": ["BertForMaskedLM"], "model_type": "bert", **file_config}
+        content = json.dumps(document).encode()
+        file = MetadataFile(tmp_path / "snapshots" / revision / "config.json", content)
+        summary = ModelInfo(id=repo, sha=revision, pipeline_tag="fill-mask", library_name="transformers",
+                            config=summary_config.copy(), tags=[], siblings=[{"rfilename": "config.json"}],
+                            safetensors=safetensors)
+        endpoint = ("huggingface_hub.HfApi.model_info" if source == "huggingface"
+                    else "acprof.hub.repository.modelscope_info")
+        monkeypatch.setattr("acprof.host.model_store.store.cached_metadata",
+                            lambda model, name, *a, **kw: file if name == "config.json" else None)
+        with model_source_scope(source), patch(endpoint, return_value=summary, side_effect=OSError("offline") if offline else None):
+            task = detect_task(repo, revision=revision)
+        assert summary.config == summary_config
+        assert task.repository_metadata["config.json"] == document
+        assert task.metadata_sources["config.json"]["sha256"] == hashlib.sha256(content).hexdigest()
+        assert task.metadata_sources["config.json"]["revision"] == revision
+        return task
+
+    return discover
+
+
+@pytest.mark.parametrize("source", ["huggingface", "modelscope"])
+@pytest.mark.parametrize(("summary", "file_quant", "offline", "expected"), [
+    (None, "gptq", False, "gptq"),
+    ("awq", "gptq", False, "gptq"),
+    ("awq", None, False, "awq"),
+    (None, None, False, None),
+    (None, "gptq", True, "gptq"),
+])
+def test_quantization_follows_pinned_config(discover_pinned, source, summary, file_quant, offline, expected):
+    def quantization(method):
+        return {"quant_method": method, "bits": 4}
+
+    file_config = {"torch_dtype": "float16"}
+    if file_quant:
+        file_config["quantization_config"] = quantization(file_quant)
+    task = discover_pinned(file_config, {"quantization_config": quantization(summary)} if summary else {},
+                           source=source, offline=offline, safetensors={"parameters": {"F16": 6, "I32": 2}, "total": 8})
+    assert task.quantization_config == (quantization(expected) if expected else {})
+    assert task.quantization_method == expected
+    assert task.quantized is bool(expected)
+    assert task.precision_dtype == "FP16"
+    assert task.model_source == source
+    assert task.model_metadata_source == (None if offline else f"{source}_hub")
+    assert task.parameter_count == (None if offline else 8)
+
+
+@pytest.mark.parametrize(("safetensors", "expected"), [
+    (None, "BF16"),
+    ({"parameters": {"F32": 6}, "total": 6}, "FP32"),
+    ({"parameters": {"F32": 6}, "total": 8}, None),
+])
+@pytest.mark.parametrize(("api_dtype", "file_dtype"), [
+    ({"torch_dtype": "float16"}, {"dtype": "bfloat16"}),
+    ({"dtype": "float16"}, {"torch_dtype": "bfloat16"}),
+    ({}, {"torch_dtype": "float16", "dtype": "bfloat16"}),
+])
+def test_pinned_dtype_alias_and_safetensors_authority(discover_pinned, safetensors, expected, api_dtype, file_dtype):
+    task = discover_pinned(file_dtype, api_dtype, safetensors=safetensors)
+    assert task.precision_dtype == expected
