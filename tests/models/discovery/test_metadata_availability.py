@@ -222,6 +222,7 @@ def test_inspect_keeps_invalid_cached_config_evidence_without_hub_info(tmp_path,
     path.parent.mkdir(parents=True)
     path.write_bytes(content)
     monkeypatch.setenv("ACPROF_MODEL_SOURCE", source)
+    monkeypatch.setattr("huggingface_hub.constants.HF_HUB_OFFLINE", True)
     monkeypatch.setenv("HF_HUB_OFFLINE", "1")
     monkeypatch.setattr("acprof.host.model_store.store.cached_model_info", lambda *a, **kw: None)
     monkeypatch.setattr("acprof.host.model_store.store.cached_metadata",

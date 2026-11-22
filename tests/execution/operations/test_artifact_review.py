@@ -27,6 +27,7 @@ def cached_snapshot(monkeypatch, model, revision, *, task, library, files, confi
         return MetadataFile(Path(name), json.dumps(config).encode())
 
     monkeypatch.setenv("ACPROF_MODEL_SOURCE", "huggingface")
+    monkeypatch.setattr("huggingface_hub.constants.HF_HUB_OFFLINE", True)
     monkeypatch.setenv("HF_HUB_OFFLINE", "1")
     monkeypatch.setattr("acprof.host.model_store.store.cached_model_info", model_info)
     monkeypatch.setattr("acprof.host.model_store.store.cached_metadata", metadata)

@@ -168,6 +168,9 @@ def _offline_repositories(manifest: dict, content: dict):
 
     guard = FrameworkGuard()
     with ExitStack() as stack:
+        # The SDK reads this flag at import time. Resolve it under the caller's
+        # environment so teardown restores its original value even on first use.
+        stack.enter_context(patch("huggingface_hub.constants.HF_HUB_OFFLINE", True))
         stack.enter_context(patch.dict(os.environ, {"HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
                                                     "MODELSCOPE_OFFLINE": "1"}))
         stack.enter_context(patch("acprof.host.model_store.store.cached_model_info", return_value=None))

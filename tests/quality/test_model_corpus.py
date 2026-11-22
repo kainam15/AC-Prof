@@ -271,6 +271,29 @@ def test_expectation_review_does_not_masquerade_as_a_behavior_change(corpus, tmp
     assert after["baseline"]["expectations_sha256"] == before["expectations_sha256"]
 
 
+@pytest.mark.parametrize("offline", [False, True], ids=["online", "offline"])
+def test_fresh_process_restores_hub_offline_mode(offline):
+    script = """
+import os
+from acprof.testing.model_corpus import _offline_repositories
+
+initial = os.environ.get("HF_HUB_OFFLINE")
+for _ in range(2):
+    with _offline_repositories({"models": []}, {}):
+        from huggingface_hub import is_offline_mode
+        assert os.environ["HF_HUB_OFFLINE"] == "1"
+        assert is_offline_mode()
+    assert os.environ.get("HF_HUB_OFFLINE") == initial
+    assert is_offline_mode() == (initial == "1")
+"""
+    env = {k: v for k, v in os.environ.items() if k not in {"HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE"}}
+    if offline:
+        env["HF_HUB_OFFLINE"] = "1"
+    result = subprocess.run([sys.executable, "-c", script], cwd=ROOT, env=env,
+                            capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_fresh_process_replays_without_loading_inference_frameworks(corpus, tmp_path):
     script = """
 import sys
