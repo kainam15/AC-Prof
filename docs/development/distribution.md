@@ -307,7 +307,7 @@ PyPI 发布成功后，`pypi-smoke` 最多尝试 5 次（间隔 15 秒），核�
   `verify-dist` 与 `standalone` 检查，不调用完整复用 CI、同提交硬件矩阵或完整依赖风险审计；
   构建失败/CLI 或 standalone 不可用时不发布。其他无效 `v*` 标签直接拒绝。
   GitHub Release 标记为 `Pre-release`、`--latest=false`，并包含
-  `preview-verification.json` 明确记录未验证范围；PyPI 只上传同次已验证的 wheel / sdist。
+  `preview-verification.json` 记录发行工作流自身的验证范围。带注释 Tag 的说明会加入 GitHub Release 更新日志，可写入实际硬件 Smoke 的结果及未验收范围。PyPI 只上传同次已验证的 wheel / sdist。
 
 `runtime-images.yml` 的 Tag 触发仅允许 `v<major>.<minor>.<patch>` 正式版本；
 预览标签不会自动构建或推送 GHCR 运行时镜像，手动触发仍按该工作流既有规则执行。

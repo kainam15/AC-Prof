@@ -43,6 +43,12 @@ server2 的 RTX 3060 Ti 已通过 Docker GPU 直通实测。由 Textual TUI 启�
 CUDA 冒烟固定 revision `169d4a4341b33bc18d8881c4b69c2e104e1cc0af`，完成接口与推理验证，并覆盖 1 个预热和 3 个正式窗口。
 完整性审计通过；2 个正式窗口有负的 GPU 基线扣除能耗，保留 `warn`。只有 1 个正式窗口为 `ok`，统计推断仍缺少样本。[能耗和结果质量](results/runtime-profile.md)
 
+server2 的 RTX 3060 Ti 已用 `audio_cpp` 完成一次 Textual → Docker GPU 冒烟。固定模型 commit
+`5140b027d3c416e5e3719002f98f09a196e0db6a` 的 Citrinet Q8_0 对 5 秒语音返回非空转写。
+一个正式窗口的 5 次请求平均应用延迟为 67.753 ms，NVML 整卡能耗为 3.509 J/请求。
+扣基线能耗为 −0.355 J/请求，窗口保留 `warn`；结果校验覆盖 1 行、253 个字段。
+CPU、Process、其他模型 family 的真实运行及多窗口重复性仍待验收。[audio.cpp 适配与依赖](models/adaptation.md#audiocpp-多模型-gguf-仓库)
+
 ### 模型识别与冻结推理配置
 
 ModelScope 自动识别依据固定版本的配置与模型声明选择任务和加载库。历史缓存中仓库任务或库标签变化时，BERT 与 Diffusers 路线已有离线对照。静态发现区分固定版本元数据读取失败与文件内容损坏；离线缓存缺少仓库索引时仍保留配置内容及来源，能区分配置结构错误、待选择任务与运行时未支持。静态报告保留固定配置中的权重精度及顶层或解码器量化声明。确认只有 GGUF 或 Core ML 且缺少兼容加载器时，检查会直接给出制品证据。类型化参数协议、CLI / TUI Auto 与手动审阅、预设选择、输入计划 SHA 冻结及恢复身份检查已接入；`static_meta.json.inference_configuration` 保留配置与来源证据。句向量、Whisper、Chronos、VitPose / SuperPoint 单图关键点检测、多模态和 Diffusers 等有定向离线覆盖，**不代表所有新 checkpoint 均可实测运行**。历史实验复用保留模型来源、已解析的仓库 ID 与固定 commit，严格续跑仍核对冻结请求；coverage 的参数预算保留有效但未命名 dtype 的数量。新一轮 GPU 预检失败后可修正配置并重试。Process 负载重放按保存的物理 GPU UUID 复核原设备，已覆盖默认和序号选择。中断续跑仍先核验未提交模型行的原清理状态。上述行为已有离线回归。历史 **41 / 25 / 25 / 4 / 4 / 1** 汇总仍缺原始逐项名单。

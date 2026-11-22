@@ -465,7 +465,17 @@ jobs:
           printf '%s\n' \
             'Preview release for opt-in testing only.' \
             'Distribution and standalone smoke checks passed.' \
-            'Full CI, hardware validation and release-risk audit were NOT run.' > preview-notes.md
+            'This release workflow checks distribution artifacts. Full CI, hardware-matrix validation and the dependency-risk audit run separately.' '' > preview-notes.md
+      - name: 加入经过审阅的带注释 Tag 更新说明
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" > tag-ref.json
+          if [ "$(jq -r .object.type tag-ref.json)" = tag ]; then
+            tag_oid=$(jq -r .object.sha tag-ref.json)
+            gh api "repos/$GITHUB_REPOSITORY/git/tags/$tag_oid" --jq .message >> preview-notes.md
+          fi
       - name: 发布 GitHub Pre-release（不是 Latest）
         env:
           GH_TOKEN: ${{ github.token }}

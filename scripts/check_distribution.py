@@ -100,6 +100,11 @@ destination = Path('docker-context')
 stage_service_context(root, destination)
 files = service_context_files(destination)
 assert (destination / 'acprof/container/server.py').is_file()
+from acprof.models.audiocpp import DEFAULT_ASR, REPOSITORY, gguf_candidate
+candidate = gguf_candidate(REPOSITORY, DEFAULT_ASR)
+assert candidate['selectable'] and candidate['family'] == 'citrinet_asr', candidate
+assert (destination / 'acprof/models/audiocpp_packages.json').is_file()
+assert (destination / 'acprof/container/handlers/audiocpp.py').is_file()
 assert (destination / 'dockerfiles/runtime-final.Dockerfile').is_file()
 assert (destination / 'LICENSE').is_file() and (destination / 'NOTICE').is_file()
 expected = source_fingerprint(root, service_context_files(root), scope='service-context-v1')
@@ -118,13 +123,17 @@ print(json.dumps({'root': str(root), 'files': len(files), 'fingerprint': expecte
         for command in commands:
             help_result = run([command, "--help"])
             assert f"usage: acprof {command}" in help_result.stdout, help_result.stdout
+            if command in {"run", "inspect", "probe"}:
+                assert "--model-file" in help_result.stdout
             assert not re.search(r"\b(?:run|probe|profile|plot|audit|stats|tui)\.py\b", help_result.stdout)
         run(["invalid-command"], accepted=(2,))
         # Simulate a machine without Docker; JSON must still include valid bundled resources.
-        doctor = run(["doctor", "--profiling-mode", "basic", "--json"], accepted=(1,),
+        doctor = run(["doctor", "--runtime", "docker", "--profiling-mode", "basic", "--json"], accepted=(1,),
                      env={**environment, "PATH": ""})
         report = json.loads(doctor.stdout)
         assert not report["ready"], report
+        assert report["runtime_kind"] == "docker", report
+        assert next(item for item in report["checks"] if item["name"] == "docker")["status"] == "unavailable", report
         assert report["scope"] == "prerequisites_only", report
         assert next(item for item in report["checks"] if item["name"] == "resources")["status"] == "available", report
         assert all(path.name in {"config", "docker-context"} for path in workspace.iterdir()), "Help/doctor created result files"
