@@ -1,6 +1,7 @@
 """Runtime controls are usable in a small terminal without host/Docker probes."""
 from dataclasses import replace
 from pathlib import Path
+from subprocess import CompletedProcess
 
 import pytest
 from textual.widgets import Button, Collapsible, Select, Static
@@ -63,10 +64,15 @@ def test_process_preflight_preserves_mode_and_optional_permission_severity(tmp_p
     def which(name):
         assert name != 'docker'
         return '/fixture/uv' if name == 'uv' else None
+
+    def process_probe(command, *, timeout):
+        assert command[0] == '/fixture/uv'
+        assert command[-1] in ('--version', '--help')
+        return CompletedProcess(command, 0, stdout='uv fixture', stderr='')
+
     monkeypatch.setattr('acprof.tui.run.diagnostics.shutil.which', which)
     config = replace(RunConfig.smoke('fixture/model'), runtime='process', cpus='auto', mems='auto', profiling_mode=mode)
-    checks = quick_preflight(config, project_dir=tmp_path,
-                             command_runner=lambda *a, **kw: pytest.fail('Process preflight must not invoke Docker'))
+    checks = quick_preflight(config, project_dir=tmp_path, command_runner=process_probe)
     assert any(check.status == 'fail' for check in checks) == (mode == "full")
     assert config.profiling_mode == mode
     assert all(check.check_id for check in checks)

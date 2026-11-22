@@ -31,7 +31,7 @@ class TestEnvironmentIdentity:
         self.env = ENVIRONMENTS['audio-cpu']
 
     def test_profiles_share_exact_environments_without_merging_near_matches(self):
-        assert (len(PROFILES)) == (41)
+        assert len(PROFILES) == 43
         assert (len({environment_id(p.environment, ROOT) for p in PROFILES.values()})) == (28)
         for variant in ('cpu', 'cu124', 'cu128'):
             assert (PROFILES[f'custom-multimodal-{variant}'].environment) is (ENVIRONMENTS[f'custom-multimodal-{variant}'])

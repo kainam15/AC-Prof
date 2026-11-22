@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
+from acprof.runtime.profiles import PROFILES
 from scripts import compile_locks
 from scripts.compile_locks import check_catalog
 from scripts.compile_system_lock import resolve_in_container, snapshot_url
@@ -66,8 +67,14 @@ def test_check_is_read_only_and_does_not_use_docker_or_resolver():
             "urllib.request.urlopen", side_effect=AssertionError("check accessed network"),
         ):
             result = check_catalog(root)
-        assert (result["profiles"]) == (41)
+        assert result["profiles"] == len(PROFILES)
         assert (len(result["environments"])) == (28)
+        audio_cpp_profiles = {
+            profile: environment["environment_key"]
+            for environment in result["environments"].values()
+            for profile in environment["profiles"] if profile.startswith("audio-cpp-asr")
+        }
+        assert audio_cpp_profiles == {"audio-cpp-asr": "audio-cu128", "audio-cpp-asr-cpu": "audio-cpu"}
         kokoro = next(environment for environment in result["environments"].values()
                       if environment["environment_key"] == "kokoro-cpu")
         assert kokoro["platform_id"] == "cpu"

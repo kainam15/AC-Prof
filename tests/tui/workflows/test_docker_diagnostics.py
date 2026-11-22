@@ -83,7 +83,7 @@ def test_auto_fallback_replaces_old_inventory_with_fresh_docker_diagnosis():
 
 
 def test_auto_fallback_preserves_the_actionable_docker_reason(docker_probe, monkeypatch):
-    monkeypatch.setattr('acprof.tui.run.diagnostics._process_checks', lambda _, *, project_dir: [
+    monkeypatch.setattr('acprof.tui.run.diagnostics._process_checks', lambda _, *, project_dir, command_runner: [
         PreflightCheck('Runtime', 'ok', 'Process', runtime_kind='process', check_id='runtime')])
     run, _ = docker_probe
     row = run(error='Cannot connect to the Docker daemon', runtime='auto')
