@@ -62,3 +62,23 @@ def test_file_eligibility_any_compatible_non_yanked_file():
     result = select_releases({"releases": releases}, "1.0.0", "preview", python="3.12.5")
     assert str(result.latest_stable) == "1.5.0"
     assert str(result.latest_preview) == "2.0.0rc1"
+
+
+def test_binary_only_updates_check_the_published_wheel_identity_and_tags():
+    def wheel(filename, **fields):
+        return {"yanked": False, "packagetype": "bdist_wheel", "filename": filename, **fields}
+
+    releases = {
+        "1.0": [wheel("acprof-1.0-py2.py3-none-any.whl")],
+        "1.1": [wheel("acprof-1.1-py3-none-any.whl", yanked=True), wheel("acprof-1.1-py3-none-acme.whl")],
+        "1.2": [wheel("acprof-1.2-py3-none-any.whl", requires_python=">=99")],
+        "1.3": [wheel("another-1.3-py3-none-any.whl")],
+        "1.4": [wheel("acprof-2.0-py3-none-any.whl")],
+        "1.5": [wheel("malformed.whl"), wheel(None)],
+        "1.6b1": [wheel("acprof-1.6b1-py3-none-any.whl")],
+        "1.7": [{"yanked": False, "packagetype": "sdist", "filename": "acprof-1.7.tar.gz"}],
+    }
+    result = select_releases({"releases": releases}, "0.9", "preview", wheel_only=True)
+    assert result.latest_stable == Version("1.0")
+    assert result.latest == Version("1.6b1")
+    assert select_releases({"releases": releases}, "0.9").latest == Version("1.7")

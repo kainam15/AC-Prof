@@ -36,7 +36,7 @@ CHECK_TIMEOUT = 3.0
 MAX_RESPONSE_BYTES = 1024 * 1024
 
 
-async def check_pypi_version(current: str, channel: Channel = "stable") -> ReleaseVersion:
+async def check_pypi_version(current: str, channel: Channel = "stable", *, wheel_only: bool = False) -> ReleaseVersion:
     """Read published metadata with a total deadline and bounded response size."""
     local = Version(current)
     async with asyncio.timeout(CHECK_TIMEOUT), httpx.AsyncClient(
@@ -50,7 +50,7 @@ async def check_pypi_version(current: str, channel: Channel = "stable") -> Relea
                 body.extend(chunk)
                 if len(body) > MAX_RESPONSE_BYTES:
                     raise ValueError("PyPI response exceeds size limit")
-    return select_releases(json.loads(body), current, channel)
+    return select_releases(json.loads(body), current, channel, wheel_only=wheel_only)
 
 
 class UpdateController:
@@ -119,7 +119,9 @@ class UpdateController:
                     self.status, self.detail = "failed", message_id("updates.ui.interrupted", self.install_state.get("job_dir", ""))
                     self.needs_restart = True
                     return
-                self.release = await check_pypi_version(str(self.current), self.channel)
+                self.release = await check_pypi_version(
+                    str(self.current), self.channel, wheel_only=self.installation.supported,
+                )
                 self.checked_at = datetime.now().astimezone().isoformat(timespec="seconds")
                 self.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
                 service.atomic_json(self.directory / "check.json", {"checked_at": self.checked_at})

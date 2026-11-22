@@ -9,6 +9,7 @@
 Stable 从兼容当前 Python 的正式版中选择最高版本。Preview 从正式版和 Alpha / Beta / RC
 中选择最高版本，因此可以从 Alpha 升级到 Beta、RC，再升级到正式版。
 候选使用 PEP 440 比较，排除 Dev、本地版本、没有可用文件、全部撤回或 Python 不兼容的发布。
+Linux `uv tool` 自动更新使用 `--no-build`，因此候选还需要有适配当前 Python、ABI 和平台的 AC-Prof wheel。仅发布源码包时，手动安装渠道仍可显示该版本。
 最新预览版单独显示，可能低于最新正式版；此时 Preview 渠道仍选择更高的正式版。
 从较高的预览版返回 Stable 会明确要求确认降级，不会在检查更新时自动降级。
 

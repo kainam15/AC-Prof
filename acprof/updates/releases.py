@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from typing import Literal
 
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
+from packaging.tags import Tag, sys_tags
+from packaging.utils import InvalidWheelFilename, parse_wheel_filename
 from packaging.version import InvalidVersion, Version
 
 Channel = Literal["stable", "preview"]
@@ -38,13 +40,25 @@ class ReleaseVersion:
         return self.latest is not None and self.latest > self.current
 
 
+def _compatible_wheel(file: dict, version: Version, supported: frozenset[Tag]) -> bool:
+    filename = file.get("filename")
+    if file.get("packagetype") != "bdist_wheel" or not isinstance(filename, str):
+        return False
+    try:
+        name, wheel_version, _, tags = parse_wheel_filename(filename)
+    except InvalidWheelFilename:
+        return False
+    return name == "acprof" and wheel_version == version and not supported.isdisjoint(tags)
+
+
 def select_releases(data: object, current: str, channel: Channel = "stable", *,
-                    python: str | None = None) -> ReleaseVersion:
+                    python: str | None = None, wheel_only: bool = False) -> ReleaseVersion:
     if channel not in ("stable", "preview"):
         raise ValueError("Unknown update channel")
     if not isinstance(data, dict) or not isinstance(data.get("releases"), dict):
         raise ValueError("PyPI response is missing releases")
     runtime = Version(python or platform.python_version())
+    supported = frozenset(sys_tags()) if wheel_only else None
     stable: list[Version] = []
     preview: list[Version] = []
     for name, files in data["releases"].items():
@@ -57,6 +71,8 @@ def select_releases(data: object, current: str, channel: Channel = "stable", *,
         for file in files:
             # Fail closed for incomplete or malformed file eligibility metadata.
             if not isinstance(file, dict) or file.get("yanked") is not False:
+                continue
+            if supported is not None and not _compatible_wheel(file, version, supported):
                 continue
             requires = file.get("requires_python")
             if requires is not None and not isinstance(requires, str):

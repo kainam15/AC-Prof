@@ -27,7 +27,9 @@ def version_manager(tmp_path, monkeypatch):
 
     async def respond(_transport, request):
         return httpx.Response(200, json={"releases": {
-            "1.0.0": [{"yanked": False}], "1.1.0a1": [{"yanked": False}],
+            "1.0.0": [{"yanked": False, "filename": "acprof-1.0.0-py3-none-any.whl", "packagetype": "bdist_wheel"}],
+            "1.1.0a1": [{"yanked": False, "filename": "acprof-1.1.0a1-py3-none-any.whl", "packagetype": "bdist_wheel"}],
+            "1.2.0": [{"yanked": False, "filename": "acprof-1.2.0.tar.gz", "packagetype": "sdist"}],
         }})
 
     monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", respond)
