@@ -838,6 +838,38 @@ def _detect_from_config(
     return info
 
 
+def _read_external_chat_template(info: TaskInfo, override_tag: str | None) -> None:
+    """Keep optional template diagnostics local to a declared chat workload."""
+    from acprof.models.chat import external_default_template
+    from acprof.models.evidence import pinned_revision
+
+    if info.metadata_errors or override_tag and override_tag != "conversational":
+        return
+    declarations = info.model_config.get("task_specific_params")
+    if not (override_tag == "conversational" or info.pipeline_tag == "conversational"
+            or "conversational" in (info.hub_metadata.get("tags") or [])
+            or isinstance(declarations, dict) and "conversational" in declarations):
+        return
+    if (info.model_spec or info.repository_metadata.get("acprof_model.json")
+            or info.model_config.get("custom_pipelines") or info.model_config.get("auto_map")):
+        return
+    name = external_default_template(info.repository_files)
+    if not name or not pinned_revision(info.model_revision):
+        return
+    try:
+        item = _download_metadata(info.model_id, info.repository_path(name), info.model_revision)
+    except Exception as exc:
+        diagnostic = metadata_read_diagnostic(info.model_id, info.model_revision, name, exc)
+        info.metadata_sources[name] = {"chat_template_error": diagnostic}
+    else:
+        source = info.metadata_sources[name] = _raw_metadata_source(item, info.model_revision)
+        try:
+            source["nonempty_text"] = bool(item.content.decode("utf-8").strip())
+        except UnicodeDecodeError:
+            source["chat_template_error"] = {"reason_code": "metadata_invalid", "file": name,
+                                             "detail": f"The default chat template {name} is not UTF-8."}
+
+
 @hf_endpoint_scope()
 @modelscope_info_scope()
 def detect_task(
@@ -915,6 +947,7 @@ def detect_task(
             candidates=[], runtime_validation="not_run",
         )
     else:
+        _read_external_chat_template(info, override_tag)
         from acprof.models.candidates import apply_model_candidate, discover_model_candidates
         info.model_resolution = apply_model_candidate(info, discover_model_candidates(
             info, override_tag=override_tag, override_backend=override_backend))

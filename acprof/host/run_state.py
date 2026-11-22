@@ -648,7 +648,7 @@ def validate_resume(directory: str | Path, data: object, *, project_dir: str | P
         if not isinstance(task_snapshot, dict):
             raise RunStateError("run_state.json 字段 runtime.task 无效：需要对象")
         try:
-            validate_execution_identity(TaskInfo(**task_snapshot))
+            validate_execution_identity(TaskInfo(**task_snapshot), restoring=True)
         except ValueError as exc:
             raise RunStateError(f"run_state.json 字段 runtime.task.selected_tasks 无效：{exc}") from exc
         verified_plan = _validate_frozen_runtime_evidence(layout, data["runtime"], data["artifacts"])
@@ -1013,7 +1013,7 @@ class RunState:
             raise RunStateError("run_state.json 字段 runtime.task 无效：需要对象")
         task = TaskInfo(**task_snapshot)
         # Reject changed interface identity before touching the saved runtime artifact.
-        validate_execution_identity(task)
+        validate_execution_identity(task, restoring=True)
         verified_plan = _validate_frozen_runtime_evidence(self.layout, snapshot, self.data["artifacts"])
         image_snapshot = snapshot["image"]
         if not isinstance(image_snapshot, dict):

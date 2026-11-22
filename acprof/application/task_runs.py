@@ -106,6 +106,8 @@ class TaskCollection:
                     or selected["fingerprint"] != recorded["fingerprint"]
                     or selected["task_id"] != recorded["task_id"]):
                 raise ValueError("task workload fingerprint changed")
+        from acprof.tasks.interfaces import validate_execution_identity
+        validate_execution_identity(task, restoring=True)
         instance = cls(config, task)
         instance.run_id, instance.manifest = data["run_id"], data
         if instance.path.resolve() != path.resolve():

@@ -6,6 +6,7 @@ from typing import Any
 from acprof.models.spec import (
     FORMAT_BACKENDS,
     custom_code_files,
+    pipeline_route,
     task_model_spec,
     validate_model_spec,
 )
@@ -119,7 +120,8 @@ def resolve_model_interface(task_info: Any) -> dict:
         code_files.update(custom_code_files(item))
     if files and code_files - files:
         raise ValueError(f"custom code is absent from snapshot: {sorted(code_files - files)}")
-    pipeline_name = spec.get("pipeline_task", task_info.pipeline_tag)
+    pipeline_name, native_chat = pipeline_route(task_info.pipeline_tag, backend=backend, adapter=extension.adapter,
+                                               spec=spec, config=config)
     if spec.get("format") == "transformers-pipeline":
         from acprof.models.spec import declared_multimodal_pipeline
         if (task_info.task_family not in {"nlp", "cv", "audio"} and not declared_multimodal_pipeline(task_info)) or task_info.pipeline_tag in {
@@ -139,6 +141,11 @@ def resolve_model_interface(task_info: Any) -> dict:
         from acprof.models.artifact_layout import inspect_artifact_layout
 
         layout = inspect_artifact_layout(task_info, adapter=extension.adapter)
+    chat_evidence = {}
+    if native_chat:
+        from acprof.models.chat import CHAT_INPUT_PROTOCOL, native_chat_template
+        chat_evidence = {"chat_template_source": native_chat_template(task_info, version or ""),
+                         "input_protocol": CHAT_INPUT_PROTOCOL}
     if (extension.handler_options.get("uses_pipeline") and backend not in {"sentence_transformers", "cross_encoder"}
             and pipeline_name not in (config.get("custom_pipelines") or {})
             and version and not supports_pipeline_task(version, pipeline_name)):
@@ -199,6 +206,7 @@ def resolve_model_interface(task_info: Any) -> dict:
             "interface_kind": "custom_pipeline" if pipeline_name in (config.get("custom_pipelines") or {}) else
                               "custom_auto" if config.get("auto_map") else "standard",
             "pipeline_task": pipeline_name if backend == "transformers_pipeline" else None,
+            **chat_evidence,
             "code_revision": task_info.model_revision if code_files else None,
             "code_files": sorted(code_files), "model_spec": spec, "runtime_profile": profile.profile_id,
             "transformers_version": version}

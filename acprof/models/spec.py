@@ -210,20 +210,43 @@ def custom_code_files(config: dict) -> list[str]:
     return sorted(files)
 
 
-def pipeline_task(model_source: str, task: str) -> str:
-    """Bridge an explicitly declared custom pipeline to an existing task protocol."""
+def pipeline_route(task: str, *, backend: str, adapter: str, spec: dict,
+                   config: dict | None = None) -> tuple[str, bool]:
+    """Keep the AC-Prof workload distinct from the upstream pipeline name."""
+    if spec:
+        return spec.get("pipeline_task", task), False
+    if (task == "conversational" and backend == "transformers_pipeline" and adapter == "family-default"
+            and not (config and (config.get("custom_pipelines") or config.get("auto_map")))):
+        return "text-generation", True
+    return task, False
+
+
+def resolve_pipeline_task(model_source: str, task: str, *, backend: str, adapter: str) -> tuple[str, bool]:
+    """Resolve the local declaration first, including a custom pipeline named text-generation."""
     spec = load_model_spec(model_source, task, expected_format="transformers-pipeline")
+    selected, native_chat = pipeline_route(task, backend=backend, adapter=adapter, spec=spec)
     if not spec:
-        return task
+        if native_chat:
+            config_path = Path(model_source) / "config.json"
+            if config_path.is_file():
+                config = json.loads(config_path.read_text(encoding="utf-8"))
+                if not isinstance(config, dict):
+                    raise ValueError("config.json must contain an object")
+                return pipeline_route(task, backend=backend, adapter=adapter, spec=spec, config=config)
+        return selected, native_chat
     root = Path(model_source)
     if not root.is_dir():
         raise ValueError("custom pipeline requires a baked local model snapshot")
     config = json.loads((root / "config.json").read_text())
-    selected = spec["pipeline_task"]
     if selected not in (config.get("custom_pipelines") or {}):
         raise ValueError(f"pipeline_task {selected!r} is not declared in config.custom_pipelines")
     for name in custom_code_files(config):
         # Hub snapshot entries can link to the pinned content-addressed blob store.
         if not (root / name).is_file():
             raise ValueError(f"custom pipeline code is missing from snapshot: {name}")
-    return selected
+    return selected, False
+
+
+def pipeline_task(model_source: str, task: str) -> str:
+    """Resolve an explicitly declared custom pipeline for the existing task protocol."""
+    return resolve_pipeline_task(model_source, task, backend="", adapter="")[0]

@@ -11,7 +11,7 @@ from acprof.models.sentence_modules import (
     read_config_groups,
     sentence_module_name,
 )
-from acprof.models.spec import task_model_spec
+from acprof.models.spec import pipeline_route, task_model_spec
 
 
 def structured_interface(task_info: Any) -> str | None:
@@ -103,6 +103,14 @@ def execution_path(task_info: Any, task: str, *, backend: str = "") -> dict:
             "pipeline": pipeline, "metadata": metadata,
             "handler_options": extension.handler_options}),
     }
+    _, native_chat = pipeline_route(task, backend=resolved.backend, adapter=extension.adapter, spec=spec,
+                                    config=task_info.model_config)
+    if native_chat:
+        from acprof.models.chat import CHAT_INPUT_PROTOCOL, external_default_template
+        path["input_protocol"] = CHAT_INPUT_PROTOCOL
+        template = external_default_template(task_info.repository_files)
+        if template and (source := getattr(task_info, "metadata_sources", {}).get(template, {})).get("sha256"):
+            path["chat_template"] = {"file": template, "sha256": source["sha256"]}
     return path
 
 
@@ -148,14 +156,25 @@ def inference_evidence(task_info: Any, candidates: list[dict], *, component_scop
     return observations
 
 
-def validate_execution_identity(task_info: Any) -> None:
+def validate_execution_identity(task_info: Any, *, restoring: bool = False) -> None:
     """Check new frozen paths before restoring a runtime; legacy records stay readable."""
+    from acprof.models.chat import CHAT_INPUT_PROTOCOL
     from acprof.tasks.groups import inference_signature
     from acprof.tasks.workloads import task_fingerprint
+
+    def native_chat(interface: str, backend: str) -> bool:
+        return pipeline_route(interface, backend=backend, adapter=task_info.model_adapter, spec=task_model_spec(task_info),
+                              config=task_info.model_config)[1]
+
+    if (restoring and not task_info.selected_tasks and native_chat(task_info.pipeline_tag, task_info.runtime_backend)
+            and task_info.model_resolution.get("input_protocol") != CHAT_INPUT_PROTOCOL):
+        raise ValueError("native chat execution identity changed; start a new experiment")
     for selected in task_info.selected_tasks:
         profile = selected.get("execution_profile", {})
         signature = profile.get("signature", {})
         if "execution" not in signature:
+            if (signature or restoring) and native_chat(selected["interface"], signature.get("backend", task_info.runtime_backend)):
+                raise ValueError("native chat execution identity changed; start a new experiment")
             continue  # Historical experiment identities are not rewritten.
         if (task_fingerprint(selected) != selected["fingerprint"] or
                 inference_signature(selected, backend=signature["backend"]) != signature or

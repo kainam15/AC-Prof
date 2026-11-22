@@ -36,6 +36,14 @@ CLI 的 `--tasks` 接受已声明的语义任务 ID、推理组 ID 或 `all`，�
 任务专用长度和语言前缀作为 `semantic_tasks` 原始证据保留；通用 Pipeline 标签只补充证据。
 若用户显式统一 `no_repeat_ngram_size`、`length_penalty` 等有效计算参数，四项声明归为一个混合用途组。
 
+单用户文本对话保留 AC-Prof 的 `conversational` 任务名。原生 `transformers_pipeline` 使用上游的
+`text-generation` pipeline 接收聊天消息。静态预检核对固定 checkpoint 声明的因果语言模型架构、
+锁定版本的 AutoModel 映射和可用于普通用户消息的默认 tokenizer 模板。独立的 `chat_template.jinja`
+或 `chat_templates/*.jinja` 模板组优先于 `tokenizer_config.json`；只有具名的工具模板时，用户消息缺少默认模板。
+静态判定仅确认声明和非空模板。首次实际加载和请求验证才检验模板能否渲染及权重能否推理。
+原生聊天组将单用户消息协议和已读取的外置默认模板 SHA256 纳入执行身份。缺少相应身份的历史聊天记录可查看，
+继续采集需新建实验。普通 `text-generation` 保持纯文本补全。[Transformers 4.57.6 文本生成 pipeline](https://github.com/huggingface/transformers/blob/v4.57.6/src/transformers/pipelines/text_generation.py) · [同版本 tokenizer 模板优先级](https://github.com/huggingface/transformers/blob/v4.57.6/src/transformers/tokenization_utils_base.py)
+
 选择界面仅比较 `execution_profile.signature`，不从原始声明重新推断默认值或计算参数。
 共同参数在顶部显示一次，每组列出真实用途、全部差异和实际代表输入。
 执行组件、完整 IO schema 和指纹保存在实验元数据，界面仅展示推理操作及有助于选择的计算参数。
