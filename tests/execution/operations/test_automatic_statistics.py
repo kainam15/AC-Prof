@@ -143,6 +143,49 @@ def test_freeze_release_error_precedes_run_state_completion(experiment, monkeypa
     assert not reports(experiment)
 
 
+@pytest.mark.parametrize(("error", "outcome"), [(OSError, "failed"), (KeyboardInterrupt, "interrupted")])
+def test_recorded_coverage_keeps_legacy_full_capability_after_final_freeze_fails(
+        experiment, monkeypatch, tmp_path, error, outcome):
+    from acprof.capabilities import measurement_report
+    from acprof.cli.coverage import main
+    from acprof.platform import Environment
+
+    experiment.interrupt_after_first()
+    layout = ArtifactLayout.discover(experiment.directory)
+    # Restore the preparation snapshot a historical full-policy run would have frozen.
+    metadata_path, state_path = layout.path("static_meta.json"), layout.path("run_state.json")
+    metadata, state = json.loads(metadata_path.read_bytes()), json.loads(state_path.read_bytes())
+    frozen = measurement_report("full", gpu_modes=["off"], environment=Environment("native_linux")).to_dict()
+    assert frozen["full_profile_complete"] is False
+    metadata.update(profiling_mode="full", capability_report=frozen)
+    metadata_path.write_text(json.dumps(metadata))
+    state["options"]["profiling_mode"] = "full"
+    state["artifacts"]["static_meta.json"] = file_sha256(metadata_path)
+    state_path.write_text(json.dumps(state))
+
+    def fail_freeze(writer):
+        assert json.loads(writer.layout.path("capability_report.json").read_bytes())["full_profile_complete"] is True
+        raise error("fixture final freeze failure")
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(ResultWriter, "freeze", fail_freeze)
+        with pytest.raises(error, match="fixture final freeze failure"):
+            experiment.invoke("--resume")
+    state = json.loads(state_path.read_bytes())
+    assert state["status"] == state["attempts"][-1]["outcome"] == outcome
+    assert experiment.calls == [2]
+
+    output = tmp_path / "coverage-report"
+    assert main(["report", str(experiment.directory), "--output-dir", str(output)]) == 0
+    recorded, = json.loads((output / "coverage.json").read_bytes())["rows"]
+    with (output / "models.csv").open(newline="") as stream:
+        exported, = csv.DictReader(stream)
+    assert exported["status"] == outcome
+    assert recorded["status"] == recorded["run_status"] == outcome
+    assert recorded["full_profile_complete"] is True
+    assert recorded["runtime_status"] == "ok"
+
+
 def test_completed_state_identifies_its_freeze_when_another_writer_takes_over(experiment, monkeypatch):
     release = ResultWriter.__exit__
     frozen = []

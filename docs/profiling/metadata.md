@@ -257,7 +257,9 @@ quality 数据不进入 capability evidence；普通 warning 不改变 `full_pro
 新写入的 case 能耗质量 evidence 通过 `scope=formal`、`sample_count` 和
 `excluded_warmup_rows` 明确统计范围；warmup 原始记录继续保留。未注明 scope 的历史证据
 保持原样，不推断为仅正式行，也不自动重算。少于两条正式基线不会以零极差报告稳定。
-兼容性报告据此区分 `full_success` 与 `full_success_with_warnings`。
+兼容性报告结合主实验状态、独立探测及质量证据区分 `full_success` 与 `full_success_with_warnings`。
+能力快照可能先于最终结果冻结写出，保留该快照的失败或中断实验仍按实际状态展示。
+完整采集若记录了质量错误或 `quality_status=blocked`，报告显示 `full_success_quality_blocked`，原始质量检查随行保留。字段和示例见[模型兼容性 CLI](../usage/cli-discovery.md)。
 审计和质量消费者只读取不超过 4 MiB 的 UTF-8 JSON 对象，并拒绝 NaN、Infinity 和溢出为无穷值的数字。
 损坏的运行元数据记为 `invalid_metadata` error；损坏的 canonical quality evidence 记为
 `quality_evidence_invalid` warning，同时保持 `quality_status=unknown` 且禁止自动选择。只读检查不重写原始证据。

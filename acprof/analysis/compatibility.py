@@ -82,20 +82,46 @@ def recorded_model_source(metadata: dict, resolution: dict, state: dict) -> str:
     return source if source is not None else "huggingface"
 
 
+def _validate_run_outcome(status: object, outcome: object) -> None:
+    # Historical reports can also record error/cancelled. Import does not require a resumable state.
+    if status not in ("preparing", "running", "complete", "interrupted", "failed", "error", "cancelled"):
+        raise ValueError("missing or invalid run status")
+    if outcome not in (None, "ok", "partial"):
+        raise ValueError("invalid run outcome")
+
+
 def result_status(row):
+    """Combine recorded stages without treating a completed probe as a completed collection."""
     if row.get("failure"):
         return compatibility_status(row["failure"])
-    if row.get("full_profile_complete"):
+    run_status = row.get("run_status")
+    if "run_status" in row or "run_outcome" in row:
+        _validate_run_outcome(run_status, row.get("run_outcome"))
+        if run_status != "complete":
+            return run_status
+        if row.get("run_outcome") == "partial":
+            return "partial"
+    runtime_status = row.get("runtime_status", "unverified")
+    if runtime_status not in ("ok", "unverified", "not_run", "not_requested"):
+        return runtime_status
+    if row.get("full_profile_complete") is True:
+        severities = {check["severity"] for check in (row.get("quality_checks") or [])}
+        if row.get("quality_status") == "blocked" or "error" in severities:
+            return "full_success_quality_blocked"
         if row.get("quality_status") == "unknown":
             return "full_success_quality_unknown"
-        return "full_success_with_warnings" if any(check["severity"] == "warning" for check in row.get("quality_checks", [])) else "full_success"
-    return row.get("runtime_status", "unverified")
+        return "full_success_with_warnings" if "warning" in severities else "full_success"
+    return runtime_status
 
 
-def write_compatibility_report(root: Path, rows: list[dict]):
-    fields = ("model_id", "revision", "status", "stage", "reason_code", "detail", "device",
-              "runtime_profile", "retryability", "evidence", "full_profile_complete", "quality_status", "quality_checks",
-              "quality_reasons", "auto_selection_eligible", "attempt_id", "attempt_path", "configuration_sha256", "source")
+def write_compatibility_report(root: Path, rows: list[dict], *, recorded_results: bool = False):
+    fields: tuple[str, ...] = (
+        "model_id", "revision", "status", "stage", "reason_code", "detail", "device",
+        "runtime_profile", "retryability", "evidence", "full_profile_complete", "quality_status", "quality_checks",
+        "quality_reasons", "auto_selection_eligible", "attempt_id", "attempt_path", "configuration_sha256", "source",
+    )
+    if recorded_results:
+        fields += ("run_status", "run_outcome", "runtime_status")
     stream = io.StringIO(newline="")
     writer = csv.DictWriter(stream, fieldnames=fields)
     writer.writeheader()
@@ -215,7 +241,10 @@ def _read_compatibility_artifact(layout, source: Path, name: str, invalid: list[
     if not path.is_file():
         return {}
     try:
-        return _read_recorded_object(path)
+        record = _read_recorded_object(path)
+        if name == "run_state.json":
+            _validate_run_outcome(record.get("status"), record.get("outcome"))
+        return record
     except (OSError, UnicodeError, ValueError, RecursionError) as error:
         invalid.append(_recorded_evidence_failure(path, error))
         return {}
@@ -242,46 +271,42 @@ def _validated_compatibility_failure(
         return None
 
 
-def _load_compatibility_evidence(layout, source: Path, invalid: list[dict]) -> dict[str, dict]:
-    metadata = _read_compatibility_artifact(layout, source, "static_meta.json", invalid)
-    resolution = _read_compatibility_artifact(layout, source, "model_resolution.json", invalid)
-    capability = _read_compatibility_artifact(layout, source, "capability_report.json", invalid)
-    validation = _read_compatibility_artifact(layout, source, "runtime_validation.json", invalid)
-    failure_report = _read_compatibility_artifact(layout, source, "runtime_failures.json", invalid)
-    interface = _read_compatibility_artifact(layout, source, "interface_validation.json", invalid)
-    state = _read_compatibility_artifact(layout, source, "run_state.json", invalid)
-    invalid_names = {problem["evidence"]["artifact_name"] for problem in invalid}
-    fallbacks = (
-        ("model_resolution.json", resolution, metadata.get("model_resolution")),
-        ("capability_report.json", capability, metadata.get("capability_report")),
-        ("runtime_validation.json", validation, metadata.get("runtime_validation")),
-        ("interface_validation.json", interface, resolution.get("interface_validation")),
-    )
-    resolved = {
-        "model_resolution.json": resolution,
-        "capability_report.json": capability,
-        "runtime_validation.json": validation,
-        "interface_validation.json": interface,
-    }
-    for artifact_name, current, fallback in fallbacks:
-        if not current and artifact_name not in invalid_names and isinstance(fallback, dict):
-            resolved[artifact_name] = fallback
+def _load_compatibility_evidence(layout, source: Path, invalid: list[dict]) -> tuple[dict[str, dict], list[dict]]:
+    def read(name: str) -> dict:
+        return _read_compatibility_artifact(layout, source, name, invalid)
+
+    def read_with_fallback(name: str, parent: dict, parent_name: str) -> tuple[dict, str]:
+        record = read(name)
+        embedded = parent.get(name.removesuffix(".json"))
+        if (not record and isinstance(embedded, dict)
+                and not any(problem["evidence"]["artifact_name"] == name for problem in invalid)):
+            return embedded, parent_name
+        return record, name
+
+    metadata = read("static_meta.json")
+    resolution, resolution_name = read_with_fallback("model_resolution.json", metadata, "static_meta.json")
+    capability, _ = read_with_fallback("capability_report.json", metadata, "static_meta.json")
+    validation, validation_name = read_with_fallback("runtime_validation.json", metadata, "static_meta.json")
+    interface, interface_name = read_with_fallback("interface_validation.json", resolution, resolution_name)
+    state = read("run_state.json")
     preparation = {}
+    stages = [(validation, validation_name), (interface, interface_name)]
     attempts = state.get("attempts")
     if isinstance(attempts, list) and attempts and isinstance(attempts[-1], dict):
         prep_rel = attempts[-1].get("preparation_evidence")
         if isinstance(prep_rel, str) and prep_rel:
-            preparation = _read_compatibility_artifact(layout, source, prep_rel, invalid)
+            preparation = read(prep_rel)
+            stages.append((preparation, prep_rel))
+    stage_errors = []
+    for record, name in stages:
+        if "status" in record and (not isinstance(record["status"], str) or not record["status"].strip()):
+            path = layout.path(name) if name in _DIRECT_EVIDENCE_FILES else layout.contained(name)
+            stage_errors.append(_recorded_evidence_failure(path, ValueError("stage status must be a nonempty string")))
     return {
-        "metadata": metadata,
-        "resolution": resolved["model_resolution.json"],
-        "capability": resolved["capability_report.json"],
-        "validation": resolved["runtime_validation.json"],
-        "failure_report": failure_report,
-        "interface": resolved["interface_validation.json"],
-        "state": state,
-        "preparation": preparation,
-    }
+        "metadata": metadata, "resolution": resolution, "capability": capability,
+        "validation": validation, "failure_report": read("runtime_failures.json"),
+        "interface": interface, "state": state, "preparation": preparation,
+    }, stage_errors
 
 
 def _dict_or_empty(value: object) -> dict:
@@ -371,33 +396,33 @@ def _resolve_compatibility_runtime_status(
     if isinstance(validation_status, str) and validation_status and validation_status != "not_run":
         runtime_status = validation_status
     else:
-        observed_statuses = {interface.get("status"), preparation.get("status"), state.get("status")}
-        if observed_statuses & {"error", "failed"}:
+        observed_statuses = (interface.get("status"), preparation.get("status"), state.get("status"))
+        if "error" in observed_statuses or "failed" in observed_statuses:
             runtime_status = "failed"
         elif "cancelled" in observed_statuses:
             runtime_status = "cancelled"
         else:
             runtime_status = "unverified"
-    extra_row: dict[str, object] = {}
-    if not failures and runtime_status in {"failed", "cancelled"}:
-        prep_exception = preparation.get("exception")
-        prep_exc = prep_exception if isinstance(prep_exception, dict) else {}
-        extra_row = {
-            "stage": preparation.get("last_stage") or interface.get("failed_stage") or "",
-            "reason_code": (
-                preparation.get("reason_code")
-                or ("interface_validation_failed" if interface.get("status") == "error" else "")
-            ),
-            "detail": prep_exc.get("message") or interface.get("error") or "",
-        }
-    return runtime_status, extra_row
+    unsuccessful = ("failed", "error", "interrupted", "cancelled")
+    if failures or (runtime_status not in unsuccessful and state.get("status") not in unsuccessful):
+        return runtime_status, {}
+    prep = preparation if preparation.get("status") in unsuccessful else {}
+    iface = interface if interface.get("status") in ("cancelled", "error") else {}
+    if not prep and not iface:
+        return runtime_status, {}
+    interface_reason = {"error": "interface_validation_failed", "cancelled": "interface_validation_cancelled"}
+    return runtime_status, {
+        "stage": prep.get("last_stage") or iface.get("failed_stage", ""),
+        "reason_code": prep.get("reason_code") or interface_reason.get(iface.get("status", ""), ""),
+        "detail": _dict_or_empty(prep.get("exception")).get("message") or iface.get("error", ""),
+    }
 
 
 def _report_single_source(source: Path, pre_invalid: list[dict]) -> dict:
     from acprof.results.layout import ArtifactLayout
     layout = ArtifactLayout.discover(source)
     invalid = list(pre_invalid)
-    evidence = _load_compatibility_evidence(layout, source, invalid)
+    evidence, stage_errors = _load_compatibility_evidence(layout, source, invalid)
     metadata = evidence["metadata"]
     resolution = evidence["resolution"]
     capability = evidence["capability"]
@@ -412,7 +437,7 @@ def _report_single_source(source: Path, pre_invalid: list[dict]) -> dict:
     meta_model, res_model, meta_rev, res_rev, model_source = _check_identity_consistency(
         layout, metadata, resolution, state, invalid,
     )
-    failures = _collect_compatibility_failures(layout, failure_report, validation, resolution, invalid)
+    failures = _collect_compatibility_failures(layout, failure_report, validation, resolution, [*invalid, *stage_errors])
 
     state_runtime = _dict_or_empty(state.get("runtime"))
     state_task = _dict_or_empty(state_runtime.get("task"))
@@ -435,7 +460,7 @@ def _report_single_source(source: Path, pre_invalid: list[dict]) -> dict:
         validation, interface, preparation, state, failures,
     )
     quality = read_quality(source)
-    return {
+    row = {
         "source": model_source,
         "model_id": model_id,
         "revision": revision,
@@ -448,6 +473,12 @@ def _report_single_source(source: Path, pre_invalid: list[dict]) -> dict:
         "failures": failures,
         "evidence": {"result_directory": str(source.resolve())},
     }
+    if state:
+        row["run_status"] = state["status"]
+        if "outcome" in state:
+            row["run_outcome"] = state["outcome"]
+    row["status"] = result_status(row)
+    return row
 
 
 def report_results(sources: list[Path], output: Path) -> dict:
@@ -460,5 +491,5 @@ def report_results(sources: list[Path], output: Path) -> dict:
     output.mkdir(parents=True, exist_ok=False)
     report = {"schema_version": 1, "scope": "recorded_results; no_reexecution", "rows": rows}
     atomic_write_json(output / "coverage.json", report)
-    write_compatibility_report(output, rows)
+    write_compatibility_report(output, rows, recorded_results=True)
     return report

@@ -14,6 +14,42 @@ from acprof.quality import (
 )
 
 
+def test_recorded_full_report_keeps_quality_errors_visible_in_exports(tmp_path):
+    from acprof.analysis.compatibility import report_results
+
+    source = tmp_path / "run"
+    source.mkdir()
+    check = QualityCheck("invalid_output", "error", 7, 0, "Recorded output failed validation", {}).to_dict()
+    (source / "quality_checks.json").write_text(json.dumps({"schema_version": 1, "checks": [check]}))
+    (source / "capability_report.json").write_text('{"full_profile_complete":true}')
+    (source / "run_state.json").write_text('{"status":"complete","outcome":"ok"}')
+    destination = tmp_path / "report"
+    recorded, = report_results([source], destination)["rows"]
+    with (destination / "models.csv").open(newline="") as stream:
+        exported, = csv.DictReader(stream)
+    assert recorded["full_profile_complete"] is True
+    assert recorded["quality_status"] == exported["quality_status"] == "blocked"
+    assert recorded["status"] == exported["status"] == "full_success_quality_blocked"
+
+
+def test_old_tui_coverage_reads_blocked_quality_with_or_without_a_stored_summary(tmp_path):
+    from acprof.tui.results.reports import read_report
+
+    error = QualityCheck("invalid_output", "error", 7, 0, "Recorded quality error", {}).to_dict()
+    rows = [
+        {"model_id": "fixture/errors", "quality_checks": [error]},
+        {"model_id": "fixture/reinitialized", "quality_status": "blocked",
+         "quality_checks": loading_quality({"missing_keys": ["head"]}, source="loader")},
+        {"model_id": "fixture/historical", "quality_status": "unknown", "quality_checks": None},
+    ]
+    path = tmp_path / "coverage.json"
+    path.write_text(json.dumps({"schema_version": 1, "scope": "recorded_results; no_reexecution",
+                                "rows": [{**row, "full_profile_complete": True} for row in rows]}))
+    assert [row.cells[1] for row in read_report(path).rows] == [
+        "full_success_quality_blocked", "full_success_quality_blocked", "full_success_quality_unknown",
+    ]
+
+
 class TestQualityEvidence:
     @pytest.fixture(autouse=True)
     def _setup(self, request, tmp_path, monkeypatch):

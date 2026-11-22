@@ -194,7 +194,11 @@ run/report 同时输出 `coverage.json`、`models.csv` 和 `REPORT.md`。失败�
 并保留 `metadata/preparation/*.json`、`interface_validation.json` 与 `run_state.json` 记录的准备/接口阶段失败；
 不执行模型，不修改源结果，也不从旧日志猜测缺少的原因。
 准备失败时，即使尚未写出静态元数据或仓库快照，报告也会从 `run_state.json` 的冻结参数读取模型来源。
-Runtime Validation 成功只表示独立推理验证通过；已有采集是否完成由记录的 `full_profile_complete` 决定。
+读取已有结果的 `coverage report` 沿用 schema v1。`coverage.json` 每行的 `status`、`models.csv` 的状态、Markdown 和 TUI 使用同一结论。
+`run_status` 和可选的 `run_outcome` 来自主实验的 `run_state.json`；`runtime_status` 保留已记录的 Runtime Validation 结论。
+例如独立探测为 `ok`、能力快照为 `full_profile_complete=true`，但恢复后的最终冻结失败，报告显示 `failed`，并保留前两项证据。
+主实验仍在准备、运行或已中断时，报告显示对应状态；完成但记录了部分失败窗口时显示 `partial`。
+已记录的 typed failure 继续按原因码优先分类。旧目录没有主实验状态文件时，沿用已有探测、能力及质量证据。
 
 `--max-parameters` 和 `--max-download-bytes` 默认不设置，传入时须为正整数。
 超预算或无法确定所需大小时保存 `resource_limit` 与 `unverified`，不下载权重、不宣称实测 OOM。
@@ -206,7 +210,7 @@ selected artifact size 包括显式模型依赖；参数量不是峰值 RAM/VRAM
 timeout 展示为 `inconclusive`，与 `inference_failed` 分开；详细定义见
 [质量与失败产物](../profiling/metadata.md#质量与失败产物)。
 
-新的 `coverage.json` 使用 schema v2；manifest 仍为 schema v1。`--resume` 核对原始
+新执行的 `coverage run` 使用 schema v2 的 `coverage.json`；manifest 仍为 schema v1。`--resume` 核对原始
 `sample.json` 与传入 manifest 的完整摘要、各模型 source/revision、probe 模式、设备（GPU 使用物理 UUID）、
 资源、预算、有效下载策略与 Hub endpoints、运行环境及主机/源码身份。
 有效下载条件同时记录到 attempt 配置。普通续跑只能沿用原参数，继续没有完成记录的模型，
