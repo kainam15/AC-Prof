@@ -44,6 +44,26 @@ def source_runtime_environment(recorded: Mapping):
                 os.environ[name] = value
 
 
+def _source_gpu_uuid(options: Mapping, runtime_kind: str) -> str:
+    selector = options.get("gpu_device")
+    observed = options.get("process_gpu", {}) if runtime_kind == "process" else {}
+    if not isinstance(observed, Mapping):
+        raise ValueError("source Process GPU observation must be an object")
+    uuid = selector
+    if observed:
+        if observed.get("status") not in (None, "available"):
+            raise ValueError("source Process GPU observation is unavailable")
+        uuid = observed.get("uuid")
+        # CUDA accepts unambiguous UUID prefixes. Keep the complete observation
+        # for the subsequent exact checks against the artifact and live device.
+        if (isinstance(selector, str) and selector.startswith("GPU-")
+                and isinstance(uuid, str) and not uuid.lower().startswith(selector.lower())):
+            raise ValueError("source Process GPU UUID differs from the recorded selector")
+    if not isinstance(uuid, str) or not uuid.startswith("GPU-") or len(uuid) <= 4:
+        raise ValueError("source GPU UUID is missing; refusing index-based replay")
+    return uuid
+
+
 @dataclass(frozen=True)
 class ExecutionConditions:
     gpu_mode: str
@@ -53,15 +73,13 @@ class ExecutionConditions:
     environment: dict
 
     @classmethod
-    def from_options(cls, options: Mapping, *, gpu: str) -> ExecutionConditions:
+    def from_options(cls, options: Mapping, *, gpu: str, runtime_kind: str = "docker") -> ExecutionConditions:
         if gpu not in {"off", "on"} or gpu not in options.get("gpus", "").split(","):
             raise ValueError("source does not include the requested GPU mode")
         environment = options.get("measurement_environment")
         if not isinstance(environment, dict):
             raise ValueError("source measurement_environment is missing")
-        uuid = str(options.get("gpu_device", "")) if gpu == "on" else ""
-        if gpu == "on" and not uuid.startswith("GPU-"):
-            raise ValueError("source GPU UUID is missing; refusing index-based replay")
+        uuid = _source_gpu_uuid(options, runtime_kind) if gpu == "on" else ""
         timeout = float(options["request_timeout_seconds"])
         if not math.isfinite(timeout) or timeout <= 0:
             raise ValueError("source request timeout must be finite and positive")

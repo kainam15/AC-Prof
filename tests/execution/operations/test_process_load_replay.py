@@ -322,3 +322,65 @@ def test_process_replay_owns_real_fixture_service_and_cleans_up(tmp_path, monkey
         for session in sessions:
             if same_process(session.process.identity):
                 cleanup(session)
+
+
+@pytest.mark.parametrize(("selector", "mode"), [
+    (None, "on"), ("1", "on"), ("GPU-source", "on"), ("GPU-a1b2", "on"), (None, "off"),
+])
+def test_load_uses_the_observed_uuid_from_run_options(tmp_path, monkeypatch, selector, mode):
+    from acprof.cli.main import main
+    from acprof.experiments.arguments import build_parser
+    from acprof.host.run_state import run_options
+    from acprof.host.runtimes.gpu import process_gpu_device
+
+    observed_uuid = "GPU-a1b23456-1234-5678-9abc-123456789abc" if selector == "GPU-a1b2" else "GPU-source"
+    visible = "0,1" if selector in {None, "1"} else str(selector)
+    monkeypatch.setenv("ACPROF_GPU_DEVICE", "1")
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", visible)
+    monkeypatch.setattr("acprof.host.runtimes.resources.inherited_resources", lambda: {"fixture": True})
+    cuda_query = Mock(return_value=SimpleNamespace(stdout=json.dumps({"status": "available", "uuid": observed_uuid})))
+    monkeypatch.setattr("acprof.host.runtimes.gpu.run_command", cuda_query)
+    replay = replay_environment(tmp_path, monkeypatch, gpu=mode)
+    flags = ["--gpu-device", selector] if selector else []
+    args = build_parser().parse_args(["--model", "fixture/model", "--runtime", "process", "--gpus", mode, *flags])
+    args.process_gpu = process_gpu_device(args.gpu_device) if mode == "on" else {}
+    replay.state["options"] = run_options(args)
+    replay.state["runtime"]["image"]["runtime_environment"]["gpu_device"] = args.process_gpu
+    monkeypatch.setattr(load_cli, "run_load", Mock(return_value={"successful": True, "success_rate": 1}))
+    assert main(["load", *replay.argv]) == 0
+    report = json.loads((replay.output / "load.json").read_text())
+    assert report["identity"]["conditions"]["gpu_uuid"] == (observed_uuid if mode == "on" else "")
+    assert cuda_query.call_count == (2 if mode == "on" else 0)
+    replay.start.assert_called_once()
+    assert os.environ["CUDA_VISIBLE_DEVICES"] == visible
+
+
+@pytest.mark.parametrize(("selector", "recorded", "message"), [
+    ("GPU-conflict", {"status": "available", "uuid": "GPU-source"}, "UUID differs"),
+    ("1", {}, "source GPU UUID is missing"),
+    (None, {"status": "unavailable", "uuid": "GPU-source"}, "unavailable"),
+    (None, {"status": "available", "uuid": "1"}, "source GPU UUID is missing"),
+])
+def test_load_rejects_conflicting_or_unproven_process_selection(tmp_path, monkeypatch, capsys, selector, recorded, message):
+    from acprof.cli.main import main
+
+    replay = replay_environment(tmp_path, monkeypatch, gpu="on")
+    replay.state["options"].update(gpu_device=selector, process_gpu=recorded)
+    with pytest.raises(SystemExit) as error:
+        main(["load", *replay.argv])
+    assert error.value.code == 2
+    assert message in capsys.readouterr().err
+    assert not replay.output.exists()
+    replay.start.assert_not_called()
+
+
+@pytest.mark.parametrize("binding", [None, "0", []])
+def test_load_rejects_malformed_process_binding_without_querying_docker(tmp_path, monkeypatch, binding):
+    replay = replay_environment(tmp_path, monkeypatch, gpu="on")
+    replay.state["runtime"]["image"]["runtime_environment"]["gpu_device"] = binding
+    pin = Mock(side_effect=AssertionError("Process replay must not query Docker GPU identity"))
+    monkeypatch.setattr("acprof.host.execution_conditions.pin_gpu_device", pin)
+    with pytest.raises(ValueError, match="source Process GPU binding must be an object"):
+        load_cli.main(replay.argv)
+    pin.assert_not_called()
+    replay.start.assert_not_called()

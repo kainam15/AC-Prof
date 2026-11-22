@@ -125,7 +125,8 @@ Docker 核对不可变镜像 ID，Process 核对原环境、模型缓存与代�
 摘要校验和请求解析使用同一次读取的字节。没有可核对的摘要或校验失败时，在创建负载实验目录前报错。
 默认选源矩阵最大 CPU／内存及第一个输入尺度；Process 源中的 `auto` 继续表示继承限制。
 可用 `--cpu`、`--mem`、`--input-scale` 选择源实验已有数值配置，不能把继承限制改成新的配额。
-缺少 GPU UUID、设备不可解析或 CPU affinity 无法满足时明确失败；Process GPU 按记录的 CUDA
+Process 实验可通过默认选择、可见序号或 UUID 选卡。重放读取原实验 `options.process_gpu.uuid` 中实际观测的 UUID；历史实验也可从 `options.gpu_device` 读取已记录的 UUID。
+仅有设备序号、记录的 UUID 冲突、设备不可解析或 CPU affinity 无法满足时明确失败。Process GPU 按记录的 CUDA
 可见设备绑定调用 CUDA driver 探针，并核对实际 UUID，不要求 `nvidia-smi` 完成设备选择。
 当前 shell 的 GPU／线程变量不能覆盖源条件。硬件观测与日志保存到独立输出目录，原实验保持不变。
 

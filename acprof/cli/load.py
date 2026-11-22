@@ -166,15 +166,15 @@ def _run_replay(args: argparse.Namespace, parser: argparse.ArgumentParser, outpu
         options = state["options"]
         if not isinstance(options, dict):
             raise ValueError("source options must be an object")
-        conditions = ExecutionConditions.from_options(options, gpu=args.gpu)
+        snapshot = state["runtime"]
+        runtime = execution_runtime(snapshot.get("kind", "docker"))
+        conditions = ExecutionConditions.from_options(options, gpu=args.gpu, runtime_kind=runtime.kind)
         config = LoadConfig(scenario=args.scenario, connections=args.connections, concurrency=args.concurrency,
                             requests=args.requests, rate=args.rate, arrival=args.arrival, seed=args.seed,
                             max_pending=args.max_pending, timeout_seconds=conditions.request_timeout_seconds).validate()
         config.schedule()  # Reject overflow before input/runtime preparation or output creation.
         if args.warmup < 0:
             raise ValueError("warmup must be nonnegative")
-        snapshot = state["runtime"]
-        runtime = execution_runtime(snapshot.get("kind", "docker"))
         cpu = _replay_resource(options["cpus"], args.cpu, runtime.kind)
         mem = _replay_resource(options["mems"], args.mem, runtime.kind)
         layout = ArtifactLayout.discover(args.source)
@@ -207,6 +207,8 @@ def _run_replay(args: argparse.Namespace, parser: argparse.ArgumentParser, outpu
         with MeasurementLock():
             image = runtime.restore(image_snapshot, output_dir=output)
             process_gpu = image.runtime_environment.get("gpu_device", {}) if runtime.kind == "process" else None
+            if runtime.kind == "process" and conditions.gpu_mode == "on" and not isinstance(process_gpu, dict):
+                raise ValueError("source Process GPU binding must be an object")
             with conditions.activate(process_gpu=process_gpu):
                 session = runtime.start(task_info=task, cpu=cpu, mem=mem, gpu=args.gpu, image_info=image,
                                         container_name="acprof-load", log_prefix="[load]", **conditions.container_options)
