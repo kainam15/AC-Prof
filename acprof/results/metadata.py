@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
 
@@ -13,6 +14,38 @@ from acprof.artifacts import (
 from acprof.cancellation import cancellable, check_cancelled
 from acprof.hardware_conditions import decode_hardware_conditions
 from acprof.results.layout import ArtifactLayout, resolve_result_file
+
+
+def frozen_input_plan_reference(
+    layout: ArtifactLayout, planned: Mapping[str, object], artifacts: Mapping[str, object],
+) -> tuple[str, str | None]:
+    """Reconcile the original plan reference written by RunState.bind_runtime."""
+    name = planned.get("plan_file") or str(layout.path("input_scale_plan.json").relative_to(layout.root))
+    if not isinstance(name, str):
+        raise ValueError("runtime.planned.plan_file must be a relative path")
+    expected = None
+    for value in (planned.get("plan_sha256"), artifacts.get(name)):
+        if value is None or value == "":
+            continue
+        if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
+            raise ValueError("run_state.json contains an invalid input plan SHA256")
+        if expected is not None and expected != value:
+            raise ValueError("runtime.planned.plan_sha256 与输入计划的产物记录不一致 (SHA256)")
+        expected = value
+    return name, expected
+
+
+def result_input_plan_digest(layout: ArtifactLayout, state: Mapping[str, object], static_digest: str | None) -> str | None:
+    """Bind the input plan used for offline analysis to all recorded experiment digests."""
+    runtime = state.get("runtime", {})
+    planned = runtime.get("planned", {}) if isinstance(runtime, Mapping) else {}
+    artifacts = state.get("artifacts", {})
+    if not isinstance(planned, Mapping) or not isinstance(artifacts, Mapping):
+        raise ValueError("run_state.json contains invalid input plan SHA256 evidence")
+    _name, frozen_digest = frozen_input_plan_reference(layout, planned, artifacts)
+    if frozen_digest and static_digest and static_digest != frozen_digest:
+        raise ValueError("input plan SHA256 differs between run_state.json and static_meta.json")
+    return frozen_digest or static_digest
 
 
 def _same_error(previous: object, current: BaseException) -> bool:

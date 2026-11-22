@@ -40,6 +40,7 @@ from acprof.host.profiling.execution_plan import MASSIF_ERROR_FIELD, NSYS_ERROR_
 from acprof.hub.repository import MODEL_SOURCES
 from acprof.installation import resource_root
 from acprof.results.csv import ResultCsvSnapshot
+from acprof.results.metadata import result_input_plan_digest
 from acprof.results.metrics import tool_fields
 
 PROJECT_DIR = resource_root()
@@ -138,6 +139,7 @@ class ResultContext:
     image_tag: str
     resource_cases: list[tuple[int, int, str]]
     scales_by_mode: dict[str, list[float]]
+    input_scale_plan_sha256: str = ""
 
     @property
     def gpu_uuid(self) -> str | None:
@@ -307,7 +309,14 @@ def load_result_context(result_dir: str | os.PathLike[str], *, result_snapshot: 
     except ValueError as exc:
         raise PosthocError(f"invalid collection history: {exc}") from exc
     check_cancelled(cancelled)
-    expected_plan_hash = str(static_meta.get("input_scale_plan_sha256") or "").strip()
+    try:
+        state_path = layout.path("run_state.json")
+        state = load_json_object(state_path, "run_state.json", cancelled=cancelled) if state_path.exists() else {}
+        expected_plan_hash = result_input_plan_digest(
+            layout, state, str(static_meta.get("input_scale_plan_sha256") or "").strip(),
+        )
+    except (OSError, ValueError) as exc:
+        raise PosthocError(str(exc)) from exc
     input_plan = load_json_object(
         input_scale_plan_path, INPUT_SCALE_PLAN_NAME,
         expected_sha256=expected_plan_hash or None,
@@ -379,7 +388,7 @@ def load_result_context(result_dir: str | os.PathLike[str], *, result_snapshot: 
     frozen = static_meta.get("inference_configuration", {})
     selected_tasks = []
     if frozen:
-        if not re.fullmatch(r"[0-9a-f]{64}", expected_plan_hash):
+        if not re.fullmatch(r"[0-9a-f]{64}", expected_plan_hash or ""):
             raise PosthocError("frozen inference configuration requires the recorded input plan SHA256")
         selected = input_plan.get("task_workload")
         if not isinstance(selected, dict) or not selected:
@@ -420,6 +429,7 @@ def load_result_context(result_dir: str | os.PathLike[str], *, result_snapshot: 
         static_meta_path=static_meta_path,
         collection_history_path=collection_history_path,
         input_scale_plan_path=input_scale_plan_path,
+        input_scale_plan_sha256=expected_plan_hash or "",
         fieldnames=fieldnames,
         rows=rows,
         csv_encoding=encoding,

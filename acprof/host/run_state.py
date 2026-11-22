@@ -52,6 +52,7 @@ from acprof.results.measurement_plan import (
     RecordedMeasurementPlan,
     recorded_scales,
 )
+from acprof.results.metadata import frozen_input_plan_reference
 from acprof.source_identity import measurement_sources, source_fingerprint
 from acprof.system.cleanup import cleanup_on_exit, format_exception_notes
 
@@ -331,12 +332,10 @@ def input_plan_reference(
     layout: ArtifactLayout, plan: PlannedSnapshot, artifacts: Mapping[str, str],
 ) -> tuple[str, str | None]:
     """Resolve the plan path and reconcile the digests recorded for this experiment."""
-    name = plan.get("plan_file") or str(layout.path("input_scale_plan.json").relative_to(layout.root))
-    planned = plan.get("plan_sha256")
-    recorded = artifacts.get(name)
-    if planned and recorded and planned != recorded:
-        raise RunStateError("runtime.planned.plan_sha256 与输入计划的产物记录不一致")
-    return name, planned or recorded
+    try:
+        return frozen_input_plan_reference(layout, plan, artifacts)
+    except ValueError as error:
+        raise RunStateError(str(error)) from error
 
 
 def _validate_planned_snapshot(plan: object, layout: ArtifactLayout) -> TypeGuard[PlannedSnapshot]:

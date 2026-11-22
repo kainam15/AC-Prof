@@ -286,7 +286,7 @@ def validate_profiler_runtime(
             ),
             planned=PlannedInputScales(scales=[], source="posthoc_reuse",
                                        plan_file=str(context.input_scale_plan_path),
-                                       plan_sha256=str(context.static_meta.get("input_scale_plan_sha256") or "").strip()),
+                                       plan_sha256=context.input_scale_plan_sha256),
             cpu_list=sorted({case[0] for case in cases}),
             mem_list=sorted({case[1] for case in cases}),
             gpu_list=modes,

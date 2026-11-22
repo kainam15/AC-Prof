@@ -36,7 +36,7 @@ from acprof.results.measurement_plan import (
     decimal_coordinate,
     recorded_scales,
 )
-from acprof.results.metadata import ResultMetadataSnapshot
+from acprof.results.metadata import ResultMetadataSnapshot, result_input_plan_digest
 from acprof.results.metrics import METRICS, NUMERIC_FIELDS
 from acprof.results.profile import metric_observation
 
@@ -365,15 +365,18 @@ def _audit_environment(report, fields, rows, issue, cancelled):
     report["missing_columns"] = [name for name in METRICS if name not in fields]
 
 
-def _audit_input_plan(metadata_reader, metadata, issue, cancelled):
-    expected_hash = metadata.get("input_scale_plan_sha256")
-    if not expected_hash or str(expected_hash).lower() in MISSING_CSV_TEXT:
-        return
+def _audit_input_plan(metadata_reader, metadata, state, issue, cancelled):
+    static_hash = metadata.get("input_scale_plan_sha256")
+    if str(static_hash).lower() in MISSING_CSV_TEXT:
+        static_hash = None
     try:
+        expected_hash = result_input_plan_digest(metadata_reader.layout, state, static_hash)
+        if not expected_hash:
+            return
         plan = (metadata_reader.read("input_scale_plan.json", cancelled=cancelled)
                 if metadata_reader.exists("input_scale_plan.json") else None)
         if plan is None or hashlib.sha256(plan.content).hexdigest() != expected_hash:
-            issue("input_plan_hash", "输入计划与 static_meta.json 中的 SHA256 不一致")
+            issue("input_plan_hash", "输入计划与原实验记录的 SHA256 不一致")
     except (OSError, ValueError) as error:
         issue("input_plan_hash", error)
 
@@ -611,7 +614,7 @@ def audit_with_metadata(source: str | Path, *, result_snapshot: ResultCsvSnapsho
     report["resource_scope"] = "observed_process_tree" if runtime == "process" else "container_cgroup"
     hardware = _process_hardware(layout, runtime, read_json, issue)
     _audit_environment(report, fields, rows, issue, cancelled)
-    _audit_input_plan(metadata_reader, metadata, issue, cancelled)
+    _audit_input_plan(metadata_reader, metadata, state, issue, cancelled)
     _audit_plan_coverage(report, state, rows, issue, cancelled)
     _audit_rows(report, runtime, metadata, hardware, loaded, issue, cancelled)
     _finalize_measurement_status(report)
