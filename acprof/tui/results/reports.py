@@ -339,11 +339,16 @@ def _validated_report_view(source: Path, data: dict) -> ReportView:
         rows = []
         for row in _objects(data.get("rows")):
             failure = row.get("failure") or {}
-            rows.append(ReportRow((row["model_id"], result_status(row), failure.get("reason_code", "")),
-                join_messages("\n", (render_quality_summary(row),
-                    json.dumps({"failure": failure, "quality_checks": row.get("quality_checks", []),
-                        "cleanup_status": row.get("cleanup_status"), "cleanup_errors": row.get("cleanup_errors", []),
-                        "attempt_id": row.get("attempt_id"), "attempts": data.get("attempts", [])}, ensure_ascii=False, indent=2)))))
+            diagnostic = failure or row
+            details = {key: row[key] for key in ("run_status", "run_outcome", "runtime_status", "full_profile_complete")
+                       if key in row}
+            if not failure:
+                details.update({key: row[key] for key in ("stage", "reason_code", "detail") if key in row})
+            details.update(failure=failure, quality_checks=row.get("quality_checks", []),
+                           cleanup_status=row.get("cleanup_status"), cleanup_errors=row.get("cleanup_errors", []),
+                           attempt_id=row.get("attempt_id"), attempts=data.get("attempts", []))
+            rows.append(ReportRow((row["model_id"], result_status(row), _text(diagnostic.get("reason_code"))),
+                join_messages("\n", (render_quality_summary(row), json.dumps(details, ensure_ascii=False, indent=2)))))
         note = message_id('results.compatibility.recorded_results_notice') if data["scope"] == "recorded_results; no_reexecution" else message_id('results.compatibility.sample_scope_notice')
         return ReportView(source, message_id('results.compatibility.title'), ("模型", "状态", "reason_code"), tuple(rows), note)
     raise ValueError(message_id('results.report.unsupported_type'))

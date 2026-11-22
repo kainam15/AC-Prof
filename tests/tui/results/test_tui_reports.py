@@ -20,7 +20,7 @@ from textual.widgets import (
 
 from acprof.experiments.configuration import RunConfig
 from acprof.tui.commands import PendingLaunch
-from acprof.tui.results.reports import ReportView
+from acprof.tui.results.reports import ReportView, read_report
 from acprof.tui.run.progress import ProgressSnapshot
 from acprof.tui.run.results import RunResult
 from acprof.tui.settings.preferences import TuiSettings, save_settings
@@ -49,10 +49,44 @@ class TestTuiReports:
                                      repeat_in_window=1000 if index == 0 else 1,
                                      latency_app_s=latency, latency_s=latency,
                                      container_attributed_energy_eff_j=0.1))
+
+    def test_recorded_coverage_preserves_workflow_and_runtime_evidence(self):
+        source = self.directory / "coverage.json"
+        rows = [
+            {"model_id": "fixture/failed", "run_status": "failed",
+             "runtime_status": "ok", "full_profile_complete": True, "stage": "cleanup",
+             "reason_code": "cleanup_failed", "detail": "fixture cleanup failed"},
+            {"model_id": "fixture/partial", "run_status": "complete", "run_outcome": "partial",
+             "runtime_status": "ok", "full_profile_complete": False},
+            {"model_id": "fixture/historical", "runtime_status": "failed",
+             "reason_code": "interface_validation_failed", "detail": "fixture interface failed"},
+            {"model_id": "fixture/typed", "reason_code": "older_code", "detail": "older detail",
+             "failure": {"stage": "predict", "reason_code": "request_timeout", "detail": "request expired"}},
+        ]
+        source.write_text(json.dumps({"schema_version": 1, "scope": "recorded_results; no_reexecution", "rows": rows}))
+        failed, partial, historical, typed = read_report(source).rows
+        assert failed.cells == ("fixture/failed", "failed", "cleanup_failed")
+        assert '"run_outcome"' not in failed.detail
+        assert partial.cells == ("fixture/partial", "partial", "")
+        assert '"run_outcome": "partial"' in partial.detail
+        for field in ("stage", "detail", "run_status", "runtime_status", "full_profile_complete"):
+            assert f'"{field}": {json.dumps(rows[0][field])}' in failed.detail
+        assert historical.cells == ("fixture/historical", "failed", "interface_validation_failed")
+        assert "fixture interface failed" in historical.detail
+        assert '"run_status"' not in historical.detail
+        assert '"run_outcome"' not in historical.detail
+        assert typed.cells == ("fixture/typed", "inconclusive", "request_timeout")
+        assert "predict" in typed.detail
+        assert "request expired" in typed.detail
+        assert "older_code" not in typed.detail
+        assert "older detail" not in typed.detail
+
     async def test_compatibility_report_preserves_codes_at_narrow_width_in_both_languages(self):
         source = self.directory / "coverage.json"
         source.write_text(json.dumps({"schema_version": 1, "scope": "selected_sample_only; no_formal_measurement",
-            "rows": [{"model_id": "fixture/sam2", "failure": {"reason_code": "compatibility_budget_exhausted", "detail": "budget exhausted"}}]}))
+            "rows": [{"model_id": "fixture/sam2", "failure": {"reason_code": "compatibility_budget_exhausted", "detail": "budget exhausted"}},
+                     {"model_id": "fixture/legacy", "runtime_status": "failed", "reason_code": "interface_validation_failed",
+                      "stage": "environment", "detail": "fixture startup failed"}]}))
         original = source.read_bytes()
         app = self.make_app()
         async with app.run_test(size=(80, 24)) as pilot:
@@ -66,6 +100,10 @@ class TestTuiReports:
                 await pilot.pause()
                 assert (str(next(iter(table.columns.values())).label)) == (title)
                 assert ([str(cell) for cell in table.get_row_at(0)]) == (["fixture/sam2", "inconclusive", "compatibility_budget_exhausted"])
+                assert str(table.get_row_at(1)[2]) == "interface_validation_failed"
+                table.move_cursor(row=1)
+                await pilot.pause()
+                assert "fixture startup failed" in str(app.query_one("#report-detail", Static).content)
                 assert not (app.execution.session.snapshot.measurement_active)
         assert (source.read_bytes()) == (original)
 
