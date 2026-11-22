@@ -3,12 +3,12 @@ import asyncio
 import json
 import os
 import threading
-from dataclasses import asdict, replace
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from textual.widgets import Button, Static
+from textual.widgets import Button, Static, TabbedContent
 from textual.worker import WorkerCancelled
 
 from acprof.experiments.arguments import build_parser
@@ -26,7 +26,7 @@ from acprof.tui.run.stages import Stage
 from acprof.tui.ui.input import BarCursorInput as Input
 from acprof.tui.ui.structured import FactGrid
 from tests.support.tui_actions import open_page
-from tests.support.tui_fixtures import AcprofTui
+from tests.support.tui_fixtures import AcprofTui, write_interrupted_preparation
 from tests.support.tui_waits import wait_for_condition
 
 
@@ -37,13 +37,7 @@ def saved_preparation(tmp_path, monkeypatch, request):
     source, revision = getattr(request, "param", ("huggingface", ""))
     config = replace(RunConfig.smoke("demo/model"), output_dir=str(tmp_path / "results"),
                      model_source=source, revision=revision)
-    command = build_run_command(config, project_dir=Path.cwd())
-    args = build_parser().parse_args(command[command.index("--model"):])
-    for name, value in asdict(RunConfig.from_namespace(args).validate(project_dir=Path.cwd())).items():
-        setattr(args, name, value)
-    directory = config.result_dir(Path.cwd())
-    state = run_state.RunState(directory, run_state.run_options(args), resume=False, project_dir=Path.cwd())
-    state.close("failed")
+    directory = write_interrupted_preparation(config)
     (directory / "logs").mkdir(exist_ok=True)
     (directory / "logs/interface_validation.log").write_text("interrupted preparation\n")
     return config, directory
@@ -166,12 +160,15 @@ async def test_start_existing_experiment_reviews_preparation_retry(saved_prepara
     original = {p: p.read_bytes() for p in directory.rglob("*") if p.is_file()}
     app = AcprofTui(config, settings_path=tmp_path / "settings.json")
     app.configuration.preferences = replace(app.configuration.preferences, language=language)
-    with patch.object(app, 'launch') as launch:
+    with patch.object(app.process, "execute_command") as execute:
         async with app.run_test(size=size) as pilot:
             assert await pilot.click("#start-run")
             await app.workers.wait_for_complete()
             await pilot.pause()
-            launch.assert_not_called()
+            execute.assert_not_called()
+            assert str(app.screen.query_one("#recovery-title", Static).content) == (
+                "恢复 / 重试" if language == "zh" else "Recovery / retry")
+            assert not app.screen.query_one("#recovery-new", Button).disabled
             retry = app.screen.query_one("#recovery-resume", Button)
             assert not retry.disabled
             assert str(retry.label) == ("重试准备" if language == "zh" else "Retry preparation")
@@ -184,12 +181,16 @@ async def test_start_existing_experiment_reviews_preparation_retry(saved_prepara
             assert await pilot.click("#recovery-resume")
             await app.workers.wait_for_complete()
             await pilot.pause()
-            pending = launch.call_args.args[0]
-            assert pending.config.resume
-            assert "--resume" in pending.command
-            assert not pending.config.rebuild_image
-            assert "--rebuild-image" not in pending.command
-            assert pending.config.result_dir(Path.cwd()) == directory
+            execute.assert_called_once()
+            assert app.query_one("#main-tabs", TabbedContent).active == "monitor-tab"
+            restored = execute.call_args.kwargs["config"]
+            command, kind = execute.call_args.args
+            assert kind == "run"
+            assert restored.resume
+            assert "--resume" in command
+            assert not restored.rebuild_image
+            assert "--rebuild-image" not in command
+            assert restored.result_dir(Path.cwd()) == directory
     assert all(path.read_bytes() == content for path, content in original.items())
 
 
@@ -203,26 +204,30 @@ async def test_changed_source_offers_new_experiment_and_keeps_original(saved_pre
     original = {p: p.read_bytes() for p in directory.rglob("*") if p.is_file()}
     monkeypatch.setattr(run_state, "host_identity", lambda _: {"source_sha256": "changed"})
     app = AcprofTui(config, settings_path=tmp_path / "settings.json")
-    with patch.object(app, 'launch') as launch:
+    with patch.object(app.process, "execute_command") as execute:
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.click("#start-run")
             await app.workers.wait_for_complete()
             await pilot.pause()
-            launch.assert_not_called()
+            execute.assert_not_called()
             assert app.screen.query_one("#recovery-resume", Button).disabled
             assert "源码" in str(app.screen.query_one("#recovery-callout .callout-problem", Static).content)
             assert await pilot.click("#recovery-new")
             await app.workers.wait_for_complete()
             await pilot.pause()
-            pending = launch.call_args.args[0]
-            assert not pending.config.resume
-            assert "--resume" not in pending.command
-            args = build_parser().parse_args(pending.command[pending.command.index("--model"):])
+            execute.assert_called_once()
+            assert app.query_one("#main-tabs", TabbedContent).active == "monitor-tab"
+            fresh = execute.call_args.kwargs["config"]
+            command, kind = execute.call_args.args
+            assert kind == "run"
+            assert not fresh.resume
+            assert "--resume" not in command
+            args = build_parser().parse_args(command[command.index("--model"):])
             assert args.model == (resolved_model or config.model)
             assert (args.revision or "") == ("a" * 40 if resolved_model else config.revision)
-            assert pending.config.repeat == config.repeat
-            assert pending.config.output_dir != config.output_dir
-            assert not pending.config.result_dir(Path.cwd()).exists()
+            assert fresh.repeat == config.repeat
+            assert fresh.output_dir != config.output_dir
+            assert not fresh.result_dir(Path.cwd()).exists()
     assert all(path.read_bytes() == content for path, content in original.items())
 
 

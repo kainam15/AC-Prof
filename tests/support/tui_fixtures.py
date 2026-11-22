@@ -5,10 +5,13 @@ This fixture preserves the startup state machine and configuration invalidation.
 """
 
 from contextlib import asynccontextmanager
+from dataclasses import asdict
+from pathlib import Path
 from unittest.mock import patch
 
 from textual.widgets import Checkbox
 
+from acprof.experiments.configuration import RunConfig
 from acprof.tui.app import AcprofTui as ProductionTui
 from acprof.tui.run.diagnostics import PreflightCheck
 from acprof.tui.ui.structured import FactGrid, FactValue
@@ -16,6 +19,23 @@ from tests.support.tui_waits import wait_for_condition
 
 # Keep the reviewed Golden header stable across releases, only in visual fixtures.
 SNAPSHOT_TITLE = "AC-Prof 0.3.0"
+
+
+def write_interrupted_preparation(config: RunConfig) -> Path:
+    """Create a failed preparation through the run-state writer in an isolated fixture."""
+    from acprof.experiments.arguments import build_parser
+    from acprof.experiments.configuration import build_run_command
+    from acprof.host import run_state
+
+    project = Path.cwd()
+    command = build_run_command(config, project_dir=project)
+    args = build_parser().parse_args(command[command.index("--model"):])
+    for name, value in asdict(RunConfig.from_namespace(args).validate(project_dir=project)).items():
+        setattr(args, name, value)
+    directory = config.result_dir(project)
+    state = run_state.RunState(directory, run_state.run_options(args), resume=False, project_dir=project)
+    state.close("failed")
+    return directory
 
 
 def checkbox_text(checkbox: Checkbox) -> str:

@@ -1,11 +1,12 @@
 """One continuous synthetic TUI journey using actual Pilot clicks and UI callbacks.
 
 This module deliberately avoids all real model preparation, downloads, subprocesses,
-GPU sampling or artifact ownership checks. Final success is a labeled fake RunResult.
+or GPU sampling. Production ownership checks read only synthetic fixture artifacts.
 """
 
 from __future__ import annotations
 
+import asyncio
 import io
 from dataclasses import replace
 from pathlib import Path
@@ -15,15 +16,52 @@ from rich.console import Console
 from textual.widgets import Button, Input, Static, TabbedContent
 
 from acprof.events.download import DownloadProgress
-from acprof.experiments.configuration import RunConfig
-from acprof.tui.run.progress import ProgressSnapshot
+from acprof.events.preparation import encode_event, parse_event
+from acprof.experiments.configuration import RunConfig, build_run_command
+from acprof.tui.commands import PendingLaunch
+from acprof.tui.run.progress import ProgressSnapshot, RunProgressTracker
 from acprof.tui.run.recovery_controller import RecoveryScreen
-from acprof.tui.run.results import RunResult
+from acprof.tui.run.results import RunArtifacts
 from acprof.tui.run.stages import Stage
 from acprof.tui.ui.progress_widgets import DownloadProgressPanel
 from acprof.tui.ui.structured import FactGrid
 from scripts.tui_pilot_font import use_cjk_svg_font
-from tests.support.tui_fixtures import AcprofTui
+from tests.support.tui_fixtures import AcprofTui, fact_rows, write_interrupted_preparation
+from tests.support.tui_run_artifacts import publish_synthetic_window
+
+
+async def finish_attempt(app, pilot, *, pid: int, published_pid: int,
+                         metrics_complete: bool, expected: Stage) -> Path:
+    """Drive the worker's post-exit attribution and the visible monitor from fixture files."""
+    session = app.execution.session
+    run_dir = session.config.result_dir(app.project_dir)
+    before = RunArtifacts.read(run_dir)
+    previous_selection = app.query_one("#experiment-source", Input).value
+    verifying = replace(session.snapshot, stage=Stage.VERIFYING_ARTIFACT, measurement_active=False)
+    app.consume_process_line("", verifying, True)
+    await pilot.pause()
+    stage = app.query_one("#status-stage", Static)
+    assert app.tr(Stage.VERIFYING_ARTIFACT.label) in str(stage.content)
+    source = publish_synthetic_window(
+        run_dir, model=session.config.model, pid=published_pid, metrics_complete=metrics_complete,
+    )
+    app.execution.lifecycle.process = None
+    await asyncio.to_thread(app.process.inspect_finished_run, before, pid, session.token)
+    app.process_finished("run", 0, verifying, "")
+    await app.workers.wait_for_complete()
+    await pilot.pause()
+    attributed = expected is not Stage.FAILED
+    assert session.result.belongs_to_attempt is attributed
+    assert session.result.result_csv == (str(source) if attributed else "")
+    assert session.result.completed_cases == int(attributed)
+    assert app.query_one("#experiment-source", Input).value == (
+        str(source.parent) if attributed else previous_selection
+    )
+    assert session.snapshot.stage is expected
+    assert app.tr(expected.label) in str(stage.content)
+    assert app.query_one("#stop-run", Button).disabled
+    assert app.query_one("#main-tabs", TabbedContent).active == "monitor-tab"
+    return source
 
 
 async def exercise_journey(
@@ -36,23 +74,12 @@ async def exercise_journey(
     """Exercise recovery -> monitor -> confirmation -> download -> measurement -> result.
 
     Snapshot metadata records *observable* UI state, not synthetic assertions of
-    real collection or a process-completion verification. Test-only SVGs are
+    real collection. Synthetic artifacts go through the normal result inspection. Test-only SVGs are
     review evidence and not long-lived golden baselines.
     """
     workspace.mkdir(parents=True, exist_ok=True)
     old_dir = workspace / "previous-experiment"
     config = replace(RunConfig.smoke("fixture/model"), output_dir=str(old_dir))
-    destination = config.result_dir(Path.cwd())
-    destination.mkdir(parents=True)
-    (destination / "non-run-marker.txt").write_text(
-        "synthetic existing destination\n", encoding="utf-8"
-    )
-    result_csv = workspace / "fixture-result.csv"
-    result_csv.write_text(
-        "cpu_cores,mem_cap_gb,gpu_mode,input_scale,warmup,repeat_idx,status,latency_app_s,latency_s\n"
-        "1,4,off,64,0,0,ok,0.02,0.03\n",
-        encoding="utf-8",
-    )
     app = AcprofTui(config, settings_path=workspace / "settings.json")
     app.configuration.preferences = replace(
         app.configuration.preferences,
@@ -62,7 +89,13 @@ async def exercise_journey(
     )
     records: list[dict] = []
 
-    with patch.object(app.process, "execute_command") as execute:
+    with (
+        patch("acprof.host.run_state.host_identity", return_value={"source_sha256": "synthetic"}),
+        patch.object(app.process, "execute_command") as execute,
+    ):
+        destination = write_interrupted_preparation(config)
+        old_state = destination / ".acprof/run_state.json"
+        saved_state = old_state.read_bytes()
         async with app.run_test(size=size) as pilot:
             await pilot.pause()
             tabs = app.query_one("#main-tabs", TabbedContent)
@@ -140,6 +173,11 @@ async def exercise_journey(
             await pilot.pause()
             assert isinstance(app.screen, RecoveryScreen)
             assert tabs.active == "run-tab"  # Recovery is a modal, not a tab.
+            execute.assert_not_called()
+            retry = app.screen.query_one("#recovery-resume", Button)
+            assert not retry.disabled
+            assert str(retry.label) == ("重试准备" if language == "zh" else "Retry preparation")
+            assert not app.screen.query_one("#recovery-new", Button).disabled
             await record(
                 "launch-review",
                 "clicked Start with an existing destination",
@@ -152,6 +190,10 @@ async def exercise_journey(
             assert tabs.active == "monitor-tab"
             assert app.execution.session.kind == "run"
             execute.assert_called_once()  # No actual subprocess was started.
+            fresh = execute.call_args.kwargs["config"]
+            assert not fresh.resume
+            assert fresh.result_dir(Path.cwd()) != destination
+            assert old_state.read_bytes() == saved_state
             await record("monitor-started", "chose New Experiment; monitor opened")
 
             fake_process = Mock(pid=12345, stdin=io.StringIO())
@@ -226,7 +268,46 @@ async def exercise_journey(
             assert tabs.active == "monitor-tab"
             await record("download-progress", "confirmed download; synthetic progress event")
 
-            app.preflight.preparation_event({"stage": "runtime", "status": "passed"})
+            # Deliver the same tracker update and UI callback as a preparation event from stdout.
+            tracker = RunProgressTracker()
+            tracker.feed(encode_event("resolution", "passed"))
+
+            def runtime_event(status, **fields):
+                line = encode_event("runtime", status, **fields)
+                app.consume_process_line("", tracker.feed(line), True)
+                app.preflight.preparation_event(parse_event(line))
+
+            runtime_event("running")
+            await pilot.pause()
+            assert not app.query_one("#download-progress", DownloadProgressPanel).display
+            checks = app.query_one("#status-preparation", FactGrid)
+            assert checks.display
+            runtime_label = app.tr(Stage.RUNTIME_VALIDATION.label)
+            running = "进行中" if language == "zh" else "Running"
+            assert any(label == runtime_label and running in value for label, value in fact_rows(checks))
+            extended = language == "zh" and size == (120, 36)
+            if extended:
+                await record("validation-running", "runtime check started; download panel cleared")
+                error = "Synthetic runtime error: missing fixture weights"
+                runtime_event("failed", request={"id": 2, "kind": "error", "detail": error})
+                await pilot.pause()
+                assert error in app.screen.query_one("#preparation-traceback").text
+                assert app.execution.session.snapshot.runtime_status == "failed"
+                assert not app.query_one("#download-progress").display
+                await record("validation-failed", "runtime error displayed; retry available",
+                             screen="PreparationScreen")
+                assert await pilot.click("#preparation-continue")
+                await pilot.pause()
+                assert '"action": "retry"' in fake_process.stdin.getvalue()
+                runtime_event("running")
+            runtime_event("passed")
+            await pilot.pause()
+            passed = "通过" if language == "zh" else "Passed"
+            assert any(label == runtime_label and passed in value for label, value in fact_rows(checks))
+            assert not app.query_one("#download-progress").display
+            if extended:
+                await record("validation-passed", "retry passed in the same simulated subprocess")
+
             measuring = ProgressSnapshot(
                 stage=Stage.MEASURING,
                 detail="Synthetic measurement; no real samples",
@@ -259,35 +340,16 @@ async def exercise_journey(
             assert tabs.active == "monitor-tab"
             assert app.execution.session.snapshot.measurement_active
 
-            # A test-only, explicitly identified result: never claim the fake CSV
-            # passed the production provenance/audit pipeline.
-            app.execution.lifecycle.process = None
-            app.execution.session.result = RunResult(
-                belongs_to_attempt=True,
-                complete=True,
-                result_csv=str(result_csv),
-                completed_cases=1,
-                total_cases=1,
-                new_cases=1,
-                retained_dir=str(workspace),
+            result_csv = await finish_attempt(
+                app, pilot, pid=fake_process.pid, published_pid=fake_process.pid,
+                metrics_complete=True, expected=Stage.COMPLETED,
             )
-            app.process_finished(
-                "run",
-                0,
-                replace(measuring, stage=Stage.VERIFYING_ARTIFACT, measurement_active=False),
-                "",
-            )
-            await app.workers.wait_for_complete()
-            await pilot.pause()
-            assert app.execution.session.snapshot.stage is Stage.COMPLETED
-            assert app.query_one("#stop-run", Button).disabled
-            assert tabs.active == "monitor-tab"  # No automatic results switch.
-            await record("finished", "synthetic verified completion, remained in monitor")
+            await record("finished", "matching synthetic attempt, window and capability evidence")
             assert await pilot.click("#nav-results-tab")
             await app.workers.wait_for_complete()
             await pilot.pause()
             assert tabs.active == "results-tab"
-            assert app.query_one("#experiment-source", Input).value == str(result_csv)
+            assert app.query_one("#experiment-source", Input).value == str(result_csv.parent)
             data_status = str(app.query_one("#result-data-status", Static).content)
             assert ("有效正式窗口：1" if language == "zh" else "Valid formal windows: 1") in data_status, (
                 "Unexpected data status after Pilot selection: " + repr(data_status)
@@ -300,6 +362,24 @@ async def exercise_journey(
                 assert action.region.width > 0
                 assert action.region.bottom <= 24
                 await record("results-small", "resized results page to 80x24")
-            # Read-only measurement semantics: no collection process was ever spawned.
             execute.assert_called_once()
+            if extended:
+                await pilot.resize_terminal(*size)
+                for step, expected, published_pid, metrics_complete, action in (
+                    ("finish-partial", Stage.PARTIAL, fake_process.pid, False,
+                     "new synthetic attempt; persisted capability report marks requested metrics incomplete"),
+                    ("finish-failed", Stage.FAILED, fake_process.pid + 1, True,
+                     "new synthetic attempt; existing results belong to a different process"),
+                ):
+                    next_config = replace(config, output_dir=str(workspace / step))
+                    command = build_run_command(next_config, project_dir=app.project_dir)
+                    app.launch(PendingLaunch(tuple(command), "run", next_config))
+                    await pilot.pause()
+                    assert await pilot.click("#clear-log")
+                    await finish_attempt(
+                        app, pilot, pid=fake_process.pid, published_pid=published_pid,
+                        metrics_complete=metrics_complete, expected=expected,
+                    )
+                    await record(step, action)
+                assert execute.call_count == 3
     return records
