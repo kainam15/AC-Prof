@@ -81,7 +81,8 @@ def permission_signature(project_dir: Path) -> tuple:
         paranoid = Path("/proc/sys/kernel/perf_event_paranoid").read_text().strip()
     except OSError as exc:
         paranoid = str(exc.errno)
-    return (os.environ.get("CUDA_VISIBLE_DEVICES"), os.environ.get("ACPROF_GPU_DEVICE"), paranoid, tuple(entries))
+    return (os.environ.get("CUDA_VISIBLE_DEVICES"), os.environ.get("ACPROF_GPU_DEVICE"),
+            os.environ.get("DEVICE_INDEX"), os.environ.get("NVIDIA_VISIBLE_DEVICES"), paranoid, tuple(entries))
 
 
 def collection_preview(config: RunConfig):
@@ -149,7 +150,7 @@ def quick_preflight(
     )
 
     if config.runtime == "process":
-        return checks + _process_checks(config)
+        return checks + _process_checks(config, project_dir=project_dir)
 
     cgroup_v2 = Path("/sys/fs/cgroup/cgroup.controllers").is_file()
     checks.append(
@@ -170,7 +171,7 @@ def quick_preflight(
         reasons = "; ".join(str(check.detail) for check in checks[1:] if check.status == "fail")
         checks = checks[:1] + [replace(checks[-1], status='warn' if docker.code != 'ready' else 'ok'),
                               PreflightCheck("Runtime auto → Process", "ok", reasons, check_id="runtime_auto")]
-        return checks + _process_checks(config)
+        return checks + _process_checks(config, project_dir=project_dir)
     checks.append(PreflightCheck("Runtime", "ok", "Docker", runtime_kind="docker", check_id="runtime"))
 
     if config.profiling_mode == "best_effort":
@@ -279,7 +280,13 @@ def quick_preflight(
     return checks
 
 
-def _process_checks(config):
+def _project_probe_environment(project_dir) -> dict[str, str]:
+    env = os.environ.copy()
+    load_project_env(project_dir or Path.cwd(), environ=env)
+    return env
+
+
+def _process_checks(config, *, project_dir=None):
     from dataclasses import replace
 
     from acprof.application.resources import resource_matrix
@@ -313,13 +320,14 @@ def _process_checks(config):
     from acprof.host.runtimes.capabilities import probe_collection_plan
     from acprof.host.runtimes.gpu import process_gpu_device
     if config.profiling_mode == "best_effort":
-        checks.extend(_automatic_checks(config, "process", process_gpu_device))
+        checks.extend(_automatic_checks(config, "process", process_gpu_device, project_dir=project_dir))
         uv = shutil.which("uv")
         checks.append(PreflightCheck("uv", "ok" if uv else "fail", uv or "Process environment preparation requires uv",
                                      check_id="uv", reason_code="" if uv else "not_installed"))
         return checks
-    gpu = process_gpu_device(config.to_namespace().gpu_device) if "on" in config.gpus.split(",") else {}
-    plan = probe_collection_plan("process", gpu=gpu, profiling_mode=config.profiling_mode)
+    probe_env = _project_probe_environment(project_dir)
+    gpu = process_gpu_device(config.to_namespace().gpu_device, environ=probe_env) if "on" in config.gpus.split(",") else {}
+    plan = probe_collection_plan("process", gpu=gpu, profiling_mode=config.profiling_mode, env=probe_env)
     for name, item in plan["probes"].items():
         required = config.profiling_mode == "full" and name in {
             "cpu_energy", "cpu_instructions", "packet_latency", "process_cpu", "process_memory"}
@@ -337,9 +345,11 @@ def _automatic_checks(config, runtime, resolve_device, *, project_dir=None):
 
     checks = []
     gpu = {}
+    probe_env = _project_probe_environment(project_dir)
     if "on" in config.gpus.split(","):
         try:
-            gpu = resolve_device(config.extra_options.get("gpu_device"))
+            selector = config.extra_options.get("gpu_device")
+            gpu = resolve_device(selector, environ=probe_env) if runtime == "process" else resolve_device(selector)
             if not gpu.get("uuid"):
                 raise RuntimeError(gpu.get("error") or "CUDA device identity unavailable")
         except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as exc:
@@ -347,8 +357,6 @@ def _automatic_checks(config, runtime, resolve_device, *, project_dir=None):
             checks.append(PreflightCheck("GPU device", "fail", str(exc), check_id="gpu_device"))
         else:
             checks.append(PreflightCheck("GPU device", "ok", gpu["uuid"], check_id="gpu_device"))
-    probe_env = os.environ.copy()
-    load_project_env(project_dir or Path.cwd(), environ=probe_env)
     dram = config.extra_options.get("dram_energy", "auto")
     plan = probe_collection_plan(runtime, gpu=gpu, sniff_iface=config.sniff_iface, dram_energy=dram, env=probe_env,
                                  service_cgroup=config.cpus != "auto" or config.mems != "auto")

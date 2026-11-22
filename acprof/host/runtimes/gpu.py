@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+from collections.abc import Mapping
 
 from acprof.system.command import run_command
 
@@ -30,10 +31,11 @@ except Exception as exc:
 '''
 
 
-def process_gpu_device(requested=None) -> dict:
+def process_gpu_device(requested=None, *, environ: Mapping[str, str] | None = None) -> dict:
+    environment = os.environ if environ is None else environ
     if requested is None:
-        requested = os.environ.get("ACPROF_GPU_DEVICE") or os.environ.get("DEVICE_INDEX")
-    original = os.environ.get("CUDA_VISIBLE_DEVICES")
+        requested = environment.get("ACPROF_GPU_DEVICE") or environment.get("DEVICE_INDEX")
+    original = environment.get("CUDA_VISIBLE_DEVICES")
     visible = [v.strip() for v in original.split(",")] if original is not None else None
     if requested is None:
         selected = visible[0] if visible else "0"
@@ -48,7 +50,7 @@ def process_gpu_device(requested=None) -> dict:
             raise ValueError("explicit GPU UUID is outside CUDA_VISIBLE_DEVICES")
     if not selected or selected == "-1":
         raise ValueError("GPU requested but CUDA_VISIBLE_DEVICES hides every device")
-    env = {**os.environ, "CUDA_VISIBLE_DEVICES": selected}
+    env = {**environment, "CUDA_VISIBLE_DEVICES": selected}
     try:
         result = run_command([sys.executable, "-I", "-c", _CUDA_PROBE], env=env,
                                 capture_output=True, text=True, timeout=15, check=True)
@@ -57,6 +59,6 @@ def process_gpu_device(requested=None) -> dict:
         observed = {"status": "unavailable", "error": str(exc)}
     return {"index": 0, "uuid": "", "name": "unknown", "memory_total_bytes": None,
             **observed, "cuda_visible_devices": selected, "original_cuda_visible_devices": original,
-            "nvidia_visible_devices": os.environ.get("NVIDIA_VISIBLE_DEVICES"),
+            "nvidia_visible_devices": environment.get("NVIDIA_VISIBLE_DEVICES"),
             "identity_source": "cuda_driver_visible_ordinal", "sharing": "unknown",
             "telemetry_scope": "device"}

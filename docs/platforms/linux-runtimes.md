@@ -100,6 +100,8 @@ acprof load results/process-smoke --gpu off --requests 5 --warmup 1 \
 `gpu_device_uuid` 仍表示选定设备的身份：Docker 使用现有 device request 选择，Process 使用 CUDA 可见序号解析，
 具体来源保存在 `gpu_device` 元数据中；共享字段的登记来源为 `selected_device_identity`，数值与归属范围没有替换。
 
+Process 的 TUI 预检和 CLI 运行都按同一项目环境选择 GPU。显式 `--gpu-device` 优先，其次是 `ACPROF_GPU_DEVICE` 和 `DEVICE_INDEX`。每个环境变量优先使用继承的 shell 值，其次是项目的 `.env.local` 与 `.env`。预检按此环境中的 `CUDA_VISIBLE_DEVICES` 解析可见序号并显示 UUID。
+
 数值矩阵从当前进程的 cgroup 往上查找，优先使用能把本次所需 controller 分给实验子组的最近委派目录。
 例如 systemd 的 `DelegateSubgroup=controller` 把服务进程放在叶组内时，CLI 和 TUI 可在同一
 service 的委派根创建实验子组。自动查找止于当前 service / scope 或可见挂载边界，跳过 systemd
