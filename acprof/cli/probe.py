@@ -183,6 +183,7 @@ def _run_probe(
         override_family=args.task_family,
         override_backend=args.backend,
         model_spec_path=args.model_spec,
+        **({"model_variant": args.model_variant} if getattr(args, "model_variant", "") else {}),
     )
     review = bool(args.inference_config or args.confirm_inference)
     batch_size, input_scales = args.batch_size, args.input_scales

@@ -141,13 +141,13 @@ class _CandidateDiscovery:
 
     def _mixed_transformers_backend(self, task: str) -> str | None:
         """An export beside a complete native model can use an independently verified native route."""
-        from acprof.models.artifact_layout import has_coreml_artifacts
+        from acprof.models.artifact_layout import has_export_artifacts
         from acprof.models.resolution import resolve_model_interface
 
         config = self.metadata.get("config.json") or {}
         if (not isinstance(config, dict) or not config.get("model_type") or "config.json" not in self.files
                 or config["model_type"] != self.config.get("model_type")
-                or config.get("auto_map") or config.get("custom_pipelines") or not has_coreml_artifacts(self.files)):
+                or config.get("auto_map") or config.get("custom_pipelines") or not has_export_artifacts(self.files)):
             return None
         context = copy.copy(self.task_info)
         context.model_resolution = {}
@@ -414,7 +414,11 @@ class _CandidateDiscovery:
                 or self.transformers_task
             ) else "inferred"
         )
+        from acprof.models.files import checkpoint_directories, checkpoint_variants
+        variants = checkpoint_directories(self.files) + checkpoint_variants(self.files)
         return {"schema_version": 1, "status": status, "model_revision": self.task_info.model_revision,
+                **({"model_variant": self.task_info.model_variant} if getattr(self.task_info, "model_variant", "") else {}),
+                **({"checkpoint_variants": variants} if variants else {}),
                 "provenance": provenance, "semantics": {"status": semantic_status, "task": selected,
                                                          "scope": "selected_workload; not_author_intent_or_model_quality"},
                 "benchmark_kind": "task_pipeline",
@@ -510,6 +514,11 @@ class _CandidateDiscovery:
               or resolution["selection"]["backend"] not in {None, "unknown"}):
             return
         if failure := export_only_failure(self.task_info, self.files):
+            if failure.evidence.get("artifact_format") == "ONNX" and (
+                not self.primary_task or any(self.primary_task in extension.tasks and "onnxruntime" in extension.backends
+                                             for extension in self.catalog.extensions.values())
+            ):
+                return  # A registered ONNX contract may still be selected.
             self.task_info.model_resolution = resolution
             record_resolution_failure(self.task_info, failure)
             # Retain the catalog rejection on the candidate, not as an editable requirement.

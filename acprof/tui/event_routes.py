@@ -61,10 +61,23 @@ class AppEventRoutes(BarCursorApp):
     def on_models_open_model_candidates(self) -> None:
         self.models.open_model_candidates()
 
-    @on(Input.Changed, '#model, #revision, #tasks')
-    @on(Select.Changed, '#model-source')
-    def on_configuration_model_fields_changed(self) -> None:
+    @on(Input.Changed, "#model, #revision, #model-variant, #task, #tasks, #backend, #model-spec, #model-store, #batch-size")
+    def on_model_preview_input_changed(self) -> None:
         self.configuration.sync_model_fields()
+        self.models.model_edited()
+
+    @on(Select.Changed, "#model-source, #task-family, #gpus")
+    def on_model_preview_selection_changed(self) -> None:
+        self.configuration.sync_model_fields()
+        self.models.inspect_model()
+
+    @on(events.DescendantBlur, "#model, #revision, #model-variant, #task, #tasks, #backend, #model-spec, #model-store, #batch-size")
+    def on_model_preview_blur(self) -> None:
+        self.models.inspect_model()
+
+    @on(Input.Submitted, "#model, #revision, #model-variant, #task, #tasks, #backend, #model-spec, #model-store, #batch-size")
+    def on_model_preview_submitted(self) -> None:
+        self.models.inspect_model(submitted=True)
 
     @on(Button.Pressed, '.experiment-picker')
     def on_catalog_select_experiment(self, event: Button.Pressed) -> None:

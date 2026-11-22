@@ -27,7 +27,7 @@ def apply_review(task_info, answers: dict, *, resolve_repository=None):
             raise ValueError("select a declared Pipeline")
         previous = task.model_resolution["contract"]
         task.model_resolution = apply_model_candidate(task, discover_model_candidates(task))
-        apply_model_contract(task, lambda name: read_model_source(task.model_id, name, task.model_revision),
+        apply_model_contract(task, lambda name: read_model_source(task.model_id, task.repository_path(name), task.model_revision),
                              resolve_repository=resolve_repository or dependency_metadata, selected_pipeline=answers["pipeline_task"])
         task.model_resolution["contract"]["reviews"] = [*previous.get("reviews", []),
             {"revision": task.model_revision, "answers": answers, "previous_cache_key": previous["cache_key"]}]
@@ -80,7 +80,7 @@ def apply_review(task_info, answers: dict, *, resolve_repository=None):
     task.model_resolution = apply_model_candidate(task, discover_model_candidates(task))
     def source(name):
         if name not in task.repository_sources:
-            task.repository_sources[name] = read_model_source(task.model_id, name, task.model_revision)
+            task.repository_sources[name] = read_model_source(task.model_id, task.repository_path(name), task.model_revision)
         return task.repository_sources[name]
     apply_model_contract(task, source, resolve_repository=resolve_repository,
                          selected_pipeline=draft.get("pipeline_task"))

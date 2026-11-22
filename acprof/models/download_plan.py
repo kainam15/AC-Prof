@@ -18,6 +18,9 @@ from acprof.models.diffusion_pipelines import diffusers_pipeline
 from acprof.models.files import (
     Checkpoint,
     ModelFilesError,
+    checkpoint_directories,
+    coreml_artifact,
+    named_checkpoint_file,
     resolve_checkpoint,
     safe_path,
     uses_sentence_transformer_modules,
@@ -70,6 +73,7 @@ class DownloadPlan(TypedDict):
     weights: list[Checkpoint]
     files: list[DownloadFile]
     excluded_files: list[DownloadFile] | list[str]
+    model_variant: NotRequired[str]
     selected_bytes: int | None
     plan_sha256: NotRequired[str]
     source: NotRequired[str]
@@ -87,7 +91,7 @@ PLAN_FILENAME = "model_download_plan.json"
 _WEIGHTS = re.compile(
     r"(?:model|pytorch_model|diffusion_pytorch_model)"
     r"(?:\.(?:fp16|fp32|bf16|non_ema))?(?:-\d+-of-\d+)?"
-    r"\.(?:safetensors|bin)(?:\.index\.json)?$"
+    r"\.(?:safetensors|bin)(?:\.index(?:\.[A-Za-z0-9_-]{1,64})?\.json)?$"
 )
 
 
@@ -126,6 +130,9 @@ def validate_plan(plan: object) -> None:
     files = plan.get("files")
     if not isinstance(files, list) or not files or any(not isinstance(item, dict) for item in files):
         raise ModelFilesError("model download plan has no valid file list")
+    if "model_variant" in plan:
+        from acprof.models.files import validate_variant
+        validate_variant(plan["model_variant"])
     paths = [safe_path(item.get("path")) for item in files]
     if len(paths) != len(set(paths)):
         raise ModelFilesError("model download plan contains duplicate file paths")
@@ -161,6 +168,8 @@ def validate_plan(plan: object) -> None:
 
 def validate_plan_request(plan: Mapping[str, Any], request: Mapping[str, Any]) -> None:
     """Bind an already validated plan to its consumer without hashing it again."""
+    if plan.get("model_variant", "") != request.get("model_variant", ""):
+        raise ModelFilesError("model download plan differs from requested model_variant")
     for field, expected in request.items():
         actual = plan.get(field, "huggingface" if field == "source" else None)
         if field == "dependencies":
@@ -176,16 +185,16 @@ def _alternate_weights(name: str, prefix: str) -> bool:
     basename = name[len(prefix):]
     # A reviewed native Transformers checkpoint cannot consume ONNX/Rust exports.
     # Retain arbitrary auxiliary assets and non-Transformer module directories.
-    if basename.startswith("onnx/") and basename.endswith((".onnx", ".onnx_data", ".onnx.data")):
+    if coreml_artifact(basename) or basename.lower().endswith((".gguf", ".onnx", ".onnx_data", ".onnx.data")):
         return True
     if "/" in basename:
         return False
-    return bool(_WEIGHTS.fullmatch(basename)) or basename in {"flax_model.msgpack", "tf_model.h5", "rust_model.ot"}
+    return bool(_WEIGHTS.fullmatch(basename) or named_checkpoint_file(basename)) or basename in {"flax_model.msgpack", "tf_model.h5", "rust_model.ot"}
 
 
 def _transformer_checkpoint(
     names: set[str], read_json: Callable[[str], Any], prefix: str,
-    native_model_types: set[str] | None,
+    native_model_types: set[str] | None, model_variant: str,
 ) -> tuple[Checkpoint | None, str]:
     config_path = prefix + "config.json"
     if config_path not in names:
@@ -198,7 +207,7 @@ def _transformer_checkpoint(
     model_type = config.get("model_type")
     if not isinstance(model_type, str) or model_type not in (native_model_types or set()):
         return None, "unregistered_model_type"
-    checkpoint = resolve_checkpoint(names, read_json, prefix)
+    checkpoint = resolve_checkpoint(names, read_json, prefix, variant=model_variant)
     return checkpoint, "native_transformers" if checkpoint else "nonstandard_checkpoint"
 
 
@@ -215,7 +224,7 @@ def _sentence_components(modules: Any) -> list[tuple[str, str]] | None:
 
 
 def _plan_transformers(
-    names: set[str], read_json: Callable[[str], Any], native_model_types: set[str] | None, backend: str,
+    names: set[str], read_json: Callable[[str], Any], native_model_types: set[str] | None, backend: str, model_variant: str,
 ) -> tuple[set[str], list[Checkpoint], str]:
     if backend == "cross_encoder" and "modules.json" in names:
         # CrossEncoder can load its own component graph instead of a root Transformer.
@@ -231,7 +240,7 @@ def _plan_transformers(
     for kind, prefix in components:
         checkpoint: Checkpoint | None
         if kind == "Transformer":
-            checkpoint, reason = _transformer_checkpoint(names, read_json, prefix, native_model_types)
+            checkpoint, reason = _transformer_checkpoint(names, read_json, prefix, native_model_types, model_variant)
             if checkpoint is None:
                 all_backbones_native = False
                 continue
@@ -250,6 +259,10 @@ def _plan_transformers(
             export = {stem + ".xml", stem + ".bin"}
             if export <= names:
                 selected.difference_update(export)
+    if not modules:
+        alternate_roots = set(checkpoint_directories(names))
+        selected.difference_update(name for name in names if (prefix := name[:name.rfind("/") + 1]) in alternate_roots
+                                   and _alternate_weights(name, prefix))
     # Different modules can name the same directory. Keep the union of the chosen files.
     for weight in weights:
         selected.update(weight["files"])
@@ -352,7 +365,7 @@ def _plan_structured(
 def plan_download(
     *, model_id: str, revision: str, family: str, backend: str,
     files: Mapping[str, RepositoryFile], read_json: Callable[[str], Any],
-    policy: str = "auto", adapter: str = "family-default",
+    policy: str = "auto", adapter: str = "family-default", model_variant: str = "",
     native_model_types: set[str] | None = None,
     library_versions: dict[str, str] | None = None,
 ) -> DownloadPlan:
@@ -365,6 +378,19 @@ def plan_download(
     selected = set(names)
     weights: list[Checkpoint] = []
     reason = "explicit_full" if policy == "full" else "unsupported_layout"
+    subfolder = model_variant if model_variant.endswith("/") else ""
+    named_variant = "" if subfolder else model_variant
+    scope = names
+    scoped_json = read_json
+    if subfolder:
+        if subfolder not in checkpoint_directories(names):
+            raise ModelFilesError(f"selected folder {subfolder!r} is not a standalone native checkpoint")
+        scope = {name[len(subfolder):] for name in names if name.startswith(subfolder)}
+        def scoped_json(name: str) -> Any:
+            return read_json(subfolder + name)
+
+    if model_variant and (adapter != "family-default" or backend not in {"transformers_model", "transformers_pipeline"}):
+        raise ModelFilesError("selected checkpoint variant requires a native Transformers loader")
     if backend == "kokoro":
         from acprof.models.kokoro import snapshot_contract, validate_snapshot
         voices = validate_snapshot(model_id, revision, read_json("config.json"), names)
@@ -376,17 +402,29 @@ def plan_download(
             reason = "registered_kokoro_snapshot"
     elif policy == "auto" and adapter != "family-default":
         reason = "custom_adapter"
-    elif policy == "auto" and backend in {
+    elif (policy == "auto" or model_variant) and backend in {
         "transformers_pipeline", "transformers_model", "sentence_transformers", "cross_encoder", "chronos",
     }:
-        selected, weights, reason = _plan_transformers(names, read_json, native_model_types, backend)
+        selected, weights, reason = _plan_transformers(scope, scoped_json, native_model_types, backend, named_variant)
+        if subfolder:
+            selected = {subfolder + name for name in selected}
+            selected.update(name for name in names if "/" not in name and name.upper().startswith(("LICENSE", "NOTICE")))
+            for weight in weights:
+                weight["component"] = subfolder.rstrip("/")
+                weight["files"] = [subfolder + name for name in weight["files"]]
+        if policy == "full":
+            reason = "explicit_full"
     elif policy == "auto" and backend == "diffusers" and "model_index.json" in names:
         selected, weights, reason = _plan_diffusers(names, read_json)
     elif policy == "auto" and backend in {"torchscript", "skops"}:
         selected, weights, reason = _plan_structured(names, read_json, backend)
-    effective = "selected" if weights else "full"
+    if model_variant and not weights:
+        raise ModelFilesError(f"cannot select checkpoint variant {model_variant!r}: {reason}")
+    effective = "selected" if weights and policy != "full" else "full"
     if effective == "full":
-        selected, weights = names, []
+        selected = names
+        if not model_variant:
+            weights = []
 
     def entries(chosen: set[str]) -> list[DownloadFile]:
         return [{"path": name, **files[name]} for name in sorted(chosen)]
@@ -401,6 +439,8 @@ def plan_download(
         "files": selected_entries, "excluded_files": entries(names - selected),
         "selected_bytes": sum(cast(list[int], sizes)) if all(type(size) is int for size in sizes) else None,
     }
+    if model_variant:
+        plan["model_variant"] = model_variant
     seal_plan(plan)
     validate_plan(plan)
     return plan

@@ -8,6 +8,7 @@ from acprof.models.diffusion_pipelines import diffusers_pipeline
 from acprof.models.files import (
     ModelFilesError,
     checkpoint_index,
+    coreml_artifact,
     resolve_checkpoint,
     safe_path,
     uses_sentence_transformer_modules,
@@ -47,7 +48,7 @@ def _checkpoint_components(files: set[str], metadata: dict[str, Any]) -> list[tu
     return components
 
 
-def checkpoint_metadata_indexes(files: set[str], metadata: dict[str, Any]) -> list[str]:
+def checkpoint_metadata_indexes(files: set[str], metadata: dict[str, Any], *, model_variant: str = "") -> list[str]:
     """Select bounded index metadata for the declared loader's components."""
     components = []
     for manifest in ("model_index.json", "modules.json"):
@@ -56,19 +57,22 @@ def checkpoint_metadata_indexes(files: set[str], metadata: dict[str, Any]) -> li
     if "config.json" in files or not components:
         components.append(("", False))
     return sorted({index for prefix, diffusion in components
-                   if (index := checkpoint_index(files, prefix, diffusion=diffusion)) is not None})
+                   if (index := checkpoint_index(files, prefix, diffusion=diffusion,
+                                                  variant=model_variant if not prefix and not diffusion else "")) is not None})
 
 
-def _coreml_artifact(path: str) -> str | None:
-    parts = path.split("/")
-    for index, part in enumerate(parts):
-        if part.lower().endswith((".mlpackage", ".mlmodelc")):
-            return "/".join(parts[:index + 1])
-    return path if parts[-1].lower().endswith(".mlmodel") else None
+def _export_format(path: str) -> str | None:
+    if coreml_artifact(path):
+        return "CoreML"
+    if path.lower().endswith(".gguf"):
+        return "GGUF"
+    if path.lower().endswith(".onnx"):
+        return "ONNX"
+    return None
 
 
-def has_coreml_artifacts(files: set[str]) -> bool:
-    return any(_coreml_artifact(path) for path in files)
+def has_export_artifacts(files: set[str]) -> bool:
+    return any(_export_format(path) for path in files)
 
 
 def export_only_failure(task_info: Any, files: set[str]) -> Failure | None:
@@ -76,14 +80,16 @@ def export_only_failure(task_info: Any, files: set[str]) -> Failure | None:
     artifacts: dict[str, str] = {}
     formats: set[str] = set()
     for path in files:
-        bundle = _coreml_artifact(path)
-        if bundle or path.lower().endswith(".gguf"):
-            formats.add("CoreML" if bundle else "GGUF")
+        bundle = coreml_artifact(path)
+        if fmt := _export_format(path):
+            formats.add(fmt)
             artifact = bundle or path
             previous = artifacts.get(artifact)
             if previous is None or (path.count("/"), path) < (previous.count("/"), previous):
                 artifacts[artifact] = path
             continue
+        if path.lower().endswith((".onnx.data", ".onnx_data")) and path[:-5] in files:
+            continue  # An ONNX external-data sidecar accompanying its graph.
         name = path.rsplit("/", 1)[-1].lower()
         if (name not in {".gitattributes", ".gitignore", "license", "config.json", "generation_config.json",
                          "tokenizer.json", "tokenizer_config.json", "preprocessor_config.json",
@@ -100,6 +106,18 @@ def export_only_failure(task_info: Any, files: set[str]) -> Failure | None:
                 "files": sorted(files) if len(files) <= 3 else [artifacts[path] for path in samples],
                 "file_count": len(files),
                 "backend": task_info.runtime_backend, "library_name": getattr(task_info, "library_name", "")}
+    if artifact_format == "CoreML":
+        # WhisperKit packages the same component names under separate model directories.
+        from collections import defaultdict
+        parents: dict[str, set[str]] = defaultdict(set)
+        for name in artifacts:
+            parent, separator, component = name.rpartition("/")
+            if separator:
+                parents[component].add(parent)
+        variants = sorted({directory for group in parents.values() if len(group) > 1 for directory in group})
+        evidence["artifact_platform"] = "Apple Core ML"
+        if variants:
+            evidence.update(variant_count=len(variants), variant_directories=variants[:16])
     # A task inferred from an architecture or supplied by a user is not an author declaration.
     declared = (getattr(task_info, "hub_metadata", {}) or {}).get("pipeline_tag")
     if isinstance(declared, str) and declared and declared != "unknown":
@@ -111,11 +129,8 @@ def export_only_failure(task_info: Any, files: set[str]) -> Failure | None:
 
 
 def _foreign_format(files: set[str]) -> str | None:
-    if any(name.lower().endswith(".gguf") for name in files):
-        return "GGUF"
-    if has_coreml_artifacts(files):
-        return "CoreML"
-    return None
+    formats = sorted({fmt for name in files if (fmt := _export_format(name))})
+    return ", ".join(formats) or None
 
 
 def inspect_artifact_layout(task_info: Any, *, adapter: str = "family-default") -> dict[str, Any]:
@@ -195,7 +210,10 @@ def inspect_artifact_layout(task_info: Any, *, adapter: str = "family-default") 
                 if plan["weights"]:
                     return {"status": "identified", "weights": plan["weights"], "source": "download_plan"}
                 return unrecognized(f"Sentence-transformer layout requires additional verification: {plan['reason']}")
-            checkpoint = resolve_checkpoint(files, read_json)
+            variant = getattr(task_info, "model_variant", "")
+            checkpoint = resolve_checkpoint(files, read_json, variant="" if variant.endswith("/") else variant)
+            if variant and checkpoint is None:
+                fail("artifact_layout_unsupported", f"Selected checkpoint variant {variant!r} has no matching native weights at this revision")
             if checkpoint:
                 return {"status": "identified", "weights": [checkpoint], "source": "checkpoint_loader"}
             if not native_loader:

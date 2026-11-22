@@ -113,6 +113,7 @@ def prepare_repository_plan(endpoint: str, model_id: str, revision: str, *, depe
         backend=task.runtime_backend if task else os.getenv("RUNTIME_BACKEND", ""), files=files, read_json=read_json,
         policy=(task.model_download_policy if task else os.getenv("MODEL_DOWNLOAD_POLICY", "auto")) if dependency is None else "full",
         adapter=task.model_adapter if task else os.getenv("MODEL_ADAPTER", "family-default"),
+        model_variant=getattr(task, "model_variant", "") if dependency is None else "",
         native_model_types=_native_model_types() if native_types is None else native_types,
         library_versions=_library_versions() if library_versions is None else library_versions,
     )

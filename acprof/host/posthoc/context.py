@@ -395,8 +395,20 @@ def load_result_context(result_dir: str | os.PathLike[str], *, result_snapshot: 
             raise PosthocError("frozen inference configuration requires its active task snapshot in the input plan")
         selected_tasks = [copy.deepcopy(selected)]
 
+    resolution = static_meta.get("model_resolution", {})
+    if not isinstance(resolution, dict):
+        raise PosthocError("invalid model_resolution in static_meta.json")
+    variant = resolution.get("model_variant", "")
+    if "model_variant" in resolution:
+        from acprof.models.files import ModelFilesError, validate_variant
+        try:
+            validate_variant(variant)
+        except ModelFilesError as exc:
+            raise PosthocError("invalid model_variant in static_meta.json") from exc
+
     task_info = TaskInfo(
         model_id=model_id,
+        model_variant=variant,
         model_source=recorded_source,
         pipeline_tag=str(static_meta.get("pipeline_tag") or "").strip(),
         task_family=str(static_meta.get("task_family") or "").strip(),

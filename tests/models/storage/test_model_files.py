@@ -62,6 +62,27 @@ class TestModelFilePlan:
         })
         assert (plan["weights"][0]["variant"]) is None
 
+    def test_named_checkpoint_plans_only_the_selected_native_weights(self):
+        plan = self.plan(["config.json", "model.safetensors", "model.fp16.safetensors",
+                          "model.bf16.safetensors", "ml/Audio.mlmodelc/weights/weight.bin",
+                          "export.gguf", "model.onnx", "tokens.txt"], model_variant="fp16")
+        assert self.selected(plan) == {"config.json", "model.fp16.safetensors", "tokens.txt"}
+        assert plan["weights"][0]["variant"] == plan["model_variant"] == "fp16"
+        assert plan["selected_bytes"] == 3
+
+    def test_index_and_shard_filenames_do_not_create_phantom_variants(self):
+        from acprof.models.files import checkpoint_variants
+        files = {"model.fp16-00001-of-00002.safetensors", "model.safetensors.index.fp16.json",
+                 "weights/encoder.mlmodelc/weights/weight.bin", "other/model.experimental.safetensors"}
+        assert checkpoint_variants(files) == ["fp16"]
+
+    def test_named_sharded_checkpoint_requires_every_shard(self):
+        index = "model.safetensors.index.fp16.json"
+        names = ["config.json", "model.safetensors", index]
+        with pytest.raises(ModelFilesError, match="missing checkpoint shards"):
+            self.plan(names, {index: {"weight_map": {"weight": "missing.safetensors"}}},
+                      model_variant="fp16")
+
     def test_bin_only_checkpoint_is_preserved(self):
         plan = self.plan(["config.json", "pytorch_model.bin", "flax_model.msgpack"])
         assert (self.selected(plan)) == ({"config.json", "pytorch_model.bin"})

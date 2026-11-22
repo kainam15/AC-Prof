@@ -480,6 +480,7 @@ def resolve_inference_configuration(task_info, requests: dict, *, devices: list[
     candidate = {
         "schema_version": 1, "state": "resolved", "rule_version": CONFIGURATION_RULE_VERSION,
         "model": {"source": view.model_source, "model_id": view.model_id, "revision": view.model_revision,
+            **({"variant": view.model_variant} if getattr(view, "model_variant", "") else {}),
             "configuration_sha256": content_digest(view.model_config),
             "repository_files_sha256": content_digest(sorted(view.repository_files)),
             "base_model": copy.deepcopy(view.hub_metadata.get("base_model")),

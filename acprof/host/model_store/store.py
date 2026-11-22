@@ -183,6 +183,7 @@ def entry_key(task) -> str:
         "model_types": hashlib.sha256((resource_root() / "acprof/container/compat/transformers_model_types.json").read_bytes()).hexdigest(),
         "model": request["model_id"], "revision": request["model_revision"],
         "policy": request["requested_policy"], "family": request["task_family"], "backend": request["backend"],
+        **({"model_variant": request["model_variant"]} if "model_variant" in request else {}),
         "adapter": request["adapter"], "dependencies": request["dependencies"]})
 
 

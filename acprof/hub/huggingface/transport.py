@@ -136,7 +136,8 @@ def check_hf_url(url: str) -> None:
     raise UntrustedHfEndpointError(url)
 
 
-def _request_hook(request):
+def require_online_hub() -> None:
+    """Refuse remote metadata and downloads while the Hub is explicitly offline."""
     import huggingface_hub as hub
     from huggingface_hub import constants
     from huggingface_hub.errors import OfflineModeIsEnabled
@@ -147,6 +148,10 @@ def _request_hook(request):
     offline = is_offline_mode() if is_offline_mode is not None else constants.HF_HUB_OFFLINE
     if offline:
         raise OfflineModeIsEnabled("HF_HUB_OFFLINE is enabled; no HTTP request was sent")
+
+
+def _request_hook(request):
+    require_online_hub()
     check_hf_url(str(request.url))
     if not hf_auth_allowed(str(request.url)):
         # Enforce origin opt-in even for SDK defaults, cookie jars and netrc.

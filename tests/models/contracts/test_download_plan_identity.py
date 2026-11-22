@@ -66,3 +66,12 @@ def test_download_plan_sources_invalidate_store_and_model_identity(download_plan
     source.write_bytes(original)
     assert entry_key(task) == store_key
     assert model_fingerprint(task, runtime_id, root) == image_key
+
+def test_same_revision_checkpoint_variants_have_distinct_store_and_image_identity(download_plan_context):
+    root, task = download_plan_context
+    runtime_id = "sha256:" + "e" * 64
+    default_keys = (entry_key(task), model_fingerprint(task, runtime_id, root))
+    for variant in ("fp16", "variants/tiny/"):
+        task.model_variant = variant
+        assert entry_key(task) != default_keys[0]
+        assert model_fingerprint(task, runtime_id, root) != default_keys[1]

@@ -389,7 +389,8 @@ class PreparationScreen(ModalScreen):
                         for index, question in enumerate(request.get("questions", [])):
                             if question.get("kind") != "multi":
                                 name = (f"{tr(question['task_name'])} · {tr(question['caption'])}"
-                                        if parameter_review else tr(question["path"]))
+                                        if parameter_review else tr(message_id("models.checkpoint.variant"))
+                                        if question["path"] == "model_variant" else tr(question["path"]))
                                 yield Label(name)
                                 if question.get("reason"):
                                     yield Static(tr(question["reason"]), markup=False)
@@ -427,6 +428,9 @@ class PreparationScreen(ModalScreen):
                                 copyable=len(value) > 24)
                         for key, label in fact_labels if (value := evidence.get(key)) and value != "unknown"
                     )
+                    if directories := evidence.get("variant_directories"):
+                        rows += (FactRow(message_id("models.checkpoint.directories", evidence["variant_count"]),
+                                         ", ".join(directories), copyable=True),)
                     if rows:
                         yield FactGrid(ViewSection("", rows), id="preparation-fields", collapsible=False)
                     problem = reason_presentation(failure["reason_code"]).problem

@@ -351,3 +351,43 @@ def test_inspect_gguf_only_repository_reports_artifacts_before_requesting_a_prof
     assert failure["evidence"]["file_count"] == len(files)
     assert failure["evidence"]["declared_task"] == "text-generation"
     assert decision["runtime_validation"]["status"] == "not_run"
+
+
+def test_summary_json_returns_coreml_static_evidence_without_probe(capsys):
+    from acprof.models.candidates import apply_model_candidate, discover_model_candidates
+    from tests.models.contracts.test_backend_candidates import _whisperkit
+
+    task = _whisperkit(files=("config.json", "Encoder.mlmodelc/model.mil"),
+                       config={"model_type": "whisper", "architectures": ["WhisperForConditionalGeneration"]})
+    task.model_resolution = apply_model_candidate(task, discover_model_candidates(task))
+    with patch("acprof.host.detect.detect_task", return_value=task) as detect, patch(
+        "acprof.host.preparation.interface_probe.probe_interface",
+    ) as probe:
+        assert main(["inspect", "--summary-json", "--model-source", "huggingface", "--revision", task.model_revision,
+                     "--", task.model_id]) == 2
+    assert detect.call_args.kwargs["revision"] == task.model_revision
+    assert not probe.called
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["architecture"] == "WhisperForConditionalGeneration"
+    assert summary["formats"] == ["CoreML"]
+    assert summary["platform"] == "Apple Core ML"
+    assert summary["status"] == "blocked"
+    assert "no compatible loader" in summary["reason"]
+
+
+def test_summary_json_reports_whisper_gpu_static_contract_from_frozen_repository(capsys):
+    from acprof.testing.model_corpus import _offline_repositories, load_corpus
+
+    root = Path(__file__).parents[2] / "fixtures" / "model_corpus.json"
+    manifest, content, _ = load_corpus(root)
+    case = next(row for row in manifest["models"] if row["model_id"] == "openai/whisper-tiny")
+    with _offline_repositories(manifest, content), patch("acprof.host.env_utils.bootstrap_project_env"):
+        assert main(["inspect", case["model_id"], "--model-source", "huggingface", "--revision", case["revision"],
+                     "--gpus", "on", "--summary-json"]) == 0
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["revision"] == case["revision"]
+    assert summary["architecture"] == "WhisperForConditionalGeneration"
+    assert summary["formats"] == ["safetensors"]
+    assert summary["platform"] == "CUDA"
+    assert summary["backend"] == "transformers_pipeline"
+    assert summary["compatibility"] == "supported"

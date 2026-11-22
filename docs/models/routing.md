@@ -122,12 +122,15 @@ ONNX 文件本身只能证明格式，不能凭输入 shape 猜分类、回归�
 `checkpoint_verified=false` 明确表示没有本次真实推理证据；缺少字段也不能补成已验证。
 元数据错误、未登记后端、制品不完整／格式不支持、运行时不可用分别保留原因，不统一改称任务不支持。
 
-对于没有已注册加载路径的仓库，若文件清单中的模型全部为 GGUF（`.gguf`）或全部为 Core ML（`.mlmodelc/`、`.mlpackage/` 或 `.mlmodel`），
+对于没有已注册加载路径的仓库，若文件清单中的模型全部为 GGUF（`.gguf`）、ONNX（`.onnx`）或 Core ML（`.mlmodelc/`、`.mlpackage/` 或 `.mlmodel`），
 其余均为已识别的辅助文件，静态检查报告 `blocked / artifact_layout_unsupported`，同时保留仓库声明的任务和代表性文件路径。
 即使仓库声明了多个推理任务，只要各任务都依赖无法加载这些文件的原生 Transformers 路径，也会先显示制品阻断原因。
 [Qwen 的 GGUF 仓库](https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/tree/9217f5db79a29953eb74d5343926648285ec7e67)提供同一模型的多个 GGUF 文件。
 [WhisperKit 的上游实现](https://github.com/argmaxinc/argmax-oss-swift/blob/main/Sources/WhisperKit/Core/WhisperKit.swift)分别加载音频编码器和文本解码器等组件。
-混合仓库若在根目录提供完整的 Transformers checkpoint，且已注册加载器支持其配置与任务，可以选择这条原生路径。
+WhisperKit 在多个目录重复提供同名 Core ML 组件时，阻断详情列出目录总数和代表性目录。ONNX 使用已注册任务的 ONNX Runtime CPU 路径；图像与文本预处理仍须由模型声明给出。混合仓库若在根目录提供完整的 Transformers checkpoint，且已注册加载器支持其配置与任务，可以选择这条原生路径。
+
+`acprof inspect` 列出当前 revision 的原生命名权重，以及含独立 `config.json` 和标准 checkpoint 的子目录。用 `--revision <branch|tag|SHA>` 固定版本，`--model-variant fp16` 选择同名 Transformers 权重，或用 `--model-variant variants/tiny/` 选择自包含模型目录（保留末尾的 `/`）。变体的分片索引、权重、处理器等都按固定 commit 核验；目录变体从自己的配置识别架构，加载器以该目录为根。具有 `model_index.json` 的 Diffusers 和具有 `modules.json` 的 Sentence Transformers 仓库按整体声明解析组件。自定义加载器、跨目录共用处理器、远程代码的执行能力须由对应接口确认。
+TUI 在解析阶段提供相同选项，并在下载确认前按所选文件清单计算字节数和已有缓存。自动下载保留未识别的辅助资源；显式 `--model-download-policy full` 获取整个仓库。未取得大小时保留未知状态。权重变体会写入模型解析、下载清单与冻结推理配置，供相同 revision 的复现与恢复使用。[Transformers checkpoint 加载](https://github.com/huggingface/transformers/blob/main/src/transformers/modeling_utils.py) · [Hugging Face Hub 文件筛选与下载预估](https://github.com/huggingface/huggingface_hub/blob/main/docs/source/en/guides/download.md)
 缺少文件清单时，制品兼容性保持未知；了解模型格式的用户可用 `--backend` 指定已注册后端继续检查。
 
 coverage 行保留原有统计字段，并增加 `inspection_status`、`compatibility` 和 `next_action`。

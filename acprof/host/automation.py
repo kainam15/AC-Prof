@@ -140,6 +140,8 @@ class AutomaticRun:
             task = TaskInfo(**task_snapshot)
             if args.revision and args.revision != task.model_revision:
                 raise ValueError("resume revision differs from the frozen snapshot")
+            if getattr(args, "model_variant", "") and args.model_variant != task.model_variant:
+                raise ValueError("resume checkpoint variant differs from the frozen snapshot")
             self.data["access"] = {"status": "not_requested", "reason": "resume reuses immutable local image"}
         else:
             self.data["stage"] = "access"
@@ -149,6 +151,7 @@ class AutomaticRun:
             self.data["stage"] = "resolution"
             task = detect_task(args.model, override_tag=args.task, override_family=args.task_family,
                                override_backend=args.backend, model_spec_path=args.model_spec,
+                               **({"model_variant": args.model_variant} if getattr(args, "model_variant", "") else {}),
                                **({"revision": args.revision} if args.revision else {}))
         from acprof.host.preparation.collection_workflow import PreparationWorkflow
         from acprof.host.preparation.task_selection import select_tasks

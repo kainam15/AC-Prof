@@ -79,6 +79,11 @@ def resolve_model_interface(task_info: Any) -> dict:
     if errors:
         raise ValueError("Model metadata could not be resolved: " + "; ".join(errors))
     spec = task_model_spec(task_info)
+    if backend in {"onnxruntime", "skops", "torchscript"}:
+        from acprof.models.artifact_layout import export_only_failure
+        failure = export_only_failure(task_info, files)
+        if failure and not (backend == "onnxruntime" and failure.evidence["artifact_format"] == "ONNX"):
+            raise RuntimeFailure(failure)
     if extension.handler_options.get("requires_model_spec") and not spec:
         failure = Failure("preflight", "model_contract_required",
                           f"{backend}/{task_info.pipeline_tag} requires acprof_model.json; input semantics cannot be inferred",
@@ -92,6 +97,20 @@ def resolve_model_interface(task_info: Any) -> dict:
             raise ValueError("model spec task/format conflicts with selected interface")
         if files and spec.get("model_file") and spec["model_file"] not in files:
             raise ValueError(f"model spec model_file is absent from snapshot: {spec['model_file']}")
+    variant = getattr(task_info, "model_variant", "")
+    if variant:
+        from acprof.models.files import checkpoint_variants, has_default_checkpoint
+        if not files:
+            raise RuntimeFailure(Failure("preflight", "artifact_layout_unknown",
+                                         "The selected checkpoint variant requires a pinned repository file inventory."))
+        has_variant = (has_default_checkpoint(files) if variant.endswith("/") else variant in checkpoint_variants(files))
+        if (backend not in {"transformers_model", "transformers_pipeline"} or extension.adapter != "family-default"
+                or task_info.task_family not in {"audio", "nlp", "cv", "multimodal"}
+                or config.get("auto_map") or config.get("custom_pipelines") or config.get("quantization_config")
+                or "adapter_config.json" in files or not has_variant):
+            raise RuntimeFailure(Failure("preflight", "artifact_layout_unsupported",
+                f"The selected variant {variant!r} requires matching native Transformers weights and a registered loader.",
+                evidence={"backend": backend, "variant": variant, "available_variants": checkpoint_variants(files)}))
     code_files = set()
     for item in [config, *(value for value in metadata.values() if isinstance(value, dict))]:
         code_files.update(custom_code_files(item))
@@ -112,7 +131,7 @@ def resolve_model_interface(task_info: Any) -> dict:
     profile = select_runtime_profile(task_info)
     task_info.runtime_profile_id, task_info.model_adapter = profile.profile_id, profile.adapter
     version = locked_transformers_version(profile.environment)
-    layout = {"status": "not_applicable", "weights": []}
+    layout: dict[str, Any] = {"status": "not_applicable", "weights": []}
     if backend in {"transformers_model", "transformers_pipeline", "sentence_transformers", "cross_encoder", "chronos", "diffusers", "kokoro"}:
         from acprof.models.artifact_layout import inspect_artifact_layout
 
@@ -155,6 +174,10 @@ def resolve_model_interface(task_info: Any) -> dict:
         artifacts = [name for name in files if name.lower().endswith(".onnx")]
         if files and not spec and len(artifacts) != 1:
             raise ValueError("ONNX requires one artifact or --model-spec selecting model_file")
+        if files:
+            artifact = spec["model_file"] if spec else artifacts[0]
+            layout = {"status": "identified", "source": "onnx_model_file", "weights": [
+                {"component": ".", "format": "onnx", "variant": None, "files": [artifact]}]}
         if files and task_info.task_family in {"cv", "nlp"} and not spec:
             raise RuntimeFailure(Failure("preflight", "model_contract_required", "ONNX image/text preprocessing requires --model-spec (acprof_model.json)", runtime_profile=profile.profile_id))
     elif backend in {"torchscript", "skops"}:

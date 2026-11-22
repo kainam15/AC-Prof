@@ -131,6 +131,7 @@ def request_fingerprint(task_info: Any, project_dir: str | Path = PROJECT_ROOT) 
         "dependency_build": runtime_fingerprint(profile.environment, root),
         "build_overrides": overrides,
         "model_download_policy": download_policy(task_info),
+        **({"model_variant": task_info.model_variant} if getattr(task_info, "model_variant", "") else {}),
         "model_spec": task_model_spec(task_info),
         "resolution_identity": getattr(task_info, "model_resolution", {}).get("provenance", {}).get("identity_sha256"),
     }, sort_keys=True).encode())
@@ -152,6 +153,7 @@ def model_fingerprint(task_info: Any, runtime_id: str, project_dir: str | Path =
         "runtime_id": runtime_id, "model_id": task_info.model_id, "revision": task_info.model_revision,
         "source": getattr(task_info, "model_source", "huggingface"),
         "family": task_info.task_family, "backend": task_info.runtime_backend,
+        **({"model_variant": task_info.model_variant} if getattr(task_info, "model_variant", "") else {}),
         "adapter": select_runtime_profile(task_info).adapter, "policy": download_policy(task_info),
         "dependencies": task_model_spec(task_info).get("dependencies", []),
     }, sort_keys=True).encode())

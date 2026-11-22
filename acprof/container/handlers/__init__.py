@@ -38,14 +38,19 @@ def transformers_pipeline_load_kwargs(
     options.pop("dtype", None)
     options.pop("trust_remote_code", None)
     attention_implementation = options.pop("attention_implementation", None)
+    variant = options.pop("variant", None)
+    model_kwargs = {}
+    if variant is not None:
+        from acprof.models.files import validate_variant
+        model_kwargs["variant"] = validate_variant(variant)
     if options:
         unsupported = ", ".join(sorted(options))
         raise ValueError(f"unsupported handler load options: {unsupported}")
-    if attention_implementation is None:
-        return {}
-    if type(attention_implementation) is not str or attention_implementation not in {"eager", "sdpa"}:
-        raise ValueError("attention_implementation must be 'eager' or 'sdpa'")
-    return {"model_kwargs": {"attn_implementation": attention_implementation}}
+    if attention_implementation is not None:
+        if type(attention_implementation) is not str or attention_implementation not in {"eager", "sdpa"}:
+            raise ValueError("attention_implementation must be 'eager' or 'sdpa'")
+        model_kwargs["attn_implementation"] = attention_implementation
+    return {"model_kwargs": model_kwargs} if model_kwargs else {}
 
 
 class InputLimitError(ValueError):

@@ -88,6 +88,10 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                         classes="config-control",
                     )), field_id="output-dir")
 
+                model_preview = Static("", id="model-preview", markup=False)
+                model_preview.display = False
+                yield model_preview
+
                 with app.localization.localized_widget(Collapsible(
                     title=message_id("settings.resources.matrix"),
                     collapsed=True,
@@ -227,6 +231,10 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                         value=app.configuration.initial_config.revision, id="revision", classes="config-control",
                         placeholder="留空解析默认 revision；候选选择会固定 commit SHA",
                     )), field_id="revision")
+                    yield app.localization.localized_widget(Label(message_id("models.checkpoint.variant")))
+                    yield ConfigField(app.localization.localized_widget(Input(
+                        value=app.configuration.initial_config.model_variant, id="model-variant", classes="config-control",
+                    )), field_id="model-variant")
                     yield app.localization.localized_widget(Label(message_id("models.detection.interface_label")))
                     yield ConfigField(app.localization.localized_widget(Input(
                         value=app.configuration.initial_config.task,

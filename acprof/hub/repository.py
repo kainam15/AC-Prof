@@ -106,8 +106,18 @@ def repository_context(info) -> dict:
                         if safetensors is not None else None)}
 
 
+def _require_modelscope_online() -> None:
+    from huggingface_hub.errors import OfflineModeIsEnabled
+
+    from acprof.hub.huggingface.transport import require_online_hub
+    if os.environ.get("MODELSCOPE_OFFLINE", "").strip().upper() in {"1", "ON", "YES", "TRUE"}:
+        raise OfflineModeIsEnabled("MODELSCOPE_OFFLINE is enabled; no network request was sent")
+    require_online_hub()
+
+
 def modelscope_api():
     from modelscope_hub import HubApi
+    _require_modelscope_online()
     return HubApi(endpoint=MODELSCOPE_ENDPOINT, token=os.environ.get("MODELSCOPE_API_TOKEN") or None)
 
 
@@ -121,6 +131,7 @@ def modelscope_revision(model_id: str, revision: str | None) -> str:
     ref = revision or "master"
     if not re.fullmatch(r"[\w./-]+", ref) or ".." in ref:
         raise ValueError("invalid ModelScope revision")
+    _require_modelscope_online()
     # The file API's Revision field is the *last file commit*, not repo HEAD.
     # Resolve the actual Git ref, then give the same immutable commit to every
     # API/file request. ls-remote only transfers refs, never model payloads.

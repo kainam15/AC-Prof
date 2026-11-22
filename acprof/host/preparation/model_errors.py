@@ -32,8 +32,11 @@ class ModelLookupError(ValueError):
         self.summary = message(summary, model_id, revision)
         self.hint = message(hint)
         from acprof.hub.repository import model_source
-        if model_source() == "modelscope" and self.reason_code in {"repository_unavailable", "access_denied"}:
-            self.hint = message("请核对 ModelScope 模型 ID、访问权限和 MODELSCOPE_API_TOKEN。")
+        if model_source() == "modelscope":
+            if self.reason_code in {"repository_unavailable", "access_denied"}:
+                self.hint = message("请核对 ModelScope 模型 ID、访问权限和 MODELSCOPE_API_TOKEN。")
+            elif self.reason_code == "offline":
+                self.hint = message("请检查该 revision 的本地缓存，或清除 ModelScope / Hugging Face 离线设置后重试。")
         super().__init__(f"{self.summary}\n{self.hint}\n{self.detail}".rstrip())
 
     @property

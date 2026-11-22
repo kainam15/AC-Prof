@@ -28,7 +28,7 @@ def _read_dependency_source(task_info: TaskInfo, name: str) -> str:
 
     if name not in task_info.repository_sources:
         task_info.repository_sources[name] = read_model_source(
-            task_info.model_id, name, task_info.model_revision,
+            task_info.model_id, task_info.repository_path(name), task_info.model_revision,
         )
     return task_info.repository_sources[name]
 

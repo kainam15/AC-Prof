@@ -1,16 +1,19 @@
 """Connect the existing model input to local evidence, only while idle."""
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from textual.suggester import SuggestFromList
+from textual.widgets import Static
 
 from acprof.experiments.configuration import RunConfigError
 from acprof.models.evidence import pinned_revision
 from acprof.tui.experiments.catalog import scan_experiments
 from acprof.tui.experiments.picker import SearchPickerScreen
 from acprof.tui.i18n import message_id
+from acprof.tui.models.preview import MODEL_OPTIONS, inspect_summary, preview_text
 from acprof.tui.ui.input import BarCursorInput as Input
 
 if TYPE_CHECKING:
@@ -22,6 +25,88 @@ class ModelController:
 
     def __init__(self, app: AcprofTui) -> None:
         self.app = app
+        self.preview_arguments: tuple[str, ...] = ()
+        self.preview_pending = False
+        self.preview_edited = False
+        self.preview_worker: asyncio.Task[None] | None = None
+
+    def current_arguments(self) -> tuple[str, ...]:
+        form = self.app.configuration
+        arguments = [form.input("model"), "--model-source", form.select("model-source")]
+        for option in MODEL_OPTIONS:
+            if value := form.input(option):
+                arguments.extend((f"--{option}", value))
+        for select in ("task-family", "gpus"):
+            if value := form.select(select):
+                arguments.extend((f"--{select}", value))
+        return tuple(arguments)
+
+    def _show_preview(self, text: str) -> None:
+        widget = self.app.query_one("#model-preview", Static)
+        self.app.localization.set_text(widget, text)
+        widget.display = bool(text)
+
+    def model_edited(self) -> None:
+        if not self.app.form_ready or self.app.ui_closing:
+            return
+        arguments = self.current_arguments()
+        if arguments == self.preview_arguments:
+            return
+        self.preview_arguments = arguments
+        self.preview_pending = False
+        self.preview_edited = True
+        self._show_preview("")
+        if self.preview_worker and not self.preview_worker.cancelling():
+            self.preview_worker.cancel()
+
+    def inspect_model(self, *, submitted: bool = False) -> None:
+        """Submit completed edits, preserving a typed but unfinished ID during other checks."""
+        if not self.app.form_ready or self.app.ui_closing or self.app.execution.session.kind:
+            return
+        self.model_edited()
+        if submitted and self.preview_worker and not self.preview_edited:
+            return
+        if not (self.preview_edited or submitted) or not self.preview_arguments[0]:
+            return
+        self.preview_edited = False
+        self.preview_pending = True
+        self.resume_preview()
+
+    def resume_preview(self) -> None:
+        if not self.preview_pending or self.preview_worker or not self.app.operation_state().allows("check"):
+            return
+        self.preview_pending = False
+        self._show_preview(message_id("models.preview.loading"))
+        self.preview_worker = asyncio.create_task(self._read_preview(self.preview_arguments))
+        self.preview_worker.add_done_callback(self._preview_finished)
+        self.app.set_busy(False)
+
+    async def _read_preview(self, arguments: tuple[str, ...]) -> None:
+        from acprof.host.run_state import RunStateError, offline_analysis_lock
+        try:
+            with offline_analysis_lock():
+                summary = await inspect_summary(arguments, self.app.python_executable, self.app.project_dir)
+            text = preview_text(summary)
+        except TimeoutError:
+            text = message_id("models.preview.timeout")
+        except (OSError, RunStateError, ValueError) as exc:
+            text = message_id("models.preview.failure", str(exc))
+        if self.app.form_ready and not self.app.ui_closing and arguments == self.current_arguments():
+            self._show_preview(text)
+
+    def _preview_finished(self, worker: asyncio.Task[None]) -> None:
+        self.preview_worker = None
+        if not worker.cancelled():
+            worker.result()
+        if self.app.form_ready and not self.app.ui_closing:
+            self.app.set_busy(False)
+
+    async def close_preview(self) -> None:
+        self.preview_pending = False
+        if worker := self.preview_worker:
+            if not worker.cancelling():
+                worker.cancel()
+            await asyncio.gather(worker, return_exceptions=True)
 
     def open_model_candidates(self) -> None:
         if not self.app.allow_operation('catalog'):
@@ -98,7 +183,7 @@ class ModelController:
         action, candidate = choice
         if action == 'use':
             revision = candidate.revision if pinned_revision(candidate.revision) else ''
-            self.app.configuration.select_model_candidate(candidate.model_id, candidate.model_source, revision)
+            self.app.configuration.select_model_candidate(candidate.model_id, candidate.model_source, revision, candidate.model_variant)
             self.app.notify(message_id('models.candidates.selected_notice', candidate.reason))
         elif action == 'view' and candidate.record:
             self.app.catalog.view_experiment(candidate.record)

@@ -29,6 +29,10 @@ def configuration_identity(config: RunConfig, task: TaskInfo) -> dict:
     for name in ("resume", "output_dir", "notify", "task_run_id", "tasks", "revision",
                  "inference_config", "confirm_inference"):
         values.pop(name)
+    if task.model_variant:
+        values["model_variant"] = task.model_variant
+    else:
+        values.pop("model_variant", None)
     for name in ("workload_spec", "model_spec"):
         if values.get(name):
             values[name] = content_digest(read_json_object(Path(values[name]).expanduser(), label=name))
@@ -78,6 +82,8 @@ class TaskCollection:
             raise ValueError("task collection model identity changed")
         if config.revision and config.revision not in {task.model_revision, task.requested_revision}:
             raise ValueError("task collection revision changed")
+        if config.model_variant and config.model_variant != task.model_variant:
+            raise ValueError("task collection checkpoint variant changed")
         if config.tasks and config.tasks != "all":
             requested = [name.strip() for name in config.tasks.split(",")]
             profiles = {item["task_id"]: item for item in task.selected_tasks}
@@ -107,7 +113,7 @@ class TaskCollection:
     def child_config(self, selected: dict) -> RunConfig:
         from acprof.extensions import CATALOG
         values = dict(tasks=selected["task_id"], task_run_id=self.run_id,
-                      revision=self.task.model_revision, task=selected["interface"],
+                      revision=self.task.model_revision, model_variant=self.task.model_variant, task=selected["interface"],
                       task_family=CATALOG.task_families[selected["interface"]])
         values.update(task_experiment_overrides(selected))
         if values["task_family"] == "nlp":

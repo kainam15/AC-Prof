@@ -795,6 +795,7 @@ TaskChoice .task-differences .fact-more > CollapsibleTitle { color: $text-muted;
 .path-picker-row Button { min-width: 10; width: auto; margin-left: 1; }
 
 .model-picker-row { height: auto; }
+#model-preview { height: auto; margin: 0 0 1 0; }
 .model-picker-row Button { min-width: 10; width: auto; margin-left: 1; }
 
 #status-return {

@@ -81,12 +81,14 @@ def probe_interface(task_info, output_dir: str | Path, *, cpus: int = 2,
             report["image_id"] = dependency.image_id
             recover_abandoned_containers(owner, run_command)
             cidfile = root / "container.cid"
+            variant = getattr(task_info, "model_variant", "")
+            source_mount = "/source/" + variant.rstrip("/") if variant.endswith("/") else "/source"
             command = ["docker", "run", "--name", "acprof-interface-" + uuid.uuid4().hex[:16],
                        "--user", f"{os.getuid()}:{os.getgid()}",
                        "--cidfile", str(cidfile), "--network", "none", "--read-only", "--cap-drop=ALL",
                        "--security-opt", "no-new-privileges", "--pids-limit=256",
                        "--tmpfs", "/tmp:rw,nosuid,nodev,size=1g", f"--cpus={cpus}", f"--memory={memory_gb}g",
-                       "-v", f"{bundle.root}:/source:ro", "-v", f"{code}:/probe-code:ro"]
+                       "-v", f"{bundle.root}:{source_mount}:ro", "-v", f"{code}:/probe-code:ro"]
             for key, value in owner.items():
                 command += ["--label", f"{key}={value}"]
             environment = {

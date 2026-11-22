@@ -40,8 +40,10 @@ def bound_inference_configuration(task_info: Any, *, configuration: dict | None 
 def inference_environment(task_info: Any, *, configuration: dict | None = None) -> dict[str, str]:
     """Reuse frozen values; historical tasks without a configuration remain readable."""
     frozen = bound_inference_configuration(task_info, configuration=configuration)
+    variant = getattr(task_info, "model_variant", "")
+    variant_env = {"ACPROF_MODEL_VARIANT": variant} if variant else {}
     if not frozen:
-        return {}
+        return variant_env
     identifiers = {
         item["task_id"] for item in task_info.selected_tasks
         if item["interface"] == task_info.pipeline_tag
@@ -51,7 +53,7 @@ def inference_environment(task_info: Any, *, configuration: dict | None = None) 
     identifier = next(iter(identifiers))
     if identifier not in frozen["tasks"]:
         raise ValueError("selected inference task is absent from the frozen configuration")
-    return {CONFIGURATION_ENV: encode_inference_configuration(frozen), TASK_ENV: identifier}
+    return {CONFIGURATION_ENV: encode_inference_configuration(frozen), TASK_ENV: identifier, **variant_env}
 
 
 def inference_docker_env_args(task_info: Any, *, configuration: dict | None = None) -> list[str]:

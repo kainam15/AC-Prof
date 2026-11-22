@@ -79,6 +79,9 @@ def _validate_configuration(configuration: dict, *, states: set[str]) -> None:
     model = _object(configuration["model"], "model")
     for key in ("source", "model_id"):
         _text(model.get(key), f"model.{key}")
+    if "variant" in model:
+        from acprof.models.files import validate_variant
+        validate_variant(model["variant"])
     if not pinned_revision(model.get("revision")):
         raise ValueError("model.revision must be a fixed 40-character commit")
     backend = _object(configuration["backend"], "backend")
@@ -171,6 +174,8 @@ def validate_configuration_binding(configuration: dict, task_info: Any, *,
     for key, attribute in (("source", "model_source"), ("model_id", "model_id"), ("revision", "model_revision")):
         if model[key] != getattr(task_info, attribute, None):
             raise ValueError(f"inference_configuration.model.{key} differs from the active model")
+    if model.get("variant", "") != getattr(task_info, "model_variant", ""):
+        raise ValueError("inference_configuration.model.variant differs from the active checkpoint")
     for key, attribute in (("id", "runtime_backend"), ("adapter", "model_adapter"),
                            ("runtime_profile", "runtime_profile_id")):
         if backend[key] != getattr(task_info, attribute, None):

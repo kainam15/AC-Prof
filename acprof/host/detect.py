@@ -57,6 +57,7 @@ class TaskInfo:
     runtime_profile_id: str = ""
     model_adapter: str = "family-default"
     model_download_policy: str = "auto"
+    model_variant: str = field(default="", kw_only=True)
     repository_files: tuple[str, ...] = ()
     repository_metadata: dict[str, Any] = field(default_factory=dict)
     metadata_errors: tuple[str, ...] = ()
@@ -70,6 +71,10 @@ class TaskInfo:
     task_discovery: dict[str, Any] = field(default_factory=dict)
     selected_tasks: list[dict[str, Any]] = field(default_factory=list)
     inference_configuration: dict[str, Any] = field(default_factory=dict)
+
+    def repository_path(self, name: str) -> str:
+        """Map a loader-relative metadata file to its pinned repository name."""
+        return self.model_variant + name if self.model_variant.endswith("/") else name
 
 
 def _architecture_metadata(config: Any) -> dict[str, Any]:
@@ -151,7 +156,7 @@ def _repository_json(
 
 
 def _repository_metadata(
-    model_id: str, revision: str, info: Any, lookup_diagnostics: list[str] | None = None,
+    model_id: str, revision: str, info: Any, lookup_diagnostics: list[str] | None = None, *, model_variant: str = "",
 ) -> dict[str, Any]:
     """Read small, non-executable metadata at the same commit as the weights."""
     from acprof.models.artifact_layout import checkpoint_metadata_indexes
@@ -159,6 +164,12 @@ def _repository_metadata(
 
     inventory = {str(item.rfilename) for item in (getattr(info, "siblings", None) or [])
                  if getattr(item, "rfilename", "")}
+    subfolder = model_variant if model_variant.endswith("/") else ""
+    if subfolder:
+        from acprof.models.files import checkpoint_directories
+        if subfolder not in checkpoint_directories(inventory):
+            raise ModelFilesError(f"Selected directory {subfolder!r} is not a standalone Transformers checkpoint")
+        inventory = {name[len(subfolder):] for name in inventory if name.startswith(subfolder)}
     files = tuple(sorted(inventory))
     metadata, errors, diagnostics, sources = {}, [], [], {}
     if files and not pinned_revision(revision):
@@ -177,8 +188,10 @@ def _repository_metadata(
         if inventory and name not in inventory:
             return False
         try:
-            downloaded = _download_metadata(model_id, name, revision)
+            downloaded = _download_metadata(model_id, subfolder + name, revision)
             sources[name] = _raw_metadata_source(downloaded, revision)
+            if subfolder:
+                sources[name]["repository_path"] = subfolder + name
             metadata[name] = _repository_json(downloaded, name, groups, sources[name]["sha256"])
             return bool(metadata[name])
         except MetadataValidationError as exc:
@@ -198,7 +211,7 @@ def _repository_metadata(
     if files:
         read_config_groups(groups, read_name)
         try:
-            indexes = checkpoint_metadata_indexes(inventory, metadata)
+            indexes = checkpoint_metadata_indexes(inventory, metadata, model_variant="" if subfolder else model_variant)
         except ValueError as exc:
             errors.append(f"checkpoint layout: {_format_failure(exc)}")
         else:
@@ -560,7 +573,7 @@ def _record_failure(diagnostics: list[str] | None, stage: str, reason: str) -> N
 def _detect_from_hub(
     model_id: str,
     diagnostics: list[str] | None = None,
-    *, revision: str | None = None, failures: list[Exception] | None = None,
+    *, revision: str | None = None, failures: list[Exception] | None = None, model_variant: str = "",
 ) -> TaskInfo | None:
     """Level 1: Query HuggingFace Hub API."""
     try:
@@ -585,6 +598,12 @@ def _detect_from_hub(
             failures.append(exc)
         return None
 
+    if model_variant.endswith("/"):
+        # Root architecture, tags and parameter counts may describe a different sibling.
+        from types import SimpleNamespace
+        info = SimpleNamespace(sha=getattr(info, "sha", None), siblings=getattr(info, "siblings", ()),
+                               library_name="transformers",
+                               card_data={"license": _mapping_value(getattr(info, "card_data", None), "license")})
     pipeline_tag = getattr(info, "pipeline_tag", None)
     hub_pipeline_tag = pipeline_tag
     task_hint_source = "extension_catalog"
@@ -598,7 +617,7 @@ def _detect_from_hub(
                          if isinstance(value := getattr(transformers_info, key, None), str)} if not isinstance(transformers_info, dict) else {
                              key: value for key, value in transformers_info.items()
                              if key in {"auto_model", "pipeline_tag", "processor", "custom_class"} and isinstance(value, str)}
-    repository = _repository_metadata(model_id, sha, info, diagnostics)
+    repository = _repository_metadata(model_id, sha, info, diagnostics, **({"model_variant": model_variant} if model_variant else {}))
     raw_pinned_config = repository["repository_metadata"].get("config.json")
     pinned_quantization = _quantization_declaration(raw_pinned_config)
     raw_hub_config = getattr(info, "config", None) or {}
@@ -807,7 +826,7 @@ def detect_task(
     override_family: str | None = None,
     override_backend: str | None = None,
     model_spec_path: str | None = None,
-    *, revision: str | None = None,
+    *, revision: str | None = None, model_variant: str = "",
 ) -> TaskInfo:
     """Discover candidates and apply CLI overrides, checking declaration conflicts."""
     from huggingface_hub.errors import HFValidationError
@@ -820,8 +839,15 @@ def detect_task(
     # Start with auto-detection
     diagnostics: list[str] = []
     failures: list[Exception] = []
-    info = _detect_from_hub(model_id, diagnostics, revision=revision, failures=failures)
+    if model_variant:
+        from acprof.models.files import validate_variant
+        validate_variant(model_variant)
+    info = _detect_from_hub(model_id, diagnostics, revision=revision, failures=failures,
+                            **({"model_variant": model_variant} if model_variant else {}))
     if info is None:
+        if model_variant.endswith("/"):
+            cause = failures[0] if failures else ValueError("model directory selection requires a pinned file inventory")
+            raise model_lookup_error(model_id, cause, revision=revision, diagnostics=diagnostics) from cause
         if failures:
             error = model_lookup_error(model_id, failures[0], revision=revision, diagnostics=diagnostics)
             if error.blocks_fallback:
@@ -857,6 +883,7 @@ def detect_task(
     from acprof.hub.repository import model_source
     info.model_source = model_source()
     info.requested_revision = revision
+    info.model_variant = model_variant
     invalid = next((item for item in info.metadata_diagnostics if item["reason_code"] == "metadata_invalid"), None)
     if invalid:
         # Invalid content must not reach candidate discovery.
@@ -884,7 +911,7 @@ def detect_task(
         source_revision = info.model_revision
         def source_text(name):
             if name not in info.repository_sources:
-                info.repository_sources[name] = read_model_source(model_id, name, source_revision)
+                info.repository_sources[name] = read_model_source(model_id, info.repository_path(name), source_revision)
             return info.repository_sources[name]
         apply_model_contract(info, source_text,
                              override_tag=override_tag, override_backend=override_backend,

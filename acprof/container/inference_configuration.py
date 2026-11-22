@@ -48,7 +48,10 @@ def _failure(config, device: str, detail: str, *, unverified: bool = False,
 def bound_load_options(config, device: str, load_options: dict | None) -> dict | None:
     """Validate the active binding and reject an override of confirmed values."""
     frozen = _frozen(config)
+    variant = getattr(config, "model_variant", "")
     if not frozen:
+        if variant and not variant.endswith("/"):
+            return {**(load_options or {}), "variant": variant}
         return load_options
     from acprof.container.load_policy import registered_policy
 
@@ -59,6 +62,8 @@ def bound_load_options(config, device: str, load_options: dict | None) -> dict |
         for name, actual in (("model_id", config.model_id), ("revision", config.model_revision)):
             if frozen["model"][name] != actual:
                 raise ValueError(f"frozen model.{name} differs from the active model")
+        if variant != frozen["model"].get("variant", ""):
+            raise ValueError("frozen checkpoint variant differs from the active model")
         for name, actual in (("id", config.backend), ("adapter", config.adapter)):
             if frozen["backend"][name] != actual:
                 raise ValueError(f"frozen backend.{name} differs from the active backend")
@@ -89,6 +94,8 @@ def bound_load_options(config, device: str, load_options: dict | None) -> dict |
         if isinstance(exc, RuntimeFailure):
             raise
         raise _failure(config, device, str(exc)) from exc
+    if variant and not variant.endswith("/"):
+        expected["variant"] = variant
     return expected
 
 

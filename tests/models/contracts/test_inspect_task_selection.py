@@ -205,3 +205,12 @@ def test_metadata_error_is_reported_without_a_traceback(monkeypatch, capsys):
     output = capsys.readouterr()
     assert "config.json:/limit is non-finite" in output.err
     assert "Traceback" not in output.err
+
+
+def test_selected_gpu_and_batch_reach_static_support(inspection, multiple_profiles):
+    support, _ = inspection
+    main([multiple_profiles.model_id, "--tasks", "all", "--gpus", "on", "--batch-size", "3", "--summary-json"])
+    assert support.called
+    for call in support.call_args_list:
+        assert call.kwargs["devices"] == ["on"]
+        assert call.kwargs["batch_size"] == 3

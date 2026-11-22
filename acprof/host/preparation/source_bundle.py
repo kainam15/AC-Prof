@@ -68,7 +68,7 @@ def source_bundle(task_info):
         for name in names:
             text = task_info.repository_sources.get(name)
             if text is None:
-                text = read_model_source(task_info.model_id, name, task_info.model_revision)
+                text = read_model_source(task_info.model_id, task_info.repository_path(name), task_info.model_revision)
             data = text.encode("utf-8")
             total += len(data)
             if len(data) > MAX_SOURCE_BYTES or total > MAX_TOTAL_SOURCE_BYTES:

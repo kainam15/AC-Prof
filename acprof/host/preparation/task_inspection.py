@@ -64,7 +64,9 @@ def inspect_selected_tasks(task, args):
         current = activate_task(task, choice, backend=args.backend) if len(selected) > 1 else task
         current.model_resolution["selected_tasks"] = copy.deepcopy(current.selected_tasks)
         try:
-            require_task_support(current, devices=("cpu",))
+            gpus = getattr(args, "gpus", None)
+            require_task_support(current, devices=gpus.split(",") if gpus else ("cpu",),
+                                 batch_size=getattr(args, "batch_size", 1))
         except TaskSupportError as exc:
             # Also normalize failures from external or mocked preflight providers.
             error = _record_failure(current, exc.failure)

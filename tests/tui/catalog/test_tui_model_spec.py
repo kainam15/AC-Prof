@@ -46,3 +46,20 @@ def test_missing_declaration_is_reported_before_command_execution():
         config = RunConfig(model="example/custom", model_spec="missing.json")
         with pytest.raises(RunConfigError, match="missing.json"):
             build_run_command(config, project_dir=Path(directory))
+
+async def test_model_variant_round_trips_across_the_advanced_form_and_commands(tmp_path):
+    root = Path(__file__).resolve().parents[3]
+    config = RunConfig(model="fixture/model", revision="v3", model_variant="checkpoints/tiny/")
+    app = AcprofTui(config, settings_path=tmp_path / "settings.json")
+    async with app.run_test(size=(90, 30)) as pilot:
+        app.query_one("#experiment-pages", ContentSwitcher).current = "advanced-form"
+        field = app.query_one("#model-variant", Input)
+        field.scroll_visible(animate=False, immediate=True)
+        await pilot.pause()
+        assert await pilot.click(field)
+        assert field.value == config.model_variant
+        revised = app.configuration.collect_config()
+        for builder in (build_run_command, build_probe_command):
+            command = builder(revised, project_dir=root)
+            assert command[command.index("--model-variant") + 1] == "checkpoints/tiny/"
+            assert command[command.index("--revision") + 1] == "v3"

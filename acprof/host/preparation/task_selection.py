@@ -21,6 +21,35 @@ class TaskSelectionRequired(ValueError):
         )
 
 
+def review_checkpoint_variant(task, workflow) -> str:
+    from acprof.models.files import has_default_checkpoint
+
+    if task.metadata_errors or task.model_spec or not task.model_resolution.get("checkpoint_variants"):
+        return ""
+    names = set(task.repository_files)
+    variants = task.model_resolution.get("checkpoint_variants", [])
+    native = (task.runtime_backend in {"transformers_model", "transformers_pipeline"}
+              and task.model_adapter == "family-default"
+              and not any(task.model_config.get(key) for key in ("auto_map", "custom_pipelines", "quantization_config"))
+              and "adapter_config.json" not in names)
+    choices = [value for value in variants if native or value.endswith("/")]
+    if not choices:
+        return ""
+    if len(choices) > 256:
+        raise ValueError("This repository has more than 256 checkpoint variants; use --model-variant to select one.")
+    default = native and has_default_checkpoint(names)
+    if default:
+        choices.insert(0, "(default)")
+    reply = workflow.ask("resolution", "review", resolved=False,
+                         fields={"Model": task.model_id, "Revision": task.model_revision},
+                         questions=[{"path": "model_variant", "options": choices,
+                                     "value": "(default)" if default else None, "labels": {"(default)": "默认权重"}}])
+    choice = reply.get("answers", {}).get("model_variant")
+    if choice not in choices:
+        raise ValueError("select a checkpoint variant listed at the reviewed revision")
+    return "" if choice == "(default)" else choice
+
+
 def activate_task(task, selected: dict, *, backend: str = ""):
     from acprof.models.candidates import apply_model_candidate, discover_model_candidates
 

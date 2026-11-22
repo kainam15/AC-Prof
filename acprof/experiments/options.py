@@ -55,6 +55,9 @@ class RunOptions:
     revision: str = option(
         '', help='Model branch, tag or full commit SHA', probe=True, cli_default=None,
     )
+    model_variant: str = option(
+        '', help='Select a named native Transformers checkpoint variant at the requested revision', probe=True,
+    )
     task: str = option(
         '', help='Override pipeline_tag (e.g., text-generation)', probe=True, cli_default=None,
     )

@@ -85,13 +85,13 @@ class ConfigurationController:
         model = model if model is not None else saved.last_model or config.model
         source = model_source or (saved.last_model_source if saved.last_model else "") or config.model_source
         if (model, source) != (config.model, config.model_source):
-            config = replace(config, model=model, model_source=source, revision="",
+            config = replace(config, model=model, model_source=source, revision="", model_variant="",
                              tasks="" if config.model else config.tasks)
         return config
 
     def _remember_model_fields(self, config: RunConfig) -> None:
         repository = (config.model, config.model_source)
-        values = {"revision": config.revision, "tasks": config.tasks if config.model else ""}
+        values = {"revision": config.revision, "model-variant": config.model_variant, "tasks": config.tasks if config.model else ""}
         self._inherited_model_fields = {field: (repository, value) for field, value in values.items() if value}
 
     def sync_model_fields(self) -> None:
@@ -107,17 +107,19 @@ class ConfigurationController:
                 del self._inherited_model_fields[field]
                 widget.value = ""
 
-    def select_model_candidate(self, model: str, source: str, revision: str) -> None:
+    def select_model_candidate(self, model: str, source: str, revision: str, variant: str = "") -> None:
         with self.app.prevent(Input.Changed, Select.Changed):
             self.app.query_one("#model", Input).value = model
             self.app.query_one("#model-source", Select).value = source
             self.sync_model_fields()
-            self.app.query_one("#revision", Input).value = revision
-            if revision:
-                self._inherited_model_fields["revision"] = ((model, source), revision)
-            else:
-                self._inherited_model_fields.pop("revision", None)
+            for field, value in (("revision", revision), ("model-variant", variant)):
+                self.app.query_one(f"#{field}", Input).value = value
+                if value:
+                    self._inherited_model_fields[field] = ((model, source), value)
+                else:
+                    self._inherited_model_fields.pop(field, None)
         self.refresh_command_preview()
+        self.app.models.inspect_model()
 
     def use_process_inherited_resources(self) -> None:
         if self.app.is_busy() or self.app.preflight.check_running or self.app.execution.session.snapshot.measurement_active:
@@ -286,8 +288,10 @@ class ConfigurationController:
 
         self.app.push_screen(screen, closed)
 
-    def environment_closed(self, _saved: bool | None) -> None:
+    def environment_closed(self, saved: bool | None) -> None:
         self.environment_open = False
+        if saved and self.app.query_one("#model-preview", Static).display:
+            self.app.models.inspect_model(submitted=True)
         self.refresh_connection_badges()
         self.app.set_busy(False)
 
@@ -516,6 +520,7 @@ class ConfigurationController:
         if not preserve_model_edits:
             self._remember_model_fields(config)
         if self.app.form_ready:
+            self.app.models.model_edited()
             self.refresh_command_preview(notify=False)
 
     def show_config_error(self, exc: RunConfigError) -> None:

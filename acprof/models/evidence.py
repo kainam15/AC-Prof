@@ -30,6 +30,7 @@ def resolution_provenance(task_info, candidates: list[dict], *, hub_task: str | 
     revision = task_info.model_revision
     snapshot = {"model_id": task_info.model_id, "revision": revision,
                 "source": getattr(task_info, "model_source", "huggingface"),
+                **({"model_variant": task_info.model_variant} if getattr(task_info, "model_variant", "") else {}),
                 "files_sha256": content_digest(sorted(task_info.repository_files or ())),
                 "derived_from": []}
     sources = {"repository_snapshot": snapshot}
@@ -40,7 +41,8 @@ def resolution_provenance(task_info, candidates: list[dict], *, hub_task: str | 
         "repository_spec": ((task_info.repository_metadata or {}).get("acprof_model.json", {}), "declaration", ["repository_snapshot"]),
         "local_spec": (getattr(task_info, "model_spec", {}), "user", []),
         # CLI, TUI and probe use both None and "" for an absent override.
-        "explicit": ({"task": explicit_task or None, "backend": explicit_backend or None}, "user", []),
+        "explicit": ({"task": explicit_task or None, "backend": explicit_backend or None,
+                      **({"model_variant": task_info.model_variant} if getattr(task_info, "model_variant", "") else {})}, "user", []),
         "generated_contract": (task_model_spec(task_info), "derived", ["repository_config"]),
     }
     for name, (value, family, parents) in values.items():

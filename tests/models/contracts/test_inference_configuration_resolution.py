@@ -322,3 +322,15 @@ def test_draft_preserves_metadata_diagnostic_before_failure_is_formatted():
     assert "failure" not in task.model_resolution
     with pytest.raises(ValueError, match="pinned configuration could not be read"):
         _draft(task)
+
+def test_frozen_checkpoint_selection_cannot_be_replaced_by_another_variant():
+    original = _model()
+    original.repository_files = (*original.repository_files, "model.fp16.safetensors")
+    original.model_variant = "fp16"
+    task, _ = _resolve(original)
+    frozen = task.inference_configuration
+    assert frozen["model"]["variant"] == "fp16"
+    validate_configuration_binding(frozen, task)
+    task.model_variant = "bf16"
+    with pytest.raises(ValueError, match="model.variant"):
+        validate_configuration_binding(frozen, task)

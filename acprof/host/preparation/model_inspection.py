@@ -78,6 +78,11 @@ def explain_resolution(task_info, *, explain: bool = False) -> str:
             lines.append(compatibility["detail"])
         if compatibility.get("next_action"):
             lines.append(f"Next action: {compatibility['next_action']}")
+    variants = resolution.get("checkpoint_variants", [])
+    if variants:
+        lines.append("Checkpoint variants (--model-variant): " + ", ".join(variants))
+    if variants or getattr(task_info, "model_variant", ""):
+        lines.append("Selected checkpoint: " + (getattr(task_info, "model_variant", "") or "(default)"))
     layout = resolution.get("artifact_layout")
     if layout:
         lines.append(f"Artifact layout: {layout.get('status', 'unknown')}")

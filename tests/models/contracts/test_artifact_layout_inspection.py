@@ -22,6 +22,7 @@ def _task(*, files=("config.json", "model.safetensors"), metadata=None, **overri
 
 @pytest.mark.parametrize("foreign", [
     ("model.gguf",),
+    ("encoder.onnx",),
     ("encoder.mlpackage/Manifest.json", "encoder.mlpackage/Data/com.apple.CoreML/weights/weight.bin"),
     ("encoder.mlmodel",),
     ("checkpoint.safetensors",),
@@ -230,3 +231,14 @@ def test_native_component_declaration_does_not_support_foreign_weights(backend, 
         resolve_model_interface(task)
     assert caught.value.failure.reason_code == "artifact_layout_unsupported"
     assert "GGUF" in caught.value.failure.detail or "CoreML" in caught.value.failure.detail
+
+def test_forced_onnx_backend_preserves_export_only_evidence():
+    task = _task(files=("tiny/Encoder.mlmodelc/model.mil", "large/Encoder.mlmodelc/model.mil"),
+                 pipeline_tag="text-classification", runtime_backend="onnxruntime")
+    with pytest.raises(RuntimeFailure) as caught:
+        resolve_model_interface(task)
+    evidence = caught.value.failure.evidence
+    assert caught.value.failure.reason_code == "artifact_layout_unsupported"
+    assert evidence["artifact_format"] == "CoreML"
+    assert evidence["variant_directories"] == ["large", "tiny"]
+    assert evidence["artifact_platform"] == "Apple Core ML"

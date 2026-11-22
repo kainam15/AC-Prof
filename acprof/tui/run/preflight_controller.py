@@ -375,7 +375,7 @@ class PreflightController:
         return self.status.state
 
     def check_permission_changes(self) -> None:
-        if self.checked_permissions is None or self.app.is_busy() or self.app.ui_closing:
+        if self.checked_permissions is None or self.app.is_busy() or self.app.models.preview_worker or self.app.ui_closing:
             return
         try:
             with offline_analysis_lock():

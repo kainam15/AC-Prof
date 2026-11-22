@@ -32,6 +32,10 @@ MESSAGES: dict[str, Entry] = {
         en="Model revision must be a branch, tag or commit SHA without whitespace",
     ),
     "validation.model_source.invalid": Entry(zh="模型来源必须是 huggingface 或 modelscope", en="Model source must be huggingface or modelscope"),
+    "validation.model_variant.invalid": Entry(
+        zh="权重变体须为有效的命名权重或以 / 结尾的相对模型目录",
+        en="Enter a named checkpoint or a relative model directory ending in /.",
+    ),
     "validation.network.empty_interface": Entry(zh="抓包网卡不能为空", en="Capture interface must not be empty"),
     "validation.notifications.invalid_mode": Entry(zh="无效的通知模式", en="Invalid notification mode"),
     "validation.options.invalid_parameter": Entry(zh="参数 {0} 无效：{1}", en="Invalid parameter {0}: {1}"),

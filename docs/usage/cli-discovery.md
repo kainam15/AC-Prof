@@ -39,6 +39,8 @@ Process 可选指标缺失不会使必要检查失败，JSON 中的 `required` �
 
 ### `acprof inspect`
 
+`acprof inspect MODEL --summary-json` 输出所选 revision 的静态概要，包含架构、权重格式、兼容性、阻断原因及可选变体。`--gpus`、`--batch-size`、`--task-family` 和 `--model-store` 使用与采集相同的请求值。配置页使用此模式，不加载权重。设置 `HF_HUB_OFFLINE=1` 时，Hugging Face 和 ModelScope 均先读取可用缓存，缓存缺失会给出原因和提示。
+
 `acprof inspect MODEL` 只进行静态解析；`--explain` 显示固定 revision、字段来源和未决项。
 `--output-dir DIR` 导出 `model_resolution.json`。任务选择、配置、元数据、制品或运行环境的静态阻断退出 2，
 保留可用的解析证据；无法取得模型身份的仓库查询失败退出 1。分类见[共享接口解析](../models/routing.md#共享接口解析)。

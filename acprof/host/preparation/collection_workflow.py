@@ -235,7 +235,8 @@ class PreparationWorkflow:
         updated.model_spec = path
         resolved = detect_task(model_id=task.model_id, revision=task.model_revision,
                               override_tag=updated.task, override_family=updated.task_family,
-                              override_backend=updated.backend, model_spec_path=updated.model_spec)
+                              override_backend=updated.backend, model_spec_path=updated.model_spec,
+                              **({"model_variant": task.model_variant} if getattr(task, "model_variant", "") else {}))
         # Persist only resolver inputs, never write a final contract from the UI.
         args.model_spec = path
         return resolved
@@ -258,11 +259,26 @@ class PreparationWorkflow:
         from acprof.host.preparation.task_support import require_task_support
 
         def resolve_once():
-            task = initial if initial is not None else detect_task(
-                model_id=args.model, override_tag=args.task, override_family=args.task_family,
-                override_backend=args.backend, model_spec_path=args.model_spec,
-                **({"revision": args.revision} if args.revision else {}),
-            )
+            def detect(revision, variant):
+                return detect_task(model_id=args.model, override_tag=args.task, override_family=args.task_family,
+                                   override_backend=args.backend, model_spec_path=args.model_spec,
+                                   **({"revision": revision} if revision else {}),
+                                   **({"model_variant": variant} if variant else {}))
+
+            variant = getattr(args, "model_variant", "")
+            task = initial if initial is not None else detect(args.revision, variant)
+            if initial is not None and variant and getattr(task, "model_variant", "") != variant:
+                raise ValueError("selected checkpoint variant differs from the prepared task")
+            if (self.interactive and not variant and not getattr(task, "model_variant", "")
+                    and not getattr(task, "inference_configuration", {}) and not getattr(args, "resume", False)):
+                from acprof.host.preparation.task_selection import review_checkpoint_variant
+                choice = review_checkpoint_variant(task, self)
+                if choice:
+                    selected = detect(task.model_revision, choice)
+                    selected.requested_revision = task.requested_revision
+                    task = selected
+            if getattr(task, "model_variant", ""):
+                args.model_variant = task.model_variant
             self._explicit(task, args)
             from acprof.host.preparation.task_selection import select_tasks
             task = select_tasks(task, args, self)
@@ -271,6 +287,7 @@ class PreparationWorkflow:
                 return task  # Unified inference review follows final platform selection.
             identity = {"model": task.model_id, "revision": task.model_revision,
                         "source": getattr(task, "model_source", "huggingface"),
+                        **({"variant": task.model_variant} if getattr(task, "model_variant", "") else {}),
                         "contract": task.model_resolution.get("contract", {}).get("cache_key"),
                         "evidence": task.model_resolution.get("provenance", {}).get("identity_sha256"),
                         "explicit": {name: getattr(args, name, None) for name in ("task", "task_family", "backend", "model_spec")}}

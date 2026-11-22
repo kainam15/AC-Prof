@@ -286,6 +286,12 @@ class RunConfig(RunOptions):
         )
 
     def _validate_source(self, errors: list[ConfigIssue]) -> None:
+        if self.model_variant:
+            from acprof.models.files import ModelFilesError, validate_variant
+            try:
+                validate_variant(self.model_variant)
+            except ModelFilesError:
+                errors.append(ConfigIssue("model_variant", message("权重变体须为有效的命名权重或以 / 结尾的相对模型目录")))
         if not isinstance(self.revision, str) or any(character.isspace() for character in self.revision):
             errors.append(ConfigIssue("revision", message("模型 revision 必须是无空白的 branch、tag 或 commit SHA")))
         from acprof.hub.huggingface.endpoints import HF_DOWNLOAD_MODES

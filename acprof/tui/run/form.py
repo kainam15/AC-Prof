@@ -18,6 +18,7 @@ def runtime_form_config(config: RunConfig) -> RunConfig:
 INPUT_FIELDS = {
     "model": "model",
     "revision": "revision",
+    "model-variant": "model_variant",
     "task": "task",
     "tasks": "tasks",
     "backend": "backend",

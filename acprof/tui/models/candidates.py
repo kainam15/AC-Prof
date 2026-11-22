@@ -33,6 +33,11 @@ class ModelCandidate:
     reason_code: str = ""
 
     @property
+    def model_variant(self) -> str:
+        options = self.conditions.get("execution_options") or {}
+        return options.get("model_variant", "")
+
+    @property
     def search_text(self) -> str:
         return ' '.join((self.model_id, self.model_source, self.revision, self.status, self.reason,
                          json.dumps(self.conditions, ensure_ascii=False))).casefold()
@@ -46,7 +51,8 @@ def execution_options(options: dict) -> dict | None:
             or 'input_scales' not in options or 'request_timeout_seconds' not in options):
         return None
     # RunState v1 deliberately omits blank cpuset and the default auto policy.
-    return {'cpuset_cpus': options.get('cpuset_cpus', ''), 'input_scales': options['input_scales'] or None,
+    return {**({"model_variant": options["model_variant"]} if options.get("model_variant") else {}),
+        'cpuset_cpus': options.get('cpuset_cpus', ''), 'input_scales': options['input_scales'] or None,
         'input_scale_policy': options.get('input_scale_policy', 'auto'),
         'model_spec_sha256': options.get('model_spec_sha256', 'none') if not options.get('model_spec') else options.get('model_spec_sha256'),
         'workload_spec_sha256': options.get('workload_spec_sha256', 'none') if not options.get('workload_spec') else options.get('workload_spec_sha256'),
@@ -210,13 +216,14 @@ def cached_candidates(root: Path, *, cancelled: Callable[[], bool] = lambda: Fal
             plan = read_entry(path.parent.name, root)
             if not plan or not all(source.cache_status == 'hit' for source in model_sources(plan, root, entry_id=path.parent.name)):
                 continue
-            identity = (plan['model_id'], plan['model_revision'], plan.get('source', 'huggingface'))
+            identity = (plan['model_id'], plan['model_revision'], plan.get('source', 'huggingface'), plan.get('model_variant', ''))
             if identity in identities or not pinned_revision(identity[1]):
                 continue
             identities.add(identity)
             detail = json.dumps({'cache_entry': str(path.parent), 'plan_sha256': plan.get('plan_sha256'),
                 'model_id': identity[0], 'revision': identity[1], 'source': identity[2], 'inference_verified': False}, ensure_ascii=False, indent=2)
-            values.append(ModelCandidate(*identity[:2], 'cached_unverified', 'verified cache entry; runtime validation required', {}, detail,
+            conditions = {'execution_options': {'model_variant': identity[3]}} if identity[3] else {}
+            values.append(ModelCandidate(*identity[:2], 'cached_unverified', 'verified cache entry; runtime validation required', conditions, detail,
                                          model_source=identity[2]))
         except (ValueError, OSError, KeyError, TypeError) as exc:
             warnings.append(f'{path.parent.name}: {exc}')
@@ -298,7 +305,7 @@ def current_conditions(record: ExperimentRecord, config, context: dict, project_
     from acprof.host.execution_conditions import measurement_environment
     host = context['host']
     options = {name: getattr(config, name) for name in ('cpuset_cpus', 'input_scales', 'input_scale_policy',
-               'model_spec', 'workload_spec', 'request_timeout_seconds')}
+               'model_spec', 'model_variant', 'workload_spec', 'request_timeout_seconds')}
     options['measurement_environment'] = measurement_environment()
     current = {'revision': revision, 'model_source': config.model_source, 'runtime_profile': None, 'runtime_environment': None,
         'device': context['gpu_uuid'] if 'on' in config.gpus.split(',') else (
@@ -310,6 +317,8 @@ def current_conditions(record: ExperimentRecord, config, context: dict, project_
         return current
     try:
         task = TaskInfo(**deepcopy(record.state['runtime']['task']))
+        if task.model_variant != config.model_variant:
+            return current
         task.runtime_profile_id = ''
         task.pipeline_tag = config.task or task.pipeline_tag
         task.task_family = config.task_family or task.task_family
@@ -370,6 +379,7 @@ def _candidate_views(candidate: ModelCandidate, status_message: Any) -> tuple[An
     rows = (
         FactRow(message_id('models.source.label'), candidate.model_source),
         FactRow(message_id('models.revision.label'), candidate.revision, copyable=True),
+        *((FactRow(message_id('models.checkpoint.variant'), candidate.model_variant),) if candidate.model_variant else ()),
         FactRow(
             message_id('models.candidates.validation_status'),
             status_message,
@@ -406,6 +416,7 @@ def model_choice(candidate: ModelCandidate):
     if candidate.history_status and candidate.history_status != candidate.status:
         status_value = join_messages(' · ', (message(status), message(MODEL_STATUS_LABELS[candidate.history_status])))
     summary, callout, section = _candidate_views(candidate, status_value)
-    return PickerChoice(candidate, (f'{candidate.model_id} ({candidate.model_source})', candidate.revision[:12], status_value,
+    revision = candidate.revision[:12] + (f' · {candidate.model_variant}' if candidate.model_variant else '')
+    return PickerChoice(candidate, (f'{candidate.model_id} ({candidate.model_source})', revision, status_value,
         str(candidate.conditions.get('device') or 'unknown')), candidate.reason + '\n' + candidate.detail, candidate.search_text,
         frozenset(actions), summary=summary, callout=callout, section=section)

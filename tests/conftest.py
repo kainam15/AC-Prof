@@ -13,6 +13,10 @@ def offline_machine_environment(request, monkeypatch):
     from acprof.tui.run.diagnostics import PreflightCheck
     from acprof.tui.run.environment_checks import ENVIRONMENT_CHECK_IDS
 
+    async def offline_model_summary(arguments, _python, _cwd):
+        return {"source": arguments[2], "status": "unknown"}
+
+    monkeypatch.setattr("acprof.tui.models.controller.inspect_summary", offline_model_summary)
     monkeypatch.setattr("acprof.tui.run.preflight_controller.scan_environment", lambda **kwargs: [
         PreflightCheck(name, "ok", "fixture machine check", check_id=name, source="fixture")
         for name in ENVIRONMENT_CHECK_IDS

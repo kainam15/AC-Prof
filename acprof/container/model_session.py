@@ -22,6 +22,7 @@ class ModelLoadConfig:
     threads: int = 0
     inference_configuration: dict[str, Any] = field(default_factory=dict)
     inference_task_id: str = ""
+    model_variant: str = ""
 
     @classmethod
     def from_environment(
@@ -41,12 +42,24 @@ class ModelLoadConfig:
             threads=runtime_threads(default=default_threads),
             inference_configuration=decode_inference_configuration(os.getenv("ACPROF_INFERENCE_CONFIGURATION", "")),
             inference_task_id=os.getenv("ACPROF_INFERENCE_TASK_ID", ""),
+            model_variant=os.getenv("ACPROF_MODEL_VARIANT", ""),
         )
 
     def resolve_source(self) -> str:
         from acprof.container.handlers import resolve_model_source
 
-        return resolve_model_source(self.model_id, self.model_path)
+        source = resolve_model_source(self.model_id, self.model_path)
+        if self.model_variant.endswith("/"):
+            from pathlib import Path
+
+            from acprof.models.files import validate_variant
+            validate_variant(self.model_variant)
+            root = Path(source).resolve(strict=True)
+            folder = (root / self.model_variant).resolve(strict=True)
+            if not folder.is_relative_to(root) or not folder.is_dir():
+                raise ValueError("selected checkpoint directory is outside the prepared snapshot")
+            return str(folder)
+        return source
 
 
 @dataclass(frozen=True)

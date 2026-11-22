@@ -245,6 +245,7 @@ class AcprofTui(AppEventRoutes):
         self.update_responsive_layout()
         self._busy_controls.capture(self)
         self.form_ready = True
+        self.models.preview_arguments = self.models.current_arguments()
         self.results.restore_recent_result()
         self.results.update_report_actions()
         self.results.sync_result_actions_for_view(result_views.active)
@@ -317,7 +318,8 @@ class AcprofTui(AppEventRoutes):
         return OperationState(
             process=process is not None or bool(self.execution.session.kind),
             stoppable=self.execution.session.launch_pending or (process is not None and process.poll() is None),
-            checking=self.preflight.check_running or self.updates.checking, reading=bool(self.read_jobs),
+            checking=self.preflight.check_running or self.updates.checking or self.models.preview_worker is not None,
+            reading=bool(self.read_jobs),
             maintenance=bool(self.images.operation) or self.images.storage_loading or self.updates.installing,
             restarting=self.updates.needs_restart,
             configuring=self.configuration.environment_open or self.catalog.picker_open,
@@ -341,6 +343,8 @@ class AcprofTui(AppEventRoutes):
         if not self.is_running or not self.form_ready or self.ui_closing:
             return
         apply_busy_state(self, self._busy_controls, busy)
+        if not busy:
+            self.models.resume_preview()
 
     def activate_tab(self, tab_id: str) -> None:
         if tab_id == "backfill-tab":
@@ -474,6 +478,7 @@ class AcprofTui(AppEventRoutes):
         self.form_ready = False
         self.ui_closing = True
         self._busy_controls.clear()
+        await self.models.close_preview()
         if self.recovery.recovery_request is not None:
             self.recovery.recovery_request.set()
         self.recovery.recovery_after_check = None
