@@ -56,9 +56,18 @@
       element("td", `${states[point.evidence_status]}\nmanifest: ${point.status}\nreport: ${point.report_status || "不可用"}`, tr);
       element("td", c ? `${c.succeeded} / ${c.offered} (${fmt(point.success_rate * 100)}%)\nerror ${c.failed} · drop ${c.dropped} · cancel ${c.cancelled}` : "不可用", tr);
       for (const name of ["successful_requests_per_s", "goodput_requests_per_s", "output_tokens_per_s"]) element("td", fmt(m[name]), tr);
+      const output = point.output_token_throughput;
+      if (output) {
+        const observed = output.observed_tokens == null ? "无已观测计数" :
+          `${output.observed_tokens.toLocaleString("en-US")} token · ${fmt(output.observed_tokens_per_s)} token/s`;
+        const ratio = output.coverage_ratio == null ? "" : `（${percent(output.coverage_ratio)}）`;
+        element("td", `${observed}\n覆盖 ${output.covered_requests}/${output.successful_requests} 个成功请求${ratio}`, tr);
+      } else {
+        element("td", "不可用", tr);
+      }
       element("td", [m.ttft_p99_s, m.tpot_p99_s, m.e2e_p99_s].map(fmt).join(" / "), tr);
       const samples = point.latency_samples;
-      element("td", samples ? `TTFT ${samples.ttft_s} · TPOT ${samples.tpot_s} · E2E ${samples.e2e_s}\ntokens ${percent(point.output_token_coverage)}\nduration ${fmt(point.duration_s)} s` : "不可用", tr);
+      element("td", samples ? `TTFT ${samples.ttft_s} · TPOT ${samples.tpot_s} · E2E ${samples.e2e_s}\nduration ${fmt(point.duration_s)} s` : "不可用", tr);
       const detail = element("td", point.diagnostics.join("\n"), tr);
       if (point.server_metrics) {
         const exporter = exporters.get(point.condition_id);

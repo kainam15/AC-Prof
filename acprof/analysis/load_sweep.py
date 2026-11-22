@@ -157,6 +157,7 @@ def _point_metrics(report: dict[str, Any]) -> dict[str, Any]:
         "duration_s": capacity["duration_s"], "counts": capacity["counts"],
         "success_rate": capacity["counts"]["succeeded"] / capacity["counts"]["offered"],
         "slo": capacity["slo"], "output_token_coverage": tokens["coverage_ratio"],
+        "output_token_throughput": tokens,
         "latency_samples": {f"{name}_s": streaming[f"{name}_s"]["sample_count"] for name in ("ttft", "tpot", "e2e")},
     }
 

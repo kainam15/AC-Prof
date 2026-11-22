@@ -174,6 +174,52 @@ def test_metric_controls_and_narrow_layout_remain_offline(browser_page, tmp_path
     assert page.locator("#metric").is_visible()
 
 
+def test_observed_output_tokens_remain_in_the_table_without_filling_curve_gaps(browser_page, tmp_path):
+    page, open_report = browser_page
+    root = make_sweep(tmp_path / "source", [
+        LoadConfig(scenario="concurrent", concurrency=c, requests=4) for c in range(1, 6)
+    ])
+
+    def omit_usage(row):
+        row.update(output_tokens=None, output_token_count_source="unavailable",
+                   token_count_scope="unavailable", tpot_s=None)
+
+    def clear_counts(point):
+        for row in point["result"]["requests"]:
+            omit_usage(row)
+
+    def zero_counts(point):
+        for row in point["result"]["requests"]:
+            row.update(output_tokens=0, ttft_s=None, tpot_s=None, output_e2e_s=None,
+                       itl_s=None, output_event_intervals_s=[])
+
+    change_point(root, 2, lambda point: omit_usage(point["result"]["requests"][0]))
+    change_point(root, 3, clear_counts)
+    change_point(root, 4, zero_counts)
+    (root / "points/0005/load.json").write_text("invalid JSON")
+    open_report(root)
+
+    expected = [
+        "12 token · 3 token/s 覆盖 4/4 个成功请求（100%）",
+        "9 token · 4.5 token/s 覆盖 3/4 个成功请求（75%）",
+        "无已观测计数 覆盖 0/4 个成功请求（0%）",
+        "0 token · 0 token/s 覆盖 4/4 个成功请求（100%）",
+        "不可用",
+    ]
+    header = page.get_by_role("columnheader", name="已观测输出 Token", exact=True)
+    assert header.count() == 1
+    index = header.evaluate("cell => cell.cellIndex")
+    cells = page.locator("#points tr").locator(f"td:nth-child({index + 1})")
+    assert [" ".join(text.split()) for text in cells.all_inner_texts()] == expected
+    assert page.locator('#points tr[data-evidence="invalid"]').count() == 1
+
+    page.select_option("#metric", "output_tokens_per_s")
+    settled(page)
+    lines = [trace for trace in traces(page) if trace["mode"] == "lines+markers"]
+    assert lines[0]["y"] == [3, None, None, 0, None]
+    assert all(trace["y"][1:3] == [None, None] and trace["connectgaps"] is False for trace in lines)
+
+
 def test_gaps_changed_conditions_and_partial_points_are_not_connected(browser_page, tmp_path):
     page, open_report = browser_page
     root = make_sweep(tmp_path / "source", [LoadConfig(scenario="concurrent", concurrency=c, requests=4) for c in range(1, 6)])

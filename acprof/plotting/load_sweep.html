@@ -26,10 +26,10 @@
     </section>
     <section aria-labelledby="points-title">
       <h2 id="points-title">逐点证据</h2>
-      <p class="muted">完整运行中的请求失败仍参与曲线。输出 token/s 需要覆盖全部成功请求；未配置 SLO 时 Goodput 不可用。P99 为各点成功请求的分位数，样本不会跨点合并。</p>
+      <p class="muted">完整运行中的请求失败仍参与曲线。曲线中的输出 token/s 需要覆盖全部成功请求。表中已观测速率以该点正式负载时长为分母。未配置 SLO 时 Goodput 不可用。P99 为各点成功请求的分位数，样本不会跨点合并。</p>
       <div class="table-scroll"><table><thead><tr>
         <th>点 / 条件</th><th>负载</th><th>状态</th><th>成功 / 预算</th><th>吞吐 req/s</th><th>Goodput req/s</th>
-        <th>输出 token/s</th><th>P99 TTFT (s) / TPOT (s/token) / E2E (s)</th><th>样本 / 覆盖</th><th>诊断 / 来源</th>
+        <th>完整输出 token/s</th><th>已观测输出 Token</th><th>P99 TTFT (s) / TPOT (s/token) / E2E (s)</th><th>时延样本 / 时长</th><th>诊断 / 来源</th>
       </tr></thead><tbody id="points"></tbody></table></div>
     </section>
     <section aria-labelledby="conditions-title"><h2 id="conditions-title">条件与来源</h2>

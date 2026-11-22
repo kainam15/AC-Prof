@@ -169,6 +169,11 @@ def test_missing_token_and_slo_evidence_is_not_zero(sweep_reader, tmp_path):
     assert point["metrics"]["goodput_requests_per_s"] is None
     assert point["metrics"]["output_tokens_per_s"] is None
     assert point["output_token_coverage"] == 0.75
+    assert point["output_token_throughput"] == {
+        "tokens": None, "tokens_per_s": None,
+        "observed_tokens": 9, "observed_tokens_per_s": 4.5,
+        "covered_requests": 3, "successful_requests": 4, "coverage_ratio": 0.75,
+    }
     assert point["latency_samples"]["tpot_s"] == 3
 
 
