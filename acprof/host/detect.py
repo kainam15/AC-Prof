@@ -595,9 +595,14 @@ def _detect_from_hub(
             if source == "modelscope":
                 info = modelscope_info(model_id, revision)
             else:
+                from acprof.models.audiocpp import REPOSITORY
                 configure_hf_transport()
-                info = try_hf_endpoints(model_id, lambda endpoint: HfApi(endpoint=endpoint, token=hf_token_for_url(endpoint)).model_info(
-                    model_id, revision=revision))
+                def fetch_info(endpoint):
+                    api = HfApi(endpoint=endpoint, token=hf_token_for_url(endpoint))
+                    if model_id == REPOSITORY:
+                        return api.model_info(model_id, revision=revision, files_metadata=True)
+                    return api.model_info(model_id, revision=revision)
+                info = try_hf_endpoints(model_id, fetch_info)
     except Exception as exc:
         _record_failure(diagnostics, "hub_api", _format_failure(exc))
         if failures is not None:
@@ -693,7 +698,7 @@ def _detect_from_hub(
         task_hint_source=task_hint_source,
     )
 
-    return TaskInfo(
+    task = TaskInfo(
         model_id=model_id,
         pipeline_tag=pipeline_tag or "unknown",
         # Explicit Hub metadata must survive even without a collection adapter.
@@ -708,6 +713,10 @@ def _detect_from_hub(
         **repository,
         **model_metadata,
     )
+    if source == "huggingface":
+        from acprof.models.audiocpp import select_package
+        select_package(task, model_variant, getattr(info, "siblings", None) or ())
+    return task
 
 
 def _cached_metadata_file(model_id: str, name: str, revision: str | None) -> tuple[MetadataFile | None, bool]:
@@ -897,7 +906,7 @@ def detect_task(
     from acprof.hub.repository import model_source
     info.model_source = model_source()
     info.requested_revision = revision
-    info.model_variant = model_variant
+    info.model_variant = model_variant or info.model_variant
     invalid = next((item for item in info.metadata_diagnostics if item["reason_code"] == "metadata_invalid"), None)
     if invalid:
         # Invalid content must not reach candidate discovery.

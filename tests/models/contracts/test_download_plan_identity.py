@@ -18,6 +18,8 @@ def download_plan_context(tmp_path, monkeypatch):
         "acprof/models/download_plan.py": b"PLANNER_VERSION = 1\n",
         "acprof/models/diffusion_pipelines.py": b"DIFFUSION_LAYOUT_VERSION = 1\n",
         "acprof/models/sentence_modules.py": b"SENTENCE_MODULES_VERSION = 1\n",
+        "acprof/models/audiocpp.py": b"AUDIOCPP_LAYOUT_VERSION = 1\n",
+        "acprof/models/audiocpp_packages.json": b"{}\n",
         "acprof/models/kokoro.py": b"KOKORO_LAYOUT_VERSION = 1\n",
         "acprof/extensions/kokoro/manifest.json": b"{}\n",
         "acprof/models/files.py": b"CHECKPOINT_VERSION = 1\n",
@@ -46,9 +48,11 @@ def download_plan_context(tmp_path, monkeypatch):
     "acprof/models/spec.py",
     "acprof/models/diffusion_pipelines.py",
     "acprof/models/sentence_modules.py",
+    "acprof/models/audiocpp.py",
+    "acprof/models/audiocpp_packages.json",
     "acprof/models/kokoro.py",
     "acprof/extensions/kokoro/manifest.json",
-], ids=["planner", "checkpoint-files", "model-spec", "diffusion-layout", "sentence-modules", "kokoro-layout", "kokoro-declaration"])
+], ids=["planner", "checkpoint-files", "model-spec", "diffusion-layout", "sentence-modules", "audiocpp-layout", "audiocpp-packages", "kokoro-layout", "kokoro-declaration"])
 def test_download_plan_sources_invalidate_store_and_model_identity(download_plan_context, relative):
     root, task = download_plan_context
     runtime_id = "sha256:" + "b" * 64

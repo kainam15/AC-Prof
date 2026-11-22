@@ -246,9 +246,19 @@ def select_runtime_profile(task_info: Any) -> RuntimeProfile:
         profile = PROFILES.get(extension.profile)
         if profile is None:
             raise unavailable(f"No registered runtime for extension {extension.extension_id!r}: {extension.profile}")
+        explicit = getattr(task_info, "runtime_profile_id", "")
+        if extension.runtime == "audio.cpp":
+            from acprof.models.inference_configuration import configuration_device
+
+            devices = (getattr(task_info, "model_resolution", {}) or {}).get("requested_devices", ())
+            if devices:
+                cpu_only = {configuration_device(device) for device in devices} == {"off"}
+            else:
+                cpu_only = explicit == "audio-cpp-asr-cpu"
+            if cpu_only:
+                profile = profile_for_platform(profile, "cpu")
         if detail := route_error(profile):
             raise unavailable(detail)
-        explicit = getattr(task_info, "runtime_profile_id", "")
         if explicit and explicit != profile.profile_id:
             raise unavailable(f"Runtime {explicit!r} does not match extension {extension.extension_id!r}")
         return profile

@@ -33,8 +33,8 @@ MESSAGES: dict[str, Entry] = {
     ),
     "validation.model_source.invalid": Entry(zh="模型来源必须是 huggingface 或 modelscope", en="Model source must be huggingface or modelscope"),
     "validation.model_variant.invalid": Entry(
-        zh="权重变体须为有效的命名权重或以 / 结尾的相对模型目录",
-        en="Enter a named checkpoint or a relative model directory ending in /.",
+        zh="请填写命名权重、以 / 结尾的相对模型目录或 GGUF 文件相对路径",
+        en="Enter a named checkpoint, a relative model directory ending in /, or a relative GGUF file path.",
     ),
     "validation.network.empty_interface": Entry(zh="抓包网卡不能为空", en="Capture interface must not be empty"),
     "validation.notifications.invalid_mode": Entry(zh="无效的通知模式", en="Invalid notification mode"),

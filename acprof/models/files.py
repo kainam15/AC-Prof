@@ -36,6 +36,11 @@ def uses_sentence_transformer_modules(backend: str, files: set[str]) -> bool:
 
 
 def validate_variant(variant: str) -> str:
+    if isinstance(variant, str) and variant.lower().endswith(".gguf"):
+        path = safe_path(variant)
+        if len(path) <= 512 and all(re.fullmatch(r"[A-Za-z0-9_.-]{1,180}", part) for part in path.split("/")):
+            return path
+        raise ModelFilesError("invalid GGUF file path")
     if isinstance(variant, str) and variant.endswith("/") and len(variant) <= 256:
         folder = safe_path(variant[:-1])
         if all(re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", part) for part in folder.split("/")):

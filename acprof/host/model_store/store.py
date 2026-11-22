@@ -346,8 +346,13 @@ def cached_model_info(model_id: str, revision: str | None, *, source: str):
         files = [safe_path(name) for name in files]
         if not {item["path"] for item in plan["files"]}.issubset(files):
             raise ModelFilesError("cached repository inventory omits selected model files")
+        from acprof.models.audiocpp import REPOSITORY
+        records = {}
+        if model_id == REPOSITORY:
+            records = {item["path"]: {"size": item.get("size"), "lfs": {"sha256": item.get("lfs_sha256")}}
+                       for item in (*plan["files"], *plan.get("excluded_files", [])) if isinstance(item, dict)}
         return SimpleNamespace(sha=plan["model_revision"],
-            siblings=[SimpleNamespace(rfilename=name) for name in files],
+            siblings=[SimpleNamespace(rfilename=name, **records.get(name, {})) for name in files],
             # Older ModelScope plans derived both fields from the unversioned repository overview.
             pipeline_tag=None if source == "modelscope" else metadata["pipeline_tag"],
             library_name=None if source == "modelscope" else metadata["library_name"],

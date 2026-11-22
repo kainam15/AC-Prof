@@ -135,6 +135,12 @@ def _require_task_support(task_info: TaskInfo, *, batch_size: int, devices) -> N
         from acprof.runtime.profiles import select_runtime_profile
 
         try:
+            requested_devices = list(devices)
+            if (task_info.runtime_backend == "audio_cpp"
+                    and not getattr(task_info, "inference_configuration", {})
+                    and task_info.model_resolution.get("requested_devices") != requested_devices):
+                task_info.runtime_profile_id = ""
+            task_info.model_resolution["requested_devices"] = requested_devices
             task_info.model_resolution = resolve_model_interface(task_info)
             profile = select_runtime_profile(task_info)
             task_info.runtime_profile_id, task_info.model_adapter = profile.profile_id, profile.adapter
@@ -157,8 +163,6 @@ def _require_task_support(task_info: TaskInfo, *, batch_size: int, devices) -> N
                     runtime_profile=profile.profile_id, retryability="after_configuration",
                     evidence={"trust_remote_code": False, "code_files": task_info.model_resolution.get("code_files", [])}))
             task_info.model_resolution["trust_remote_code"] = remote_code_allowed(profile, extension)
-            requested_devices = list(devices)
-            task_info.model_resolution["requested_devices"] = requested_devices
             modes = {device: _supported_device_mode(task_info, extension, device) for device in requested_devices}
             task_info.model_resolution["compatibility"] = describe_static_compatibility(task_info, profile, extension)
             task_info.model_resolution["precision"] = {

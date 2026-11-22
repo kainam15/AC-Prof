@@ -44,6 +44,21 @@ def test_run_command_round_trip_retains_values_and_recorded_extras(tmp_path: Pat
     assert command[command.index("--model-store") + 1] == "/tmp/model cache"
 
 
+@pytest.mark.parametrize("runtime", ["docker", "process"])
+def test_gguf_file_round_trips_through_saved_run_and_probe(tmp_path, runtime):
+    from acprof.cli.probe import _build_parser
+    from acprof.host.run_state import run_options
+
+    filename = "Citrinet-ASR-GGUF/citrinet-asr-q8_0.gguf"
+    args = build_parser().parse_args(["--model", "audio-cpp/audio.cpp-gguf", "--runtime", runtime,
+                                      "--model-file", filename])
+    config = RunConfig.from_namespace(args).validate(project_dir=tmp_path)
+    assert run_options(config.to_namespace())["model_variant"] == filename
+    probe = _build_parser().parse_args(configuration_arguments(config, purpose="probe"))
+    assert probe.model_variant == filename
+    assert probe.runtime == runtime
+
+
 def test_default_cli_and_form_configuration_agree():
     parsed = build_parser().parse_args(["--model", "org/model"])
     config = RunConfig.from_namespace(parsed)

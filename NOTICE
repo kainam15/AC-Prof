@@ -38,6 +38,12 @@ silence. The source identities, hashes and transformation details are in
 assets/audio/librispeech-clean-test-en-30s/source.json.
 The audio retains CC-BY-4.0 and is not relicensed under Apache-2.0.
 
+acprof/models/audiocpp_packages.json contains selected fields from the
+audio.cpp v0.9.6 model_specs declarations, Copyright 2026 ShugoAI LLC.
+Source: https://github.com/0xShug0/audio.cpp/tree/04a37f2e80ff2dbcdd84cc67848a970bd02a73e0/model_specs
+License: Apache License 2.0 (see LICENSE). AC-Prof maps package paths to
+family, task, precision and standalone offline ASR selection capability.
+
 Downloaded model code, weights, external datasets and separately installed
 dependencies retain their respective licenses. Their inclusion or use does
 not imply endorsement by their authors or by the original project team.

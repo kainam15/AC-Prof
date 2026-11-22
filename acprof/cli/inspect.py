@@ -16,7 +16,7 @@ def main(argv=None) -> int:
     from acprof.experiments.arguments import add_download_arguments
     add_download_arguments(parser)
     parser.add_argument("--model-spec", help="Explicit local model declaration")
-    parser.add_argument("--model-variant", default="", help="Named native Transformers checkpoint variant")
+    parser.add_argument("--model-variant", "--model-file", default="", help="Named checkpoint, subdirectory or exact GGUF path")
     parser.add_argument("--revision", help="Model branch, tag or full commit SHA")
     parser.add_argument("--expected-revision", help="Refuse a model commit that changed since review")
     parser.add_argument("--task", help="Explicit model execution interface")
@@ -157,7 +157,10 @@ def _model_summary(task) -> dict:
     reason = failure.get("detail")
     if not reason and compatibility.get("status") != "supported":
         reason = compatibility.get("detail")
+    gguf = resolution.get("gguf_candidates", [])
     return {
+        **({"gguf_candidates": gguf, "model_variant": task.model_variant,
+            "repository_task": task.hub_metadata.get("pipeline_tag")} if gguf else {}),
         "source": task.model_source, "revision": task.model_revision, "backend": task.runtime_backend,
         "architecture": ", ".join(name for name in architectures if isinstance(name, str))
                         if isinstance(architectures, list) and architectures else task.model_config.get("model_type"),

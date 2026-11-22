@@ -346,6 +346,9 @@ def preflight(task, profile, project_dir, model_plan: DownloadPlan | dict[str, A
     models = model_sources(model_plan, root, entry_id=entry_id)
     enforce_model_download_budgets(summarize_downloads(models))
     sources, runtime = runtime_sources(profile, Path(project_dir)) if runtime_plan is None else runtime_plan
+    if runtime.get("kind") != "process" or not runtime.get("environment_local"):
+        from acprof.host.audiocpp_assets import download_sources, selected_assets
+        sources = [*sources, *download_sources(selected_assets(task), process=runtime.get("kind") == "process")]
     planned = summarize_downloads([*models, *sources])
     enforce_download_budget(planned, os.environ.get("ACPROF_MAX_DOWNLOAD"))
     allowance = probe_allowance(summarize_downloads(models)["expected_download_bytes"], planned["expected_download_bytes"])

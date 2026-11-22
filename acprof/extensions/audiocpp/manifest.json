@@ -1,0 +1,91 @@
+{
+  "schema_version": 2,
+  "library_backends": {
+    "audio.cpp": "audio_cpp"
+  },
+  "backend_rules": [
+    {
+      "task": "automatic-speech-recognition",
+      "family": "audio",
+      "libraries": [
+        "audio.cpp"
+      ],
+      "backend": "audio_cpp",
+      "priority": 100
+    }
+  ],
+  "extensions": [
+    {
+      "extension_id": "audio-cpp-asr",
+      "family": "audio",
+      "runtime": "audio.cpp",
+      "backends": [
+        "audio_cpp"
+      ],
+      "tasks": [
+        "automatic-speech-recognition"
+      ],
+      "model_ids": [
+        "audio-cpp/audio.cpp-gguf"
+      ],
+      "adapter": "audio-cpp-asr",
+      "profile": "audio-cpp-asr",
+      "environment": "audio-cu128",
+      "environments": {
+        "cpu": "audio-cpu",
+        "cu128": "audio-cu128"
+      },
+      "handler_entrypoint": "acprof.container.handlers.audiocpp:AudioCppHandler",
+      "validation_entrypoint": "acprof.container.validation:validate_output",
+      "execution_entrypoint": "acprof.container.audiocpp_execution",
+      "workload_entrypoint": "acprof.workloads.audio:AudioWorkloadGenerator",
+      "execution": {
+        "cpu": "available",
+        "cuda": "available",
+        "batch": "unsupported",
+        "streaming": "unsupported"
+      },
+      "measurement": {
+        "latency": "available",
+        "gpu_power": "available",
+        "torch_profiler_eager": "unsupported",
+        "gpu_flops": "unsupported",
+        "ncu": "unsupported",
+        "nsys": "unsupported"
+      },
+      "input_modalities": [
+        "audio"
+      ],
+      "dtypes": [
+        "artifact-defined"
+      ],
+      "precision": {
+        "cpu": "GGUF artifact-defined",
+        "gpu": "GGUF artifact-defined"
+      },
+      "inference": {
+        "loader": "audiocpp_server (eager)",
+        "operation": "POST /v1/audio/transcriptions",
+        "structure": "single"
+      },
+      "profile_options": {
+        "runtime_line": "audio-cpp-asr"
+      }
+    }
+  ],
+  "runtime_profiles": {
+    "audio-cpp-asr-cpu": {
+      "profile_id": "audio-cpp-asr-cpu",
+      "family": "audio",
+      "environment": "audio-cpu",
+      "adapter": "audio-cpp-asr",
+      "runtime_line": "audio-cpp-asr",
+      "task_types": [
+        "automatic-speech-recognition"
+      ],
+      "backends": [
+        "audio_cpp"
+      ]
+    }
+  }
+}

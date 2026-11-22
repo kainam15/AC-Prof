@@ -42,7 +42,8 @@ def resolution_provenance(task_info, candidates: list[dict], *, hub_task: str | 
         "local_spec": (getattr(task_info, "model_spec", {}), "user", []),
         # CLI, TUI and probe use both None and "" for an absent override.
         "explicit": ({"task": explicit_task or None, "backend": explicit_backend or None,
-                      **({"model_variant": task_info.model_variant} if getattr(task_info, "model_variant", "") else {})}, "user", []),
+                      **({"model_variant": task_info.model_variant} if getattr(task_info, "model_variant", "")
+                         and hub.get("gguf_selection") != "automatic" else {})}, "user", []),
         "generated_contract": (task_model_spec(task_info), "derived", ["repository_config"]),
     }
     for name, (value, family, parents) in values.items():
@@ -72,6 +73,16 @@ def resolution_provenance(task_info, candidates: list[dict], *, hub_task: str | 
                 filename, fields = manifests[field_name]
                 observations.append({**fields, "source_id": filename,
                                      "task": candidate["task"], "backend": candidate["backend"]})
+                continue
+            if field_name == "audiocpp_package":
+                from acprof.models.audiocpp import SPEC_REVISION
+                family = task_info.model_config.get("audiocpp_family")
+                sources[field_name] = {
+                    "revision": SPEC_REVISION, "family": "reviewed_declaration", "derived_from": ["repository_snapshot"],
+                    "url": f"https://github.com/0xShug0/audio.cpp/blob/{SPEC_REVISION}/model_specs/{family}.json",
+                }
+                observations.append({"field": "packages.files", "value": task_info.model_variant,
+                                     "source_id": field_name, "task": candidate["task"], "backend": candidate["backend"]})
                 continue
             if field_name == "reviewed_model_card":
                 sources[field_name] = {

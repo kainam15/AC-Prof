@@ -291,7 +291,7 @@ class RunConfig(RunOptions):
             try:
                 validate_variant(self.model_variant)
             except ModelFilesError:
-                errors.append(ConfigIssue("model_variant", message("权重变体须为有效的命名权重或以 / 结尾的相对模型目录")))
+                errors.append(ConfigIssue("model_variant", message("请填写命名权重、以 / 结尾的相对模型目录或 GGUF 文件相对路径")))
         if not isinstance(self.revision, str) or any(character.isspace() for character in self.revision):
             errors.append(ConfigIssue("revision", message("模型 revision 必须是无空白的 branch、tag 或 commit SHA")))
         from acprof.hub.huggingface.endpoints import HF_DOWNLOAD_MODES

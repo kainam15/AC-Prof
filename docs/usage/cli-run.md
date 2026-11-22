@@ -22,6 +22,17 @@ acprof run --model google-t5/t5-small --tasks translation_en_to_de,summarization
 每组默认统一最大输出 64 Token（实际输出依模型 EOS 而定），可由用户 workload 覆盖。
 参见[推理分组](../models/routing.md#任务发现与选择)与[结果恢复](../profiling/artifacts.md#按任务保存与恢复)。
 
+多权重仓库可用 `--model-file` 指定 GGUF 相对路径。`inspect`、`run`、`auto` 和 `probe`
+将它记录为同一个 `model_variant`，可以按固定 commit 检查选择结果。例如：
+
+```bash
+acprof inspect audio-cpp/audio.cpp-gguf \
+  --revision 5140b027d3c416e5e3719002f98f09a196e0db6a \
+  --model-file Citrinet-ASR-GGUF/citrinet-asr-q8_0.gguf --gpus on --summary-json
+```
+
+`inspect` 只做静态识别。选择其他量化版本时要重新确认推理配置；模型下载计划会记录所选文件的 SHA256。
+
 ### 推理配置：先审阅再冻结
 
 新实验的非交互 CLI 必须确认具体的推理配置。第一次执行上面的命令时，系统解析模型、

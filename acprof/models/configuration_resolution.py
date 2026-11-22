@@ -296,6 +296,11 @@ def _prepare(task_info, *, devices, requests=None, workload=None):
     requests = _validate_requests(requests)
     workload = copy.deepcopy(workload or {})
     devices = _devices(devices)
+    if (task_info.runtime_backend == "audio_cpp"
+            and task_info.model_resolution.get("requested_devices") != list(devices)):
+        task_info = copy.copy(task_info)
+        task_info.model_resolution = {**task_info.model_resolution, "requested_devices": list(devices)}
+        task_info.runtime_profile_id = ""
     backend = _selected_value(requests.get("backend", {"mode": "explicit", "value": task_info.runtime_backend}),
                               task_info.runtime_backend, "backend")
     profile_default = task_info.runtime_profile_id or select_runtime_profile(task_info).profile_id

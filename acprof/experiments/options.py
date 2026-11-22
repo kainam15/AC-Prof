@@ -31,6 +31,7 @@ class CliOption:
     probe_help: str = ""
     group: str = "run"
     choices: tuple[str, ...] = ()
+    aliases: tuple[str, ...] = ()
     required: bool = False
     negative: str = ""
     negative_help: str = ""
@@ -56,7 +57,8 @@ class RunOptions:
         '', help='Model branch, tag or full commit SHA', probe=True, cli_default=None,
     )
     model_variant: str = option(
-        '', help='Select a named native Transformers checkpoint variant at the requested revision', probe=True,
+        '', help='Select a named checkpoint, subdirectory ending in /, or exact GGUF file at the requested revision',
+        probe=True, aliases=('--model-file',),
     )
     task: str = option(
         '', help='Override pipeline_tag (e.g., text-generation)', probe=True, cli_default=None,
@@ -228,7 +230,7 @@ def add_option_arguments(
             kwargs["choices"] = spec.choices
         if spec.required:
             kwargs["required"] = True
-        parser.add_argument(flag, **kwargs)
+        parser.add_argument(flag, *spec.aliases, **kwargs)
 
 
 def configuration_arguments(config: RunOptions, *, purpose: Literal["run", "probe"]) -> list[str]:

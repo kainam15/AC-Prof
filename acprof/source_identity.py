@@ -12,6 +12,8 @@ DOWNLOAD_PLAN_SOURCES = (
     "acprof/models/diffusion_pipelines.py",
     "acprof/models/sentence_modules.py",
     "acprof/models/kokoro.py",
+    "acprof/models/audiocpp.py",
+    "acprof/models/audiocpp_packages.json",
     "acprof/extensions/kokoro/manifest.json",
     "acprof/models/files.py",
     "acprof/models/spec.py",

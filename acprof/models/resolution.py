@@ -67,8 +67,11 @@ def resolve_model_interface(task_info: Any) -> dict:
     """Reject known incompatible layouts; a successful resolution is only a candidate."""
     from acprof.extensions import select_extension
     from acprof.failures import Failure, RuntimeFailure
+    from acprof.models.audiocpp import artifact_failure, gguf_checkpoint
     from acprof.runtime.profiles import locked_transformers_version, select_runtime_profile
 
+    if failure := artifact_failure(task_info, interface=task_info.pipeline_tag, backend=task_info.runtime_backend):
+        raise RuntimeFailure(failure)
     require_resolved_candidate(task_info)
     extension = select_extension(task_info)
     backend, library = task_info.runtime_backend, task_info.library_name
@@ -98,7 +101,7 @@ def resolve_model_interface(task_info: Any) -> dict:
         if files and spec.get("model_file") and spec["model_file"] not in files:
             raise ValueError(f"model spec model_file is absent from snapshot: {spec['model_file']}")
     variant = getattr(task_info, "model_variant", "")
-    if variant:
+    if variant and backend != "audio_cpp":
         from acprof.models.files import checkpoint_variants, has_default_checkpoint
         if not files:
             raise RuntimeFailure(Failure("preflight", "artifact_layout_unknown",
@@ -163,6 +166,9 @@ def resolve_model_interface(task_info: Any) -> dict:
             if (task_info.pipeline_tag == "keypoint-detection" and extension.adapter == "family-default"
                     and version and not config.get("auto_map") and not config.get("custom_pipelines")):
                 loader = keypoint_model_loader(version, config.get("model_type", "")) or loader
+    elif backend == "audio_cpp":
+        format_name, loader, operation = "gguf", "audiocpp_server", "transcribe"
+        layout = {"status": "identified", "source": "audiocpp_package", "weights": [gguf_checkpoint(variant)]}
     elif backend == "chronos":
         format_name, loader = "chronos", "BaseChronosPipeline"
     elif backend == "kokoro":

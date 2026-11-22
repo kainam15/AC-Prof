@@ -39,6 +39,28 @@ Model Store 的 `entries/<id>/model_download_plan.json` 保存所选文件、排
 
 实现参考 [Hugging Face Hub 0.36.2 文件筛选](https://github.com/huggingface/huggingface_hub/blob/v0.36.2/src/huggingface_hub/_snapshot_download.py)、[Transformers 4.57.6 权重解析](https://github.com/huggingface/transformers/blob/v4.57.6/src/transformers/modeling_utils.py)、[Diffusers 0.39.0 组件下载](https://github.com/huggingface/diffusers/blob/v0.39.0/src/diffusers/pipelines/pipeline_utils.py)（Apache-2.0）和 [Docker 分层缓存](https://docs.docker.com/build/cache/optimize/)。复用现有 Hub 下载和重试机制，以标准库实现有边界的文件规划；不绑定框架私有下载入口，不在主机新增推理框架依赖。
 
+### audio.cpp 多模型 GGUF 仓库
+
+对于 `audio-cpp/audio.cpp-gguf`，仓库级 `pipeline_tag` 描述整个模型集合，所选文件的任务和 family 来自 audio.cpp 的逐包声明。AC-Prof 将声明中的仓库与完整文件路径同固定模型 revision 的文件清单精确匹配。默认选取小型 CitriNet ASR，需要其他权重可指定 `--model-file <仓库内路径.gguf>`。仅支持的独立 ASR 包会进入配置确认。其他任务、多文件组合和未知文件在选择阶段给出原因。
+
+[`audiocpp_packages.json`](../../acprof/models/audiocpp_packages.json) 是 audio.cpp v0.9.6 `model_specs/*.json` 中目标仓库的包声明投影。维护时合并 `package_defaults.download` 与单个 `packages[].download`，遍历该包 `files` 中的精确 GGUF 路径，记录 family、原生任务、单文件包精度及可选状态。只有原生任务含 `asr`、模式含 `offline` 且整个包只需这一份 GGUF 的声明可用于 ASR。多文件包中单个组件的精度保留为空。上游规格、AC-Prof 代码与权重各自固定版本。[audio.cpp 官方 package specs（Apache-2.0）](https://github.com/0xShug0/audio.cpp/tree/04a37f2e80ff2dbcdd84cc67848a970bd02a73e0/model_specs)
+
+准备阶段以选定路径、模型 revision 和 Hub LFS SHA256 绑定 Model Store 清单。下载计划仅允许精确选定的权重，拒绝 `full` 策略。下载后核对字节数与实际 SHA256 再发布缓存视图。同一仓库 revision 中各 GGUF 的 store key、配置和恢复身份包含路径。静态声明、原生服务返回的 ASR 结果以及正式采集分别记录。
+
+运行时通过官方 `audiocpp_server` 加载所选 GGUF，并用 `/v1/audio/transcriptions` 提交单声道 16 kHz PCM16 WAV。启动时检查实际可见设备和常驻模型，输出验证要求转写文本非空。CPU 与 CUDA 分别使用预检中列出的 v0.9.6 Linux x86_64 制品。可将 SHA256 已校验的同名发布压缩包放入 `$XDG_CACHE_HOME/acprof/audiocpp/`（默认 `~/.cache/acprof/audiocpp/`）。CUDA 构建支持 SM 75/80/86/89/90，需要 NVIDIA 驱动和平台锁提供的 CUDA 12.8 动态库。[上游发布构建](https://github.com/0xShug0/audio.cpp/blob/04a37f2e80ff2dbcdd84cc67848a970bd02a73e0/.github/workflows/release.yml) [ASR 服务 API](https://github.com/0xShug0/audio.cpp/blob/04a37f2e80ff2dbcdd84cc67848a970bd02a73e0/app/server/api.md#post-v1audiotranscriptions)
+
+上游 CPU portable 二进制要求 glibc 2.43。当前 Docker 基础平台为 Debian trixie，使用 CPU 时需要兼容构建。可在与执行环境兼容的 Linux x86_64 系统上使用上游源码构建独立 CPU 服务，然后在启动 AC-Prof 的 shell 设置路径。AC-Prof 冻结并校验所选文件的 SHA256，在目标环境检查版本、Git revision 和可见 CPU 设备。
+
+```bash
+git clone --branch v0.9.6 --depth 1 https://github.com/0xShug0/audio.cpp.git
+cmake -S audio.cpp -B audio.cpp/build-cpu -DCMAKE_BUILD_TYPE=Release \
+  -DAUDIOCPP_VERSION=0.9.6 -DAUDIOCPP_DEPLOYMENT_BUILD=ON \
+  -DBUILD_SHARED_LIBS=OFF -DENGINE_ENABLE_NATIVE_CPU=OFF \
+  -DENGINE_ENABLE_CUDA=OFF -DENGINE_ENABLE_VULKAN=OFF -DENGINE_BUILD_TESTS=OFF
+cmake --build audio.cpp/build-cpu --target audiocpp_server --parallel 4
+export ACPROF_AUDIOCPP_CPU_SERVER="$PWD/audio.cpp/build-cpu/bin/audiocpp_server"
+```
+
 ## 新增一个模型适配
 
 本节维护扩展契约；执行步骤见[模型适配 Skill](../../.agents/skills/acprof-model-adaptation/SKILL.md)。

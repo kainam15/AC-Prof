@@ -78,6 +78,9 @@ def environment_plan(task, project_dir: str | Path):
                 "requirements_lock": declaration.requirements_lock,
                 "requirements_lock_sha256": file_sha256(lock),
                 "service_sha256": source_fingerprint(project, service_sources(project), scope="process-service-v1")}
+    from acprof.host.audiocpp_assets import selected_assets
+    if native_assets := selected_assets(task):
+        identity["native_assets"] = native_assets
     root = Path(os.environ.get("ACPROF_PROCESS_STORE", "~/.cache/acprof/process-environments")).expanduser().resolve()
     return root, identity, declaration
 
@@ -110,6 +113,13 @@ def prepare_environment(task, project_dir: str | Path) -> tuple[Path, dict]:
             python = str(staging / "venv/bin/python")
             run_command([uv, "pip", "sync", "--python", python, "--link-mode", "copy", "--require-hashes", str(staged_lock)],
                         check=True, timeout=3600, kill_process_group=True)
+            if native_assets := identity.get("native_assets"):
+                from acprof.host.audiocpp_assets import install_assets
+                destination = staging / "venv/share/acprof/native"
+                install_assets(native_assets, destination)
+                if "cpu" in native_assets:
+                    from acprof.container.audiocpp_execution import check_binary
+                    check_binary(destination / "cpu/audiocpp_server", "cpu")
             actual = installed_packages(python)
             expected = package_versions(records)
             if actual != expected:

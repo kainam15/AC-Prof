@@ -124,7 +124,9 @@ def task_model_spec(task_info: Any) -> dict:
 
 def model_download_request(task_info: Any, *, adapter: str | None = None) -> dict:
     """Portable model identity, independent of transport and execution environment."""
+    artifact = (getattr(task_info, "model_config", {}) or {}).get("audiocpp_artifact", {})
     return {"source": getattr(task_info, "model_source", "huggingface"),
+        **({"model_file_sha256": artifact["sha256"]} if task_info.runtime_backend == "audio_cpp" and artifact.get("sha256") else {}),
         "model_id": task_info.model_id, "model_revision": task_info.model_revision,
         "requested_policy": getattr(task_info, "model_download_policy", "auto"),
         **({"model_variant": task_info.model_variant} if getattr(task_info, "model_variant", "") else {}),

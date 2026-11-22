@@ -339,7 +339,7 @@ def _load_workload_spec(path: Path) -> tuple[dict[str, Any], str]:
     return spec, hashlib.sha256(snapshot.content).hexdigest()
 
 
-def _read_pcm16_wav(wav_bytes: bytes, location: str) -> tuple[bytes, int, int]:
+def read_pcm16_wav(wav_bytes: bytes, location: str) -> tuple[bytes, int, int]:
     try:
         with wave.open(io.BytesIO(wav_bytes), "rb") as wav_file:
             channels = wav_file.getnchannels()
@@ -461,7 +461,7 @@ class AudioWorkloadGenerator(WorkloadGenerator):
                 f"audio asset SHA256 mismatch: expected {expected_sha256}, "
                 f"got {actual_sha256}"
             )
-        pcm_bytes, num_samples, sample_rate = _read_pcm16_wav(
+        pcm_bytes, num_samples, sample_rate = read_pcm16_wav(
             asset_bytes,
             str(self.asset_path),
         )
@@ -634,7 +634,7 @@ class AudioWorkloadGenerator(WorkloadGenerator):
             wav_bytes = base64.b64decode(encoded, validate=True)
         except (binascii.Error, ValueError) as exc:
             raise ValueError("audio payload contains invalid base64") from exc
-        _, num_samples, sample_rate = _read_pcm16_wav(wav_bytes, "audio payload")
+        _, num_samples, sample_rate = read_pcm16_wav(wav_bytes, "audio payload")
         return {
             "duration_s": num_samples / sample_rate,
             "input_num_samples": num_samples,

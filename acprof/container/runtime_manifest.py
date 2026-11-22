@@ -54,7 +54,15 @@ def collect_manifest() -> dict:
     store = json.loads(store_path.read_text()) if store_path.is_file() else None
     source = Path(os.getenv("MODEL_LOCAL_PATH", "/models/model-snapshot"))
     if store:
-        return _mounted_manifest(dependency, packages, lock_hash, store)
+        manifest = _mounted_manifest(dependency, packages, lock_hash, store)
+        native = Path(__file__).parent / "_native"
+        if os.environ.get("RUNTIME_BACKEND") == "audio_cpp":
+            from acprof.container.audiocpp_execution import check_binary
+            assets = json.loads((native / "manifest.json").read_text())
+            if "cpu" in assets:
+                assets["cpu"]["runtime"] = check_binary(native / "cpu/audiocpp_server", "cpu")
+            manifest["native_assets"] = assets
+        return manifest
     snapshot_revision = source.resolve().name if source.is_symlink() else ""
     if snapshot_revision != os.environ.get("MODEL_REVISION"):
         raise RuntimeError("baked model snapshot differs from declared model revision")

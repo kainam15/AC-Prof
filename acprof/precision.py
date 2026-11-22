@@ -10,6 +10,12 @@ DTYPES = {"FP32": "float32", "FP16": "float16", "BF16": "bfloat16", "FP64": "flo
 
 def resolve_precision(profile, extension, *, device, task, model_type="", version="", requested=None):
     device = "cpu" if device in {"cpu", "off"} else "gpu"
+    if extension.dtypes == ("artifact-defined",):
+        if requested is not None:
+            raise RuntimeFailure(Failure("precision_preflight", "precision_mismatch",
+                "This runtime uses the precision stored in the selected artifact", device, profile.profile_id))
+        return {"dtype": "artifact-defined", "torch_dtype": None, "supported_dtypes": [],
+                "device": device, "runtime_profile": profile.profile_id, "evidence": []}
     policy = merge_template(profile.precision_policy, extension.precision_policy)
     overrides = (policy.get("task_overrides", {}).get(task, {}),
                  policy.get("model_type_overrides", {}).get(model_type, {}))

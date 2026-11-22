@@ -74,6 +74,7 @@ class DownloadPlan(TypedDict):
     files: list[DownloadFile]
     excluded_files: list[DownloadFile] | list[str]
     model_variant: NotRequired[str]
+    model_file_sha256: NotRequired[str]
     selected_bytes: int | None
     plan_sha256: NotRequired[str]
     source: NotRequired[str]
@@ -134,6 +135,17 @@ def validate_plan(plan: object) -> None:
         from acprof.models.files import validate_variant
         validate_variant(plan["model_variant"])
     paths = [safe_path(item.get("path")) for item in files]
+    variant = plan.get("model_variant", "")
+    if plan.get("backend") == "audio_cpp" or variant.lower().endswith(".gguf"):
+        from acprof.models.audiocpp import gguf_candidate, gguf_checkpoint
+        digest = plan.get("model_file_sha256")
+        if (plan.get("backend") != "audio_cpp" or not gguf_candidate(plan["model_id"], variant)["selectable"]
+                or plan.get("source", "huggingface") != "huggingface" or plan.get("effective_policy") != "selected"
+                or plan.get("requested_policy") != "auto" or plan.get("task_family") != "audio"
+                or paths != [variant] or plan.get("weights") != [gguf_checkpoint(variant)]
+                or not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest)
+                or files[0].get("lfs_sha256") != digest or files[0].get("sha256", digest) != digest):
+            raise ModelFilesError("audio.cpp download plan does not match a standalone GGUF and its SHA256")
     if len(paths) != len(set(paths)):
         raise ModelFilesError("model download plan contains duplicate file paths")
     sizes = [item.get("size") for item in files]
@@ -389,9 +401,20 @@ def plan_download(
         def scoped_json(name: str) -> Any:
             return read_json(subfolder + name)
 
-    if model_variant and (adapter != "family-default" or backend not in {"transformers_model", "transformers_pipeline"}):
+    if model_variant.lower().endswith(".gguf") and backend != "audio_cpp":
+        raise ModelFilesError("selected GGUF requires the audio_cpp backend")
+    if model_variant and backend != "audio_cpp" and (adapter != "family-default" or backend not in {"transformers_model", "transformers_pipeline"}):
         raise ModelFilesError("selected checkpoint variant requires a native Transformers loader")
-    if backend == "kokoro":
+    if backend == "audio_cpp":
+        from acprof.models.audiocpp import gguf_candidate, gguf_checkpoint
+        if policy != "auto":
+            raise ModelFilesError("audio.cpp requires selected-file downloads; use --model-download-policy auto")
+        if model_variant not in names or not gguf_candidate(model_id, model_variant)["selectable"]:
+            raise ModelFilesError("select a registered standalone audio.cpp ASR GGUF from the pinned inventory")
+        selected = {model_variant}
+        weights = [gguf_checkpoint(model_variant)]
+        reason = "audiocpp_package"
+    elif backend == "kokoro":
         from acprof.models.kokoro import snapshot_contract, validate_snapshot
         voices = validate_snapshot(model_id, revision, read_json("config.json"), names)
         weight = snapshot_contract()["weights"]
@@ -439,6 +462,11 @@ def plan_download(
         "files": selected_entries, "excluded_files": entries(names - selected),
         "selected_bytes": sum(cast(list[int], sizes)) if all(type(size) is int for size in sizes) else None,
     }
+    if backend == "audio_cpp":
+        expected = files[model_variant].get("lfs_sha256")
+        if not expected:
+            raise ModelFilesError("selected GGUF is missing its upstream SHA256")
+        plan["model_file_sha256"] = expected
     if model_variant:
         plan["model_variant"] = model_variant
     seal_plan(plan)

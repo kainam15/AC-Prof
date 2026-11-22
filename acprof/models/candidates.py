@@ -117,6 +117,8 @@ class _CandidateDiscovery:
                 self.spec = {}
         hub_task = self.hub_metadata.get("pipeline_tag", self.task_info.pipeline_tag)
         self.raw_hub_task = hub_task
+        if self.hub_metadata.get("task_hint_source") == "audiocpp_package":
+            hub_task = self.hub_metadata.get("task_hint")
         # Generic Hub labels must not override a registered executable head.
         if (hub_task not in self.catalog.task_families
                 and self.hub_metadata.get("task_hint_source") == "registered_architecture"):
@@ -299,7 +301,8 @@ class _CandidateDiscovery:
         self._add(self.declared_task, self.spec_source)
         if not self.declared_task and not self.hub_task:
             self._add(self.structure_task, "modules.json")
-        self._add(self.hub_task, ("registered_architecture" if self.raw_hub_task != self.hub_task
+        self._add(self.hub_task, ("audiocpp_package" if self.hub_metadata.get("task_hint_source") == "audiocpp_package"
+                                  else "registered_architecture" if self.raw_hub_task != self.hub_task
                                   else "hub_metadata" if self.task_info.detection_method == "hub_api"
                                   else self.task_info.detection_method))
         self._add(self.hub_metadata.get("task_hint"),
@@ -400,8 +403,8 @@ class _CandidateDiscovery:
         from acprof.models.evidence import resolution_provenance
         provenance = resolution_provenance(
             self.task_info, self.candidates,
-            hub_task=(self.raw_hub_task if self.raw_hub_task != self.hub_task
-                      and self.hub_metadata.get("task_hint_source") == "registered_architecture" else self.hub_task),
+            hub_task=(self.raw_hub_task if self.hub_metadata.get("task_hint_source")
+                      in {"registered_architecture", "audiocpp_package"} else self.hub_task),
             selected=selected, status=status, explicit_task=self.override_tag,
             explicit_backend=self.override_backend, overridden_conflicts=self.overridden_conflicts,
             loader_hint=self.loader_hint, unsupported_task_hint=self.unsupported_transformers_hint,
@@ -416,9 +419,15 @@ class _CandidateDiscovery:
         )
         from acprof.models.files import checkpoint_directories, checkpoint_variants
         variants = checkpoint_directories(self.files) + checkpoint_variants(self.files)
+        packages = []
+        from acprof.models.audiocpp import REPOSITORY, gguf_candidates
+        if self.task_info.model_id == REPOSITORY and self.task_info.library_name == "audio.cpp":
+            packages = gguf_candidates(REPOSITORY, self.files)
+            variants += [item["path"] for item in packages if item["selectable"]]
         return {"schema_version": 1, "status": status, "model_revision": self.task_info.model_revision,
                 **({"model_variant": self.task_info.model_variant} if getattr(self.task_info, "model_variant", "") else {}),
                 **({"checkpoint_variants": variants} if variants else {}),
+                **({"gguf_candidates": packages} if packages else {}),
                 "provenance": provenance, "semantics": {"status": semantic_status, "task": selected,
                                                          "scope": "selected_workload; not_author_intent_or_model_quality"},
                 "benchmark_kind": "task_pipeline",
@@ -536,6 +545,12 @@ class _CandidateDiscovery:
         self._attach_execution_paths(selected)
         discovery = self._apply_task_discovery(resolution, selected)
         self._check_export_only_layout(resolution, discovery)
+        from acprof.models.audiocpp import artifact_failure
+        from acprof.models.inspection.decision import record_resolution_failure
+        if failure := artifact_failure(self.task_info, interface=selected,
+                                       backend=self.override_backend or self.task_info.runtime_backend):
+            self.task_info.model_resolution = resolution
+            record_resolution_failure(self.task_info, failure)
         self._finalize_provenance(resolution, discovery)
         return resolution
 

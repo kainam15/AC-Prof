@@ -120,6 +120,8 @@ def request_fingerprint(task_info: Any, project_dir: str | Path = PROJECT_ROOT) 
     if profile.environment is None:
         raise RuntimeError("runtime profile does not declare a dependency environment")
     overrides = runtime_build_overrides() if profile.adapter == "family-default" and profile.environment.platform.torch_version else {}
+    from acprof.host.audiocpp_assets import selected_assets
+    native_assets = selected_assets(task_info)
     logical_profile = profile.to_dict()
     logical_profile["environment"] = environment_id(profile.environment, root)
     digest = hashlib.sha256(json.dumps({
@@ -128,6 +130,7 @@ def request_fingerprint(task_info: Any, project_dir: str | Path = PROJECT_ROOT) 
         "model_revision": task_info.model_revision,
         "task": task_info.pipeline_tag, "backend": task_info.runtime_backend,
         "profile": logical_profile,
+        **({"native_assets": native_assets} if native_assets else {}),
         "dependency_build": runtime_fingerprint(profile.environment, root),
         "build_overrides": overrides,
         "model_download_policy": download_policy(task_info),
@@ -332,6 +335,8 @@ def build_runtime_image(task_info: Any, project_dir: str):
                 stage_service_context(root, context)
                 if source_fingerprint(context, service_context_files(context), scope="service-context-v1") != expected:
                     raise RuntimeError("服务构建上下文与源码指纹不一致，尚未构建镜像")
+                from acprof.host.audiocpp_assets import install_assets, selected_assets
+                install_assets(selected_assets(task_info), context / "acprof/container/_native")
             else:
                 (context / "dockerfiles").mkdir(parents=True)
                 (context / "dockerfiles" / dockerfile).write_bytes((root / "dockerfiles" / dockerfile).read_bytes())
