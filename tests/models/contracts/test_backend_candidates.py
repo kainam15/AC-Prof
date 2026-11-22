@@ -416,3 +416,18 @@ def test_coreml_listing_keeps_explicit_configuration_and_metadata_errors(cause):
         assert any("schema_version" in detail for detail in result["missing"])
     elif cause == "unregistered_backend":
         assert any("nonexistent" in detail for detail in result["missing"])
+
+
+@pytest.mark.parametrize("files", [
+    (),
+    ("model-Q4.gguf", "other/custom.weights"),
+    ("model-Q4.gguf", "model.safetensors"),
+    ("model-Q4.gguf", "exports/model.mlmodel"),
+])
+def test_uncertain_export_inventory_preserves_profile_choice(files):
+    task = _task(pipeline_tag="text-generation", model_config={}, repository_metadata={},
+                 repository_files=files, hub_metadata={"pipeline_tag": "text-generation",
+                                                       "tags": ["conversational", "gguf"]})
+    resolution = discover_model_candidates(task)
+    assert resolution["status"] == "selection_required"
+    assert "failure" not in resolution

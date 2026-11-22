@@ -71,13 +71,18 @@ def has_coreml_artifacts(files: set[str]) -> bool:
     return any(_coreml_artifact(path) for path in files)
 
 
-def coreml_only_failure(task_info: Any, files: set[str]) -> Failure | None:
+def export_only_failure(task_info: Any, files: set[str]) -> Failure | None:
     """Require positive artifact evidence; unfamiliar files may contain another loader's weights."""
-    bundles: dict[str, str] = {}
-    for path in sorted(files, key=lambda file: (file.count("/"), file)):
+    artifacts: dict[str, str] = {}
+    formats: set[str] = set()
+    for path in files:
         bundle = _coreml_artifact(path)
-        if bundle:
-            bundles.setdefault(bundle, path)
+        if bundle or path.lower().endswith(".gguf"):
+            formats.add("CoreML" if bundle else "GGUF")
+            artifact = bundle or path
+            previous = artifacts.get(artifact)
+            if previous is None or (path.count("/"), path) < (previous.count("/"), previous):
+                artifacts[artifact] = path
             continue
         name = path.rsplit("/", 1)[-1].lower()
         if (name not in {".gitattributes", ".gitignore", "license", "config.json", "generation_config.json",
@@ -86,20 +91,22 @@ def coreml_only_failure(task_info: Any, files: set[str]) -> Failure | None:
                 and not name.startswith(("license-", "license."))
                 and not name.endswith((".md", ".txt", ".mlcomputeplan.json"))):
             return None
-    if not bundles:
+    if len(formats) != 1:
         return None
+    artifact_format = formats.pop()
     # The full repository listing can exceed the interactive preparation message limit.
-    samples = sorted(bundles)[:3]
-    evidence = {"artifact_format": "CoreML", "artifact_paths": samples,
-                "files": sorted(files) if len(files) <= 3 else [bundles[bundle] for bundle in samples],
+    samples = sorted(artifacts)[:3]
+    evidence = {"artifact_format": artifact_format, "artifact_paths": samples,
+                "files": sorted(files) if len(files) <= 3 else [artifacts[path] for path in samples],
                 "file_count": len(files),
                 "backend": task_info.runtime_backend, "library_name": getattr(task_info, "library_name", "")}
     # A task inferred from an architecture or supplied by a user is not an author declaration.
     declared = (getattr(task_info, "hub_metadata", {}) or {}).get("pipeline_tag")
     if isinstance(declared, str) and declared and declared != "unknown":
         evidence["declared_task"] = declared
+    label = "Core ML" if artifact_format == "CoreML" else artifact_format
     return Failure("resolution", "artifact_layout_unsupported",
-                   "Only Core ML model artifacts were found; the current configuration has no compatible loader.",
+                   f"Only {label} model artifacts were found; the current configuration has no compatible loader.",
                    evidence=evidence)
 
 
@@ -160,7 +167,7 @@ def inspect_artifact_layout(task_info: Any, *, adapter: str = "family-default") 
             config = metadata.get("config.json", getattr(task_info, "model_config", {})) or {}
             native_loader = adapter == "family-default" and not config.get("auto_map") and not config.get("custom_pipelines")
             if not uses_modules and "config.json" not in files:
-                if native_loader and (failure := coreml_only_failure(task_info, files)):
+                if native_loader and (failure := export_only_failure(task_info, files)):
                     raise RuntimeFailure(failure)
                 fail("artifact_layout_unsupported", f"{backend} requires config.json at the selected loader root; this layout has no native checkpoint declaration")
             if "adapter_config.json" in files:
@@ -193,7 +200,7 @@ def inspect_artifact_layout(task_info: Any, *, adapter: str = "family-default") 
                 return {"status": "identified", "weights": [checkpoint], "source": "checkpoint_loader"}
             if not native_loader:
                 return unrecognized("A custom loader declares its own artifact layout; native checkpoint support is unverified.")
-            if failure := coreml_only_failure(task_info, files):
+            if failure := export_only_failure(task_info, files):
                 raise RuntimeFailure(failure)
             foreign = _foreign_format(files) or "nonstandard or absent checkpoint weights"
             fail("artifact_layout_unsupported", f"{backend} cannot load this artifact layout ({foreign}); select a compatible artifact and registered loader")

@@ -323,3 +323,31 @@ def test_pinned_review_preserves_unidentified_or_foreign_corrupt_output(tmp_path
         assert main(["inspect", task.model_id, "--expected-revision", task.model_revision,
                      "--model-spec", str(declaration), "--output-dir", str(tmp_path)]) == 2
     assert path.read_bytes() == original
+
+
+@pytest.mark.parametrize("selection", [[], ["--tasks", "text-generation"]])
+def test_inspect_gguf_only_repository_reports_artifacts_before_requesting_a_profile(tmp_path, selection):
+    from types import SimpleNamespace
+
+    # Qwen/Qwen2.5-0.5B-Instruct-GGUF at this revision declares two workload profiles.
+    repo = "Qwen/Qwen2.5-0.5B-Instruct-GGUF"
+    revision = "9217f5db79a29953eb74d5343926648285ec7e67"
+    artifacts = [f"qwen2.5-0.5b-instruct-{variant}.gguf" for variant in (
+        "fp16", "q2_k", "q3_k_m", "q4_0", "q4_k_m", "q5_0", "q5_k_m", "q6_k", "q8_0")]
+    files = [".gitattributes", "LICENSE", "README.md", *artifacts]
+    hub = SimpleNamespace(sha=revision, pipeline_tag="text-generation", config={},
+                          tags=["gguf", "text-generation", "conversational"],
+                          siblings=[SimpleNamespace(rfilename=name) for name in files])
+    with patch("acprof.host.model_store.store.cached_model_info", return_value=hub), patch(
+        "acprof.host.detect._download_metadata", side_effect=AssertionError("unexpected metadata read")
+    ):
+        assert main(["inspect", repo, "--revision", revision, "--output-dir", str(tmp_path), *selection]) == 2
+    decision = json.loads((tmp_path / "model_resolution.json").read_text())
+    assert decision["status"] == "blocked"
+    failure = decision["failure"]
+    assert failure["reason_code"] == "artifact_layout_unsupported"
+    assert failure["evidence"]["artifact_format"] == "GGUF"
+    assert failure["evidence"]["artifact_paths"] == sorted(artifacts)[:3]
+    assert failure["evidence"]["file_count"] == len(files)
+    assert failure["evidence"]["declared_task"] == "text-generation"
+    assert decision["runtime_validation"]["status"] == "not_run"

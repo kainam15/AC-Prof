@@ -122,9 +122,11 @@ ONNX 文件本身只能证明格式，不能凭输入 shape 猜分类、回归�
 `checkpoint_verified=false` 明确表示没有本次真实推理证据；缺少字段也不能补成已验证。
 元数据错误、未登记后端、制品不完整／格式不支持、运行时不可用分别保留原因，不统一改称任务不支持。
 
-对于没有已注册加载路径的仓库，文件清单若只含 Core ML 模型（`.mlmodelc/`、`.mlpackage/` 或 `.mlmodel`）
-和已识别的辅助文件，静态检查报告 `blocked / artifact_layout_unsupported`，同时保留仓库声明的任务和代表性文件路径。
-例如，[WhisperKit 的上游实现](https://github.com/argmaxinc/argmax-oss-swift/blob/main/Sources/WhisperKit/Core/WhisperKit.swift)分别加载音频编码器和文本解码器等组件。
+对于没有已注册加载路径的仓库，若文件清单中的模型全部为 GGUF（`.gguf`）或全部为 Core ML（`.mlmodelc/`、`.mlpackage/` 或 `.mlmodel`），
+其余均为已识别的辅助文件，静态检查报告 `blocked / artifact_layout_unsupported`，同时保留仓库声明的任务和代表性文件路径。
+即使仓库声明了多个推理任务，只要各任务都依赖无法加载这些文件的原生 Transformers 路径，也会先显示制品阻断原因。
+[Qwen 的 GGUF 仓库](https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/tree/9217f5db79a29953eb74d5343926648285ec7e67)提供同一模型的多个 GGUF 文件。
+[WhisperKit 的上游实现](https://github.com/argmaxinc/argmax-oss-swift/blob/main/Sources/WhisperKit/Core/WhisperKit.swift)分别加载音频编码器和文本解码器等组件。
 混合仓库若在根目录提供完整的 Transformers checkpoint，且已注册加载器支持其配置与任务，可以选择这条原生路径。
 缺少文件清单时，制品兼容性保持未知；了解模型格式的用户可用 `--backend` 指定已注册后端继续检查。
 

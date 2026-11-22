@@ -476,6 +476,29 @@ class _CandidateDiscovery:
             identity["failure_reason_code"] = failure["reason_code"]
         resolution["provenance"]["identity_sha256"] = content_digest(identity)
 
+    def _check_export_only_layout(self, resolution: dict, discovery: dict) -> None:
+        from acprof.models.artifact_layout import export_only_failure
+        from acprof.models.inspection.decision import record_resolution_failure
+
+        if (self.task_info.metadata_errors or self.task_info.model_resolution.get("failure") or task_model_spec(self.task_info)
+                or self.config.get("auto_map") or self.config.get("custom_pipelines")):
+            return
+        if resolution["status"] == "selection_required":
+            # All profiles require a native Transformers checkpoint.
+            for task in discovery["tasks"]:
+                path = task["execution_path"]
+                if (path["backend"] not in {"transformers_model", "transformers_pipeline"}
+                        or path["adapter"] != "family-default"):
+                    return
+        elif (resolution["status"] != "needs_configuration" or self.override_backend
+              or resolution["selection"]["backend"] not in {None, "unknown"}):
+            return
+        if failure := export_only_failure(self.task_info, self.files):
+            self.task_info.model_resolution = resolution
+            record_resolution_failure(self.task_info, failure)
+            # Retain the catalog rejection on the candidate, not as an editable requirement.
+            resolution["missing"] = [reason for reason in self.errors if reason not in self.route_errors.values()]
+
     def run(self) -> dict:
         self._read_declarations()
         self._resolve_structure()
@@ -487,18 +510,7 @@ class _CandidateDiscovery:
         resolution = self._base_resolution(selected, status)
         self._attach_execution_paths(selected)
         discovery = self._apply_task_discovery(resolution, selected)
-        if (resolution["status"] == "needs_configuration" and resolution["selection"]["backend"] in {None, "unknown"}
-                and not self.task_info.metadata_errors and not self.task_info.model_resolution.get("failure")
-                and not self.override_backend and not task_model_spec(self.task_info)
-                and not self.config.get("auto_map") and not self.config.get("custom_pipelines")):
-            from acprof.models.artifact_layout import coreml_only_failure
-            from acprof.models.inspection.decision import record_resolution_failure
-
-            if failure := coreml_only_failure(self.task_info, self.files):
-                self.task_info.model_resolution = resolution
-                record_resolution_failure(self.task_info, failure)
-                # Retain the catalog rejection on the candidate, not as an editable requirement.
-                resolution["missing"] = [reason for reason in self.errors if reason not in self.route_errors.values()]
+        self._check_export_only_layout(resolution, discovery)
         self._finalize_provenance(resolution, discovery)
         return resolution
 
