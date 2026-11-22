@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+from functools import partial
 from pathlib import Path
 
 from acprof.capabilities import Capability
@@ -40,7 +41,9 @@ def locate_uv() -> Capability:
                       "host executable", {"reason_code": "not_installed"})
 
 
-def probe_process_uv(command_runner=run_command) -> Capability:
+def probe_process_uv(command_runner=None) -> Capability:
+    if command_runner is None:
+        command_runner = partial(run_command, kill_process_group=os.name == "posix")
     located = locate_uv()
     if located.status != "available":
         return located

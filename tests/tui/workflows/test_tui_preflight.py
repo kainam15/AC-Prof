@@ -16,8 +16,7 @@ from tests.support.environment_fixtures import isolated_environment
 
 class TestTuiPreflight:
     @pytest.fixture(autouse=True)
-    def _setup(self, request, tmp_path, monkeypatch):
-        monkeypatch.setattr("acprof.host.runtimes.capabilities.probe_gpu_telemetry", lambda *args, **kwargs: {})
+    def _setup(self, request, tmp_path):
         self._request = request
         from tests.support.platform_fixtures import native_policy
         native_policy(self._request)
@@ -38,6 +37,8 @@ class TestTuiPreflight:
         rapl = patch("acprof.tui.run.diagnostics._readable_rapl_paths", return_value=["/fake/energy_uj"])
         rapl.start()
         self._request.addfinalizer(partial(rapl.stop))
+        with patch("acprof.host.runtimes.capabilities.probe_gpu_telemetry", return_value={}):
+            yield
 
     @staticmethod
     def result(returncode=0, stderr="1000,,instructions,100.00,,\n"):

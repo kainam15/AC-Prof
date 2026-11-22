@@ -60,3 +60,36 @@ def test_process_uv_failures_have_distinct_reasons(user_uv, failure):
     with pytest.raises(RuntimeError) as caught:
         require_process_uv()
     assert check.detail in str(caught.value)
+
+
+@pytest.mark.parametrize("runtime", ["process", "auto"])
+def test_quick_preflight_uv_owns_default_probe_and_preserves_injected_runner(user_uv, monkeypatch, runtime):
+    from types import SimpleNamespace
+
+    from acprof.experiments.configuration import RunConfig
+    from acprof.system import uv
+    from acprof.tui.run import diagnostics
+
+    write_uv(user_uv)
+    monkeypatch.setattr(diagnostics, "inspect_docker", lambda *a: SimpleNamespace(code="cli_missing", summary="fixture"))
+    monkeypatch.setattr(diagnostics, "_automatic_checks", lambda *a, **kw: [])
+    monkeypatch.setattr("acprof.host.runtimes.resources.preflight_resources", lambda *a: None)
+    monkeypatch.setattr("acprof.host.runtimes.process_control.require_process_supervision", lambda: None)
+    config = RunConfig(model="fixture", runtime=runtime, gpus="off", profiling_mode="best_effort")
+    default_calls, custom_calls = [], []
+
+    def default_runner(command, *, timeout, kill_process_group):
+        default_calls.append((command, kill_process_group))
+        return SimpleNamespace(returncode=0, stdout="uv fixture", stderr="")
+
+    def custom_runner(command, *, timeout):
+        custom_calls.append(command)
+        return SimpleNamespace(returncode=0, stdout="uv fixture", stderr="")
+
+    monkeypatch.setattr(uv, "run_command", default_runner)
+    for runner in (None, custom_runner):
+        rows = diagnostics.quick_preflight(config, command_runner=runner)
+        assert next(row for row in rows if row.check_id == "uv").status == "ok"
+    assert default_calls
+    assert all(owned == (os.name == "posix") for _, owned in default_calls)
+    assert [command for command, _ in default_calls] == custom_calls

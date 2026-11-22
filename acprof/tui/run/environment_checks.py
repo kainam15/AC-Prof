@@ -166,14 +166,15 @@ def _runtime_profiler_checks(command_runner, docker_available: bool) -> list[Pre
                 for name in ("torch", "massif")]
 
 
-def scan_environment(*, project_dir: str | Path | None = None, command_runner=completed_command) -> list[PreflightCheck]:
+def scan_environment(*, project_dir: str | Path | None = None, command_runner=None) -> list[PreflightCheck]:
     """Always inspect the same host capabilities, including unselected tools."""
     # Reuse established Docker, capture-permission, RAPL and perf diagnostics.
     # This fixed diagnostic config never comes from or modifies the experiment.
     config = RunConfig(model="environment-only", runtime="docker", profiling_mode="full", gpus="off")
     rows = [row for row in quick_preflight(config, project_dir=project_dir, command_runner=command_runner)
             if row.check_id not in {"environment", "runtime", "capture_interface"}]
-    rows = [_tool_check(row.check_id, shutil.which(row.check_id), command_runner)
+    tool_runner = command_runner or completed_command
+    rows = [_tool_check(row.check_id, shutil.which(row.check_id), tool_runner)
             if row.check_id in {"tcpdump", "tshark"} else row for row in rows]
     rows.insert(0, PreflightCheck("Platform", "ok", detect_environment().label.split(" / ")[0], check_id="environment", source="platform"))
     rows.extend((
@@ -195,9 +196,9 @@ def scan_environment(*, project_dir: str | Path | None = None, command_runner=co
         ("intel_advisor", lambda: find_executable(None, ("advisor", "advixe-cl"))),
     ):
         try:
-            rows.append(_tool_check(name, discover(), command_runner))
+            rows.append(_tool_check(name, discover(), tool_runner))
         except Exception as exc:
             rows.append(_failure(name, exc, "tool discovery"))
-    rows.extend(_runtime_profiler_checks(command_runner, any(row.check_id == "docker" and row.status == "ok" for row in rows)))
+    rows.extend(_runtime_profiler_checks(tool_runner, any(row.check_id == "docker" and row.status == "ok" for row in rows)))
     # Strip launch-specific runtime resolution from this presentation inventory.
     return [replace(row, runtime_kind="") for row in rows]

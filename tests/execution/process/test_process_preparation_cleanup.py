@@ -10,16 +10,20 @@ import pytest
 from acprof.host.runtimes import environment
 from acprof.process_identity import process_identity, same_process
 from acprof.runtime.dependency_locks import content_digest, read_python_lock
+from acprof.system import uv
 
 
-@pytest.mark.parametrize("phase", ["venv", "install", "inspect"])
+@pytest.mark.parametrize("phase", ["probe", "venv", "install", "inspect"])
 @pytest.mark.parametrize("failure", ["timeout", "cancel"])
 def test_preparation_failure_stops_installer_descendants(tmp_path, monkeypatch, phase, failure):
     pid_path = tmp_path / "helper.pid"
     installer = tmp_path / "uv-fixture"
     installer.write_text(f'''#!{sys.executable}
 import os, pathlib, shutil, signal, subprocess, sys, time
-phase = "venv" if sys.argv[1] == "venv" else "install" if sys.argv[1] == "pip" else "inspect"
+if sys.argv[1] == "--version" or "--help" in sys.argv:
+    phase = "probe"
+else:
+    phase = "venv" if sys.argv[1] == "venv" else "install" if sys.argv[1] == "pip" else "inspect"
 if phase == {phase!r}:
     child = subprocess.Popen([sys.executable, "-I", "-c",
         "import os,pathlib,time; pathlib.Path({str(pid_path)!r}).write_text(str(os.getpid())); time.sleep(60)"],
@@ -46,13 +50,14 @@ elif phase == "inspect":
     declaration = SimpleNamespace(requirements_lock="requirements.lock",
                                   platform=SimpleNamespace(python_version="3.12"))
     monkeypatch.setattr(environment, "environment_plan", lambda *args: (root, identity, declaration))
-    monkeypatch.setattr(environment.shutil, "which", lambda name: str(installer))
+    monkeypatch.setattr(uv.shutil, "which", lambda name: str(installer))
     run_command = environment.run_command
 
     def bounded_command(command, **kwargs):
         return run_command(command, **{**kwargs, "timeout": 0.5})
 
     monkeypatch.setattr(environment, "run_command", bounded_command)
+    monkeypatch.setattr(uv, "run_command", bounded_command)
     if failure == "cancel":
         communicate = subprocess.Popen.communicate
 
@@ -66,8 +71,12 @@ elif phase == "inspect":
         monkeypatch.setattr(subprocess.Popen, "communicate", interrupted_communicate)
     try:
         expected_error = KeyboardInterrupt if failure == "cancel" else subprocess.TimeoutExpired
-        with pytest.raises(expected_error):
-            environment.prepare_environment(None, tmp_path)
+        if phase == "probe" and failure == "timeout":
+            with pytest.raises(RuntimeError, match="Process preparation requires uv: .*timed out"):
+                environment.prepare_environment(None, tmp_path)
+        else:
+            with pytest.raises(expected_error):
+                environment.prepare_environment(None, tmp_path)
         assert pid_path.exists(), "fixture did not reach the helper launch"
         try:
             identity_after_timeout = process_identity(int(pid_path.read_text()))

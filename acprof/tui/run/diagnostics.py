@@ -153,11 +153,10 @@ def quick_preflight(
     )
 
     if config.runtime == "process":
-        return checks + _process_checks(config, project_dir=project_dir, command_runner=command_runner or completed_command)
+        return checks + _process_checks(config, project_dir=project_dir, command_runner=command_runner)
 
     from acprof.host.gpu_device import require_docker_gpu, resolve_gpu_device
     docker_gpu = partial(resolve_gpu_device, command_runner=command_runner)
-    command_runner = command_runner or completed_command
     cgroup_v2 = Path("/sys/fs/cgroup/cgroup.controllers").is_file()
     checks.append(
         PreflightCheck(
@@ -168,7 +167,7 @@ def quick_preflight(
         )
     )
 
-    docker = inspect_docker(command_runner, environment)
+    docker = inspect_docker(command_runner or completed_command, environment)
     checks.append(PreflightCheck(message_id('run.preflight.local_docker'),
                                  'ok' if docker.code == 'ready' else 'fail', docker.summary,
                                  check_id='docker', docker_diagnostic=docker))
@@ -177,9 +176,10 @@ def quick_preflight(
         reasons = "; ".join(str(check.detail) for check in checks[1:] if check.status == "fail")
         checks = checks[:1] + [replace(checks[-1], status='warn' if docker.code != 'ready' else 'ok'),
                               PreflightCheck("Runtime auto → Process", "ok", reasons, check_id="runtime_auto")]
-        return checks + _process_checks(config, project_dir=project_dir, command_runner=command_runner or completed_command)
+        return checks + _process_checks(config, project_dir=project_dir, command_runner=command_runner)
     checks.append(PreflightCheck("Runtime", "ok", "Docker", runtime_kind="docker", check_id="runtime"))
 
+    command_runner = command_runner or completed_command
     container_probe = partial(require_docker_gpu, command_runner=command_runner) if docker.code == "ready" else None
     if config.profiling_mode == "best_effort":
         return checks + _automatic_checks(config, "docker", docker_gpu, project_dir=project_dir,
@@ -293,7 +293,7 @@ def _project_probe_environment(project_dir) -> dict[str, str]:
     return env
 
 
-def process_uv_check(command_runner, *, preparation: bool = False) -> PreflightCheck:
+def process_uv_check(command_runner=None, *, preparation: bool = False) -> PreflightCheck:
     uv = probe_process_uv(command_runner)
     # A previously prepared, verified Process environment needs no installer.
     # Planning and creation enforce this capability when a cache miss is known.
@@ -303,7 +303,7 @@ def process_uv_check(command_runner, *, preparation: bool = False) -> PreflightC
                           reason_code=uv.evidence.get("reason_code", ""))
 
 
-def _process_checks(config, *, project_dir=None, command_runner=completed_command):
+def _process_checks(config, *, project_dir=None, command_runner=None):
     from dataclasses import replace
 
     from acprof.application.resources import resource_matrix
