@@ -204,6 +204,18 @@ Auto loader 的 image-text-to-text 标签，包括 Hub 的 `AutoModelForMultimod
 缺少匹配 Auto class、明确 head 不相容，以及 summarization 与 translation 这类两个具体任务
 的冲突仍须选择。解析报告保留原标签、分类理由和来源哈希，不按榜单任务强制覆盖。
 
+当主任务为 `text-ranking` 时，额外的通用 Hub 标签 `text-classification` 仍可在来源中查到。
+该标签单独出现时，默认运行时只选择一个成对评分任务。若配置通过
+`task_specific_params` 另行声明分类，两项均可通过 `--tasks` 选择。[MiniLM 固定版本的成对评分示例](https://huggingface.co/cross-encoder/ms-marco-MiniLM-L6-v2/blob/233902d25c440f23af6f7d6e94d2946bac0bee0a/README.md)
+
+Hugging Face 上的 `BAAI/bge-reranker-v2-m3@953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e`
+使用通用分类标签。该固定版本的作者模型卡和单输出 XLM-R 配置共同确定
+`text-ranking/cross_encoder`。报告在 `reviewed_model_card` 中记录模型卡，同时保留 Hub 原始分类。
+其他仓库或版本继续使用各自的声明；知道查询和候选文本的输入契约时，可显式传
+`--task text-ranking --tasks text-ranking`。成对评分使用锁定的 Sentence Transformers
+`CrossEncoder.predict`。上述 MiniLM 通过配置指定 Identity，BGE 的单输出配置使用该库默认的 Sigmoid；
+两者的分数尺度不同。[Sentence Transformers 的激活函数选择](https://github.com/huggingface/sentence-transformers/blob/v5.6.0/sentence_transformers/cross_encoder/model.py#L406-L427) · [BGE 固定版本的作者模型卡](https://huggingface.co/BAAI/bge-reranker-v2-m3/blob/953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e/README.md)
+
 对原生 SuperPoint，Hub 主任务 `keypoint-detection`、配置中的单一检测头（包括旧名 `SuperPointModel`）
 和 `AutoImageProcessor` 共同指明单图关键点协议。此时嵌套的 `AutoModel + feature-extraction`
 保留为 `loader_hint`。此规则要求模型没有自定义 loader 或 Pipeline。具体的不同任务声明仍需显式选择。[固定 revision 的模型卡和调用示例](https://huggingface.co/magic-leap-community/superpoint/blob/734450e9ffe229074f5998494ddc615475cdb20a/README.md)

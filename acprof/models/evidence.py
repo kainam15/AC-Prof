@@ -71,6 +71,14 @@ def resolution_provenance(task_info, candidates: list[dict], *, hub_task: str | 
                 observations.append({**fields, "source_id": filename,
                                      "task": candidate["task"], "backend": candidate["backend"]})
                 continue
+            if field_name == "reviewed_model_card":
+                sources[field_name] = {
+                    "revision": revision, "family": "reviewed_declaration", "derived_from": ["repository_snapshot"],
+                    "url": f"https://huggingface.co/{task_info.model_id}/blob/{revision}/README.md",
+                }
+                observations.append({"field": field_name, "source_id": field_name,
+                                     "task": candidate["task"], "backend": candidate["backend"]})
+                continue
             source = ("explicit" if field_name == "explicit_task" else
                       "local_spec" if field_name == "local_model_spec" else
                       "repository_spec" if field_name == "repository_model_spec" else

@@ -56,6 +56,10 @@ def build_task_discovery(task_info: Any, resolution: dict, *, component_scope: b
             if identifier in blocked:
                 return
             interface = workload["interface"]
+            # A sequence classification head supplies the pair score. Its generic
+            # Hub tag alone does not declare a second, single-text workload.
+            if usage and selected == "text-ranking" and name == "text-classification" and interface not in interfaces:
+                return
             # A semantic use can select an existing generation route, but it
             # cannot introduce another head or modality without interface evidence.
             operations = set(TASK_MAPPINGS.get(interface, ()))

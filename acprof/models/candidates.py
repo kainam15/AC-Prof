@@ -101,6 +101,7 @@ class _CandidateDiscovery:
         self.transformers_info: dict[str, Any] = {}
         self.structure_task: str | None = None
         self.primary_task: str | None = None
+        self.reviewed_task: str | None = None
         self.encoder = False
         self.loader_hint: str | None = None
         self.transformers_task: str | None = None
@@ -186,13 +187,28 @@ class _CandidateDiscovery:
                 self.errors.append(str(exc))
             return "unknown"
 
+    def _reviewed_ranking_task(self) -> str | None:
+        # This card describes a query/passage reranker under a generic Hub task.
+        # Bind the reviewed interpretation to the original repository and commit.
+        identity = (getattr(self.task_info, "model_source", None), self.task_info.model_id, self.task_info.model_revision)
+        config = self.metadata.get("config.json")
+        if (identity == ("huggingface", "BAAI/bge-reranker-v2-m3", "953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e")
+                and self.hub_task == "text-classification" and not self.spec
+                and isinstance(config, dict) and config.get("model_type") == "xlm-roberta"
+                and config.get("architectures") == ["XLMRobertaForSequenceClassification"]
+                and config.get("id2label") == {"0": "LABEL_0"} and not config.get("auto_map")
+                and not config.get("custom_pipelines")):
+            return "text-ranking"
+        return None
+
     def _resolve_structure(self) -> None:
         from acprof.tasks.interfaces import component_scoped, structured_interface
         try:
             self.structure_task = structured_interface(self.task_info)
         except ValueError as exc:
             self.errors.append(str(exc))
-        self.primary_task = self.declared_task or self.hub_task or self.structure_task
+        self.reviewed_task = self._reviewed_ranking_task()
+        self.primary_task = self.declared_task or self.reviewed_task or self.hub_task or self.structure_task
         self.encoder = component_scoped(
             self.task_info, self.primary_task,
             self._backend_for(self.primary_task) if self.primary_task else "unknown",
@@ -277,6 +293,7 @@ class _CandidateDiscovery:
 
     def _collect_primary_candidates(self) -> None:
         self._add(self.override_tag, "explicit_task")
+        self._add(self.reviewed_task, "reviewed_model_card")
         self.spec_source = ("local_model_spec" if getattr(self.task_info, "model_spec", {}) else
                             "repository_model_spec" if self.metadata.get("acprof_model.json") else "generated_contract")
         self._add(self.declared_task, self.spec_source)
@@ -352,8 +369,7 @@ class _CandidateDiscovery:
                     self._add(candidate_task, "artifact.onnx; task semantics required")
 
     def _select(self) -> tuple[str | None, str]:
-        selected = (self.override_tag or self.declared_task or self.hub_task
-                    or self.structure_task or self.transformers_task)
+        selected = self.override_tag or self.primary_task or self.transformers_task
         self._validate_loader_compatibility(selected)
         status = "candidate"
         if not selected:
