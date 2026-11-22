@@ -35,6 +35,8 @@ Process 配额 TUI 的故障修复引导已调整为优先查看 cgroup 委派�
 
 P1 · cgroup I/O 预检：已将宿主进程 cgroup 能力与目标 Docker / Process 服务 cgroup 的 I/O 字段分离；目标创建前显示中性待 Runtime 验证，不阻断采集，最终依据目标 `io.stat` 和窗口 `reader_errors` 判定质量。离线模拟覆盖目标存在／缺失／拒绝访问、空计数器及旧预检提示不得覆盖实测；真实 Docker 与 Native SSH 验收仍待用户执行。见[环境检查](usage/tui-interaction.md#环境检查)与[字段说明](results/fields.md#容器内存swapio-与-pid)。
 
+[兼容性报告](usage/cli-discovery.md)已补齐 Docker／Process 验证清理诊断。归档结果同时呈现运行主因和清理失败的实际操作，支持历史内嵌报告。
+
 ## 工程维护优先序
 
 [主机诊断](getting_started/installation.md)在项目环境读取失败时仍输出 JSON，并检查输出路径上的失效链接与非目录组件。

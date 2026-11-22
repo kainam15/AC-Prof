@@ -13,6 +13,11 @@ from acprof.artifacts import atomic_write
 from acprof.failures import Failure, compatibility_status
 from acprof.hub.repository import MODEL_SOURCES
 from acprof.quality import combine_quality, read_quality, summarize_quality
+from acprof.results.validation_cleanup import (
+    cleanup_summary as _cleanup_summary,
+    public_cleanup_error as _public_cleanup_error,
+)
+from acprof.system.redaction import redact_text
 
 MAX_COMPATIBILITY_ARTIFACT_BYTES = 4 * 1024 * 1024
 
@@ -104,6 +109,8 @@ def result_status(row):
     runtime_status = row.get("runtime_status", "unverified")
     if runtime_status not in ("ok", "unverified", "not_run", "not_requested"):
         return runtime_status
+    if row.get("cleanup_status") == "incomplete":
+        return "error"
     if row.get("full_profile_complete") is True:
         severities = {check["severity"] for check in (row.get("quality_checks") or [])}
         if row.get("quality_status") == "blocked" or "error" in severities:
@@ -122,11 +129,16 @@ def write_compatibility_report(root: Path, rows: list[dict], *, recorded_results
     )
     if recorded_results:
         fields += ("run_status", "run_outcome", "runtime_status")
+    headings = ["Source", "Model", "Revision", "Status", "reason_code", "Detail"]
+    include_cleanup = any(row.get("cleanup_status") == "incomplete" or row.get("cleanup_errors") for row in rows)
+    if include_cleanup:
+        fields += ("cleanup_status", "cleanup_errors")
+        headings.append("Cleanup")
     stream = io.StringIO(newline="")
     writer = csv.DictWriter(stream, fieldnames=fields)
     writer.writeheader()
     lines = ["# Compatibility report", "", "状态仅适用于所记录的 source、revision、设备、环境和验证范围。", "",
-             "| Source | Model | Revision | Status | reason_code | Detail |", "| --- | --- | --- | --- | --- | --- |"]
+             "| " + " | ".join(headings) + " |", "| " + " | ".join(["---"] * len(headings)) + " |"]
     for row in rows:
         failure = row.get("failure") or {}
         quality = summarize_quality(row.get("quality_checks"))
@@ -140,12 +152,18 @@ def write_compatibility_report(root: Path, rows: list[dict], *, recorded_results
         values.update(status=result_status(row), evidence=json.dumps(failure.get("evidence", row.get("evidence", {})), ensure_ascii=False),
                       quality_checks=json.dumps(checks, ensure_ascii=False),
                       quality_reasons=json.dumps(row["quality_reasons"], ensure_ascii=False))
-        writer.writerow(values)
         def cell(value):
             return str(value).replace("|", "\\|").replace("\n", " ")
         detail = failure.get("detail", "") or row.get("detail", "") or ", ".join(check["code"] for check in checks)
-        lines.append("| " + " | ".join(cell(value) for value in (
-            row["source"], row["model_id"], values["revision"], values["status"], values["reason_code"], detail)) + " |")
+        cells = [row["source"], row["model_id"], values["revision"], values["status"], values["reason_code"], detail]
+        if include_cleanup:
+            cleanup_status = row.get("cleanup_status") or ""
+            cleanup_errors = [_public_cleanup_error(error) for error in row.get("cleanup_errors", [])]
+            values["cleanup_status"] = cleanup_status
+            values["cleanup_errors"] = json.dumps(cleanup_errors, ensure_ascii=False) if cleanup_status or cleanup_errors else ""
+            cells.append(" — ".join(filter(None, (cleanup_status, _cleanup_summary(cleanup_errors)))))
+        writer.writerow(values)
+        lines.append("| " + " | ".join(cell(value) for value in cells) + " |")
     csv_text = stream.getvalue()
     report_text = "\n".join(lines) + "\n"
     def write_text(stream: TextIO, content: str) -> None:
@@ -271,6 +289,35 @@ def _validated_compatibility_failure(
         return None
 
 
+def _recorded_cleanup(layout, validation: dict, validation_name: str, interface: dict,
+                      interface_name: str, invalid: list[dict]) -> dict:
+    records = [(validation_name, "runtime validation", validation)]
+    records.extend((validation_name, f"device {device!r}", value) for device, value in
+                   _dict_or_empty(validation.get("devices")).items() if isinstance(value, dict))
+    records.append((interface_name, "interface validation", interface))
+    incomplete = False
+    errors = []
+    for name, location, record in records:
+        status = record.get("cleanup_status")
+        error = record.get("cleanup_error")
+        if status not in (None, "complete", "incomplete"):
+            _invalid_compatibility_shape(layout, name, f"{location}: invalid cleanup_status", invalid)
+        if status == "incomplete":
+            incomplete = True
+        if error is None:
+            continue
+        try:
+            if not isinstance(error, dict):
+                raise ValueError("cleanup_error must be an object")
+            if status not in (None, "incomplete") or error.get("status") not in (None, "incomplete"):
+                raise ValueError("cleanup_error conflicts with the recorded cleanup status")
+            errors.append(_public_cleanup_error(error))
+            incomplete = True
+        except ValueError as exc:
+            _invalid_compatibility_shape(layout, name, f"{location}: {exc}", invalid)
+    return {"cleanup_status": "incomplete", "cleanup_errors": errors} if incomplete else {}
+
+
 def _load_compatibility_evidence(layout, source: Path, invalid: list[dict]) -> tuple[dict[str, dict], list[dict]]:
     def read(name: str) -> dict:
         return _read_compatibility_artifact(layout, source, name, invalid)
@@ -302,8 +349,9 @@ def _load_compatibility_evidence(layout, source: Path, invalid: list[dict]) -> t
         if "status" in record and (not isinstance(record["status"], str) or not record["status"].strip()):
             path = layout.path(name) if name in _DIRECT_EVIDENCE_FILES else layout.contained(name)
             stage_errors.append(_recorded_evidence_failure(path, ValueError("stage status must be a nonempty string")))
+    cleanup = _recorded_cleanup(layout, validation, validation_name, interface, interface_name, stage_errors)
     return {
-        "metadata": metadata, "resolution": resolution, "capability": capability,
+        "metadata": metadata, "resolution": resolution, "capability": capability, "cleanup": cleanup,
         "validation": validation, "failure_report": read("runtime_failures.json"),
         "interface": interface, "state": state, "preparation": preparation,
     }, stage_errors
@@ -459,6 +507,13 @@ def _report_single_source(source: Path, pre_invalid: list[dict]) -> dict:
     runtime_status, extra_row = _resolve_compatibility_runtime_status(
         validation, interface, preparation, state, failures,
     )
+    cleanup = evidence["cleanup"]
+    if cleanup and isinstance(extra_row.get("detail"), str):
+        # Interface probes may repeat the same cleanup exception in their primary message.
+        extra_row["detail"] = redact_text(str(extra_row["detail"]))
+    if cleanup and not failures and not extra_row:
+        extra_row = {"stage": "cleanup", "reason_code": "cleanup_incomplete",
+                     "detail": _cleanup_summary(cleanup["cleanup_errors"])}
     quality = read_quality(source)
     row = {
         "source": model_source,
@@ -468,6 +523,7 @@ def _report_single_source(source: Path, pre_invalid: list[dict]) -> dict:
         "full_profile_complete": capability.get("full_profile_complete") is True,
         "runtime_status": runtime_status,
         **extra_row,
+        **cleanup,
         **quality,
         "failure": failures[0] if failures else None,
         "failures": failures,

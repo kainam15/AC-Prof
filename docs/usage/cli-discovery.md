@@ -199,6 +199,10 @@ run/report 同时输出 `coverage.json`、`models.csv` 和 `REPORT.md`。失败�
 例如独立探测为 `ok`、能力快照为 `full_profile_complete=true`，但恢复后的最终冻结失败，报告显示 `failed`，并保留前两项证据。
 主实验仍在准备、运行或已中断时，报告显示对应状态；完成但记录了部分失败窗口时显示 `partial`。
 已记录的 typed failure 继续按原因码优先分类。旧目录没有主实验状态文件时，沿用已有探测、能力及质量证据。
+归档报告从独立或内嵌的 Runtime／接口验证记录读取清理失败。JSON 保留 `cleanup_status=incomplete` 及
+`cleanup_errors`；只要有一行记录清理问题，CSV 和 Markdown 就单列显示。清理是唯一诊断时以
+`cleanup_incomplete` 标明，超时、接口或准备阶段已有的主因仍可同时查看。公开的清理详情保留
+Process 错误消息、Docker 最终状态与操作诊断，并对其中的凭据文本脱敏。原实验文件保持原样。
 
 `--max-parameters` 和 `--max-download-bytes` 默认不设置，传入时须为正整数。
 超预算或无法确定所需大小时保存 `resource_limit` 与 `unverified`，不下载权重、不宣称实测 OOM。
