@@ -127,6 +127,10 @@ source、model ID、固定 commit、下载策略、任务族、backend、adapter
 
 同一仓库同时包含根 checkpoint 和 Sentence Transformers 模块链时，`auto` 按选定 backend 校验分片并筛选重复权重。原生 `transformers_pipeline`、`transformers_model` 和 `chronos` 从根目录选权重；`sentence_transformers` 有 `modules.json` 时按清单的组件目录选权重，没有清单时检查根目录。若所选索引引用的分片缺失，规划会报告索引和文件名。见 [Transformers 的 checkpoint 选择](https://github.com/huggingface/transformers/blob/v4.57.6/src/transformers/modeling_utils.py)和 [Sentence Transformers 的模块加载](https://github.com/UKPLab/sentence-transformers/blob/v5.1.2/sentence_transformers/SentenceTransformer.py)。
 
+原生 Torch `cross_encoder` 在没有 `modules.json` 时从根目录选择 checkpoint，保留 tokenizer、配置和其他资源。
+已有 safetensors 时会排除重复的 PyTorch、Flax 和 ONNX 导出，以及成对的标准 OpenVINO XML/BIN 导出。
+存在模块清单、自定义架构或量化声明时，`auto` 保留完整快照。显式 `full` 也保留全部文件。[CrossEncoder 的根模型加载路径](https://github.com/huggingface/sentence-transformers/blob/v5.6.0/sentence_transformers/cross_encoder/model.py#L195-L261)
+
 Sentence Transformers 的 `auto` 规划按 `modules.json` 中的目录核对各层实际加载的文件。Pooling、BoW 和 WordWeights 需要各自的 `config.json`。Dense 和 WeightedLayerPooling 还需单文件权重。CNN、LSTM 和 WordEmbeddings 分别读取 `cnn_config.json`、`lstm_config.json` 和 `wordembedding_config.json`，StaticEmbedding 读取 `tokenizer.json`，这四类也需要单文件权重。Normalize 可以使用空目录，Dropout 允许省略配置并使用默认值。[上游 Pooling 构造参数](https://github.com/huggingface/sentence-transformers/blob/v5.6.0/sentence_transformers/sentence_transformer/modules/pooling.py)与[各模块加载实现](https://github.com/huggingface/sentence-transformers/tree/v5.6.0/sentence_transformers/sentence_transformer/modules)
 
 需要单文件权重的层优先使用 `model.safetensors`，其次使用 `pytorch_model.bin`。已确认原生 Transformer backbone 且模块布局已登记时，规划器只选择该层优先的权重，保留其他辅助文件。文件清单明确显示缺件时，静态检查会指出模块及路径。仅有缓存元数据时，制品布局保留为 `unknown`。[上游单文件权重选择](https://github.com/huggingface/sentence-transformers/blob/v5.6.0/sentence_transformers/base/modules/module.py#L348-L375)

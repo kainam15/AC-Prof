@@ -24,6 +24,32 @@ class TestModelFilePlan:
         validate_plan(plan)
         return {entry["path"] for entry in plan["files"]}
 
+    def test_native_cross_encoder_keeps_torch_checkpoint_and_tokenizer(self):
+        keep = {"model.safetensors", "config.json", "tokenizer.json", "vocab.txt",
+                "special_tokens_map.json", "openvino/other.bin", "README.md"}
+        exports = {"pytorch_model.bin", "flax_model.msgpack", "onnx/model.onnx",
+                   "openvino/openvino_model.bin", "openvino/openvino_model.xml",
+                   "openvino/openvino_model_qint8_quantized.bin", "openvino/openvino_model_qint8_quantized.xml"}
+        plan = self.plan(keep | exports, backend="cross_encoder")
+        assert self.selected(plan) == keep
+        assert plan["weights"][0]["files"] == ["model.safetensors"]
+        assert plan["selected_bytes"] == len(keep)
+
+    @pytest.mark.parametrize("options", [{"policy": "full"}, {"adapter": "different"}])
+    def test_explicit_cross_encoder_snapshot_or_adapter_keeps_all_files(self, options):
+        names = {"model.safetensors", "pytorch_model.bin", "config.json", "onnx/model.onnx"}
+        plan = self.plan(names, backend="cross_encoder", **options)
+        assert self.selected(plan) == names
+        assert plan["effective_policy"] == "full"
+
+    def test_modular_cross_encoder_preserves_declared_component_weights(self):
+        names = {"config.json", "model.safetensors", "pytorch_model.bin", "modules.json",
+                 "1_Dense/config.json", "1_Dense/pytorch_model.bin"}
+        plan = self.plan(names, {"modules.json": [{"idx": 0, "path": "1_Dense",
+                         "type": "sentence_transformers.base.modules.dense.Dense"}]}, backend="cross_encoder")
+        assert self.selected(plan) == names
+        assert plan["effective_policy"] == "full"
+
     def test_safetensors_preserves_processor_resources_and_default_variant(self):
         plan = self.plan([
             "config.json", "model.safetensors", "model.fp16.safetensors", "pytorch_model.bin",
@@ -55,10 +81,12 @@ class TestModelFilePlan:
         })
         assert (self.selected(plan)) == ({"config.json", index, *shards})
 
-    def test_missing_safe_shard_does_not_silently_fall_back_to_bin(self):
+    @pytest.mark.parametrize("backend", ["transformers_pipeline", "cross_encoder"])
+    def test_missing_safe_shard_does_not_silently_fall_back_to_bin(self, backend):
         index = "model.safetensors.index.json"
         with pytest.raises(ModelFilesError, match="missing checkpoint shards"):
-            self.plan(["config.json", index, "pytorch_model.bin"], {index: {"weight_map": {"a": "missing.safetensors"}}})
+            self.plan(["config.json", index, "pytorch_model.bin"],
+                      {index: {"weight_map": {"a": "missing.safetensors"}}}, backend=backend)
 
     @pytest.mark.parametrize('weight_map', [{}, {'a': '../outside.safetensors'}, {'a': 3}])
     def test_invalid_shard_paths_and_empty_index_are_rejected(self, weight_map):
@@ -67,9 +95,10 @@ class TestModelFilePlan:
             self.plan(["config.json", index], {index: {"weight_map": weight_map}})
 
     @pytest.mark.parametrize('config', [{'model_type': 'new_model'}, {'model_type': 'bert', 'auto_map': {'AutoModel': 'custom.Model'}}, {'model_type': 'bert', 'quantization_config': {'quant_method': 'gptq'}}, {'model_type': 'bert', 'custom_pipelines': {'custom': {'impl': 'custom.Pipeline'}}}, {'model_type': ['custom', 'Model']}])
-    def test_unknown_custom_and_quantized_models_keep_full_snapshot(self, config):
+    @pytest.mark.parametrize("backend", ["transformers_pipeline", "cross_encoder"])
+    def test_unknown_custom_and_quantized_models_keep_full_snapshot(self, config, backend):
         names = ["config.json", "model.safetensors", "pytorch_model.bin", "custom.py", "extra.bin"]
-        plan = self.plan(names, {"config.json": config})
+        plan = self.plan(names, {"config.json": config}, backend=backend)
         assert (self.selected(plan)) == (set(names))
         assert (plan["effective_policy"]) == ("full")
 

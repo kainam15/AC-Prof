@@ -217,6 +217,9 @@ def _sentence_components(modules: Any) -> list[tuple[str, str]] | None:
 def _plan_transformers(
     names: set[str], read_json: Callable[[str], Any], native_model_types: set[str] | None, backend: str,
 ) -> tuple[set[str], list[Checkpoint], str]:
+    if backend == "cross_encoder" and "modules.json" in names:
+        # CrossEncoder can load its own component graph instead of a root Transformer.
+        return set(names), [], "unsupported_cross_encoder_modules"
     modules = uses_sentence_transformer_modules(backend, names)
     components = _sentence_components(read_json("modules.json")) if modules else [("Transformer", "")]
     if components is None:
@@ -241,6 +244,12 @@ def _plan_transformers(
         weights.append(checkpoint)
     if not all_backbones_native:
         return set(names), [], "unsupported_sentence_transformers_layout" if modules else reason
+    if backend == "cross_encoder":
+        # The registered handler loads the Torch backend. Keep unrecognized auxiliary files.
+        for stem in ("openvino/openvino_model", "openvino/openvino_model_qint8_quantized"):
+            export = {stem + ".xml", stem + ".bin"}
+            if export <= names:
+                selected.difference_update(export)
     # Different modules can name the same directory. Keep the union of the chosen files.
     for weight in weights:
         selected.update(weight["files"])
@@ -368,7 +377,7 @@ def plan_download(
     elif policy == "auto" and adapter != "family-default":
         reason = "custom_adapter"
     elif policy == "auto" and backend in {
-        "transformers_pipeline", "transformers_model", "sentence_transformers", "chronos",
+        "transformers_pipeline", "transformers_model", "sentence_transformers", "cross_encoder", "chronos",
     }:
         selected, weights, reason = _plan_transformers(names, read_json, native_model_types, backend)
     elif policy == "auto" and backend == "diffusers" and "model_index.json" in names:
