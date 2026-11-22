@@ -13,7 +13,6 @@ from acprof.host.run_state import (
     validate_resume,
 )
 from acprof.messages import join_messages, message
-from acprof.models.evidence import pinned_revision
 from acprof.results.layout import ArtifactLayout
 from acprof.tui.commands import PendingLaunch
 from acprof.tui.experiments.catalog import (
@@ -97,12 +96,11 @@ def review_recovery(pending: PendingLaunch, *, project_dir: Path, python_executa
     else:
         issues.append(message_id('run.recovery.no_restorable_state'))
 
-    fresh = new_experiment_config(config, directory.parent)
-    if (record is not None and pinned_revision(record.revision)
-            and config.model_source == record.model_source
-            and config.model == record.model_id == record.options.get("model")
+    identity = None
+    if (record is not None and not record.issues and config.model == record.options.get("model")
             and config.revision == (record.options.get("revision") or "")):
-        fresh = replace(fresh, revision=record.revision)
+        identity = record.identity
+    fresh = new_experiment_config(config, directory.parent, identity=identity)
     restart = None
     try:
         restart_command = build_run_command(fresh, project_dir=project_dir, python_executable=python_executable)

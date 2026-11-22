@@ -432,8 +432,11 @@ def scan_experiments(roots: Iterable[Path], *, cancelled: Callable[[], bool] = l
                              tuple(warnings), tuple(coverage_reports))
 
 
-def new_experiment_config(config: RunConfig, output_root: Path) -> RunConfig:
-    """Allocate a proposed sibling attempt without creating any files."""
+def new_experiment_config(config: RunConfig, output_root: Path, *,
+                          identity: RecordedModelIdentity | None = None) -> RunConfig:
+    """Propose a fresh destination and bind the selected repository to its recorded commit."""
+    if identity is not None and identity.source == config.model_source and identity.commit:
+        config = replace(config, model=identity.model_id or config.model, revision=identity.commit)
     root = output_root
     if root.name.startswith("experiment-") and len(root.name) == 43:
         try:
@@ -454,12 +457,9 @@ def config_from_record(record: ExperimentRecord, *, reuse: bool) -> RunConfig:
     derived = {'measurement_environment', 'model_spec_sha256', 'workload_spec_sha256'}
     extra = {name: value for name, value in options.items() if name not in explicit | derived}
     config = replace(config, extra_options=extra, model_source=record.model_source)
-    from acprof.models.evidence import pinned_revision
-    if reuse and pinned_revision(record.revision):
-        config = replace(config, revision=record.revision)
     root = record.directory.parents[3] if config.task_run_id else record.directory.parent
     if reuse:
-        return new_experiment_config(config, root)
+        return new_experiment_config(config, root, identity=record.identity)
     return replace(config, output_dir=str(root), resume=True)
 
 

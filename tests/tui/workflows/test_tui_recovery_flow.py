@@ -101,6 +101,64 @@ def test_recovery_commands_bind_pins_to_their_source(saved_preparation, source, 
     assert resume.model_source == config.model_source
 
 
+@pytest.mark.parametrize("saved_preparation", [("modelscope", "release")], indirect=True)
+@pytest.mark.parametrize(("resolved", "commit", "conflict", "expected_model", "expected_ref"), [
+    ("resolved/model", "a" * 40, False, "resolved/model", "a" * 40),
+    (None, "a" * 40, False, "demo/model", "a" * 40),
+    ("resolved/model", "main", False, "demo/model", "release"),
+    ("resolved/model", "a" * 40, True, "demo/model", "release"),
+], ids=["resolved-alias", "legacy-requested-id", "symbolic-only", "conflicting-identity"])
+def test_recovery_new_experiment_preserves_the_whole_snapshot(
+    saved_preparation, resolved, commit, conflict, expected_model, expected_ref,
+):
+    from acprof.tui.experiments.catalog import config_from_record
+
+    config, directory = saved_preparation
+    layout = ArtifactLayout.discover(directory)
+    interface = {"revision": commit}
+    if resolved is not None:
+        interface["model_id"] = resolved
+    layout.path("interface_validation.json").write_text(json.dumps(interface))
+    if conflict:
+        layout.path("model_resolution.json").write_text(json.dumps({"model_id": "other/model"}))
+    record, = scan_experiments([directory]).records
+    pending = PendingLaunch(tuple(build_run_command(config, project_dir=Path.cwd())), "run", config)
+    review = review_recovery(pending, project_dir=Path.cwd(), python_executable=Path("/fixed/python"))
+    assert review is not None
+    assert review.restart is not None
+    command = review.restart.command
+    fresh = build_parser().parse_args(command[command.index("--model"):])
+    assert (fresh.model, fresh.model_source, fresh.revision) == (expected_model, "modelscope", expected_ref)
+    assert not fresh.resume
+    assert Path(fresh.output_dir) != directory.parent
+    if conflict:
+        assert review.resume is None
+        with pytest.raises(ValueError, match="frozen configuration unavailable"):
+            config_from_record(record, reuse=True)
+        return
+    reused = config_from_record(record, reuse=True)
+    assert (reused.model, reused.model_source, reused.revision) == (expected_model, "modelscope", expected_ref)
+    assert review.resume is not None
+    command = review.resume.command
+    strict = build_parser().parse_args(command[command.index("--model"):])
+    assert (strict.model, strict.model_source, strict.revision, strict.resume) == ("demo/model", "modelscope", "release", True)
+
+
+def test_recovery_new_experiment_keeps_edited_model_for_moved_directory(saved_preparation):
+    config, directory = saved_preparation
+    layout = ArtifactLayout.discover(directory)
+    layout.path("interface_validation.json").write_text(json.dumps({"model_id": "resolved/model", "revision": "a" * 40}))
+    edited = replace(config, model="my/other-model")
+    directory.rename(edited.result_dir(Path.cwd()))
+    pending = PendingLaunch(tuple(build_run_command(edited, project_dir=Path.cwd())), "run", edited)
+    review = review_recovery(pending, project_dir=Path.cwd(), python_executable=Path("/fixed/python"))
+    assert review is not None
+    assert review.restart is not None
+    command = review.restart.command
+    fresh = build_parser().parse_args(command[command.index("--model"):])
+    assert (fresh.model, fresh.revision) == ("my/other-model", None)
+
+
 @pytest.mark.parametrize(("language", "size"), [("zh", (80, 24)), ("en", (120, 30)), ("zh", (150, 45))])
 async def test_start_existing_experiment_reviews_preparation_retry(saved_preparation, tmp_path, language, size):
     config, directory = saved_preparation
@@ -135,8 +193,13 @@ async def test_start_existing_experiment_reviews_preparation_retry(saved_prepara
     assert all(path.read_bytes() == content for path, content in original.items())
 
 
-async def test_changed_source_offers_new_experiment_and_keeps_original(saved_preparation, tmp_path, monkeypatch):
+@pytest.mark.parametrize("resolved_model", [None, "resolved/actual"], ids=["no-snapshot", "resolved-alias"])
+async def test_changed_source_offers_new_experiment_and_keeps_original(saved_preparation, tmp_path, monkeypatch, resolved_model):
     config, directory = saved_preparation
+    if resolved_model:
+        ArtifactLayout.discover(directory).path("interface_validation.json").write_text(json.dumps({
+            "model_id": resolved_model, "revision": "a" * 40,
+        }))
     original = {p: p.read_bytes() for p in directory.rglob("*") if p.is_file()}
     monkeypatch.setattr(run_state, "host_identity", lambda _: {"source_sha256": "changed"})
     app = AcprofTui(config, settings_path=tmp_path / "settings.json")
@@ -154,7 +217,9 @@ async def test_changed_source_offers_new_experiment_and_keeps_original(saved_pre
             pending = launch.call_args.args[0]
             assert not pending.config.resume
             assert "--resume" not in pending.command
-            assert pending.config.model == config.model
+            args = build_parser().parse_args(pending.command[pending.command.index("--model"):])
+            assert args.model == (resolved_model or config.model)
+            assert (args.revision or "") == ("a" * 40 if resolved_model else config.revision)
             assert pending.config.repeat == config.repeat
             assert pending.config.output_dir != config.output_dir
             assert not pending.config.result_dir(Path.cwd()).exists()

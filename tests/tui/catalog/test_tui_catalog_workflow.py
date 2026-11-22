@@ -71,6 +71,16 @@ class TestCatalogWorkflow:
         root = self.fixture.root
         path = self.fixture.record('batch-18', status='failed', tasks='summarization')
         (path / 'result_layers.json').unlink()
+        # Keep the requested alias in frozen argv and the resolved ID in actual runtime evidence.
+        state_path = path / 'run_state.json'
+        state = json.loads(state_path.read_text())
+        state['options']['revision'] = 'release'
+        state['runtime']['task']['model_id'] = 'resolved/actual'
+        state_path.write_text(json.dumps(state))
+        metadata_path = path / 'static_meta.json'
+        metadata = json.loads(metadata_path.read_text())
+        metadata['model_name'] = 'resolved/actual'
+        metadata_path.write_text(json.dumps(metadata))
         (path / 'runtime_failures.json').write_text(json.dumps({'failures': [{'reason_code': 'resource_limit', 'detail': '4 GiB'}]}))
         for i in range(24):
             self.fixture.record(f'batch-{i}', model=f'demo/other-{i}', run_id=f'run-{i}', status='complete')
@@ -91,7 +101,7 @@ class TestCatalogWorkflow:
                 assert (button.region.x) >= (0)
                 assert (button.region.right) <= (80)
                 assert (button.region.bottom) <= (24)
-            screen.query_one('#picker-search', Input).value = 'demo/model failed 2026-10 cpu'
+            screen.query_one('#picker-search', Input).value = 'resolved/actual failed 2026-10 cpu'
             await pilot.pause()
             assert (len(screen.filtered)) == (1)
             assert (await pilot.click('#picker-view'))
@@ -105,7 +115,7 @@ class TestCatalogWorkflow:
             reused = app.configuration.collect_config()
             assert not (reused.resume)
             assert (reused.extra_options['matrix_seed']) == (71)
-            assert (reused.revision) == ('a' * 40)
+            assert (reused.model, reused.revision) == ('resolved/actual', 'a' * 40)
             assert reused.tasks == 'summarization'
             assert (reused.output_dir) != (str(path.parent))
             assert not app.query('#run-preset')
@@ -135,6 +145,7 @@ class TestCatalogWorkflow:
                 )
                 pending = launch.call_args.args[0]
                 parsed = build_parser().parse_args(pending.command[pending.command.index('--model'):])
+                assert (parsed.model, parsed.revision) == ('demo/model', 'release')
                 assert (parsed.matrix_seed) == (71)
                 assert parsed.tasks == 'summarization'
                 assert (parsed.output_dir) == (str(path.parent))
