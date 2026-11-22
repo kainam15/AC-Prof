@@ -145,7 +145,8 @@ def _from_collector(row, metric, group, item):
     if group in {"gpu_power", "cpu_energy", "dram_energy", "cpu_instructions", "cgroup"}:
         result["sampling"] = _collector_object(item, "sampling").copy()
         if group == "gpu_power":
-            result["sampling"]["energy_method"] = row.get("gpu_energy_source")
+            method = row.get("gpu_energy_source")
+            result["sampling"]["energy_method"] = method.strip() if isinstance(method, str) else method
         if group == "cpu_instructions" and present:
             try:
                 running = float(row.get("cpu_perf_running_pct", "nan"))

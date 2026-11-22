@@ -38,7 +38,7 @@ CPU quota 节流、计数更新粒度与采样起点可能影响估算重复性�
 | 字段 | 含义 |
 | --- | --- |
 | `gpu_idle_power_w` | GPU matched-control baseline power，单位 W。使用与 workload 相同的 NVML monitor 生命周期，由 control 能量 / 实际 duration 得到；control 同样优先累计能耗差值。 |
-| `gpu_energy_source` / `gpu_idle_energy_source` | workload / control 实际来源：`nvml_total_energy`、`power_integration`、`unavailable` 或 `not_requested`。历史缺字段表示来源未知。 |
+| `gpu_energy_source` / `gpu_idle_energy_source` | workload / control 实际来源：`nvml_total_energy`、`power_integration`、`unavailable` 或 `not_requested`。历史缺字段表示来源未知。窗口采样口径比较忽略 `gpu_energy_source` 方法名的首尾空白，保留大小写。 |
 | `gpu_energy_fallback_reason` | 累计能耗不可用或倒退的原因；正常使用累计计数时为空。不能假设计数器回绕范围并拼接负差值。 |
 | `gpu_idle_measured_at` | `--idle-debug` 开启且 `gpu_mode=on` 时，matched control window 测量完成时的本地 ISO-8601 时间戳；未开启或 GPU 不可用时为 `nan`。CPU/GPU control 同时采集，因此两者共用同一时间戳。 |
 | `gpu_idle_rel_range_so_far` | `--idle-debug` 开启时，截至本行为止当前 case 内有效 `gpu_idle_power_w` 的相对极差，公式为 `(max - min) / mean`；`0.05` 表示 5%。未开启时为 `nan`。 |

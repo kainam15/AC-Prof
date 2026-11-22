@@ -89,3 +89,38 @@ def test_csv_quality_text_is_distinct_from_an_empty_cell(tmp_path, field):
     else:
         assert pd.isna(point[metric])
         assert expected["mean"] is None
+
+
+@pytest.mark.parametrize("quoting", [csv.QUOTE_MINIMAL, csv.QUOTE_ALL], ids=["unquoted", "quoted"])
+def test_gpu_method_whitespace_matches_between_stats_and_png(tmp_path, quoting):
+    from acprof.cli.stats import main as run_stats
+
+    metric = "gpu_energy_total_j"
+    method = "nvml_total_energy"
+    evidence = json.dumps({"schema_version": 1, "metrics": {}, "collectors": {"gpu_power": {"status": "available"}}})
+    methods = [
+        (method, method), (method, method + " "), (method, " " + method),
+        (method, "power_integration"), (method, method.upper()), ("001", "1"), ("", "N/A"),
+    ]
+    rows = []
+    for scale, pair in enumerate(methods, 1):
+        for index, source in enumerate(pair):
+            rows.append(window(scale, index, gpu_energy_total_j=2 if index == 0 else 98,
+                               gpu_energy_source=source, resource_metric_quality=evidence))
+    path = tmp_path / "result_all.csv"
+    with path.open("w", newline="") as stream:
+        writer = csv.DictWriter(stream, rows[0], quoting=quoting)
+        writer.writeheader()
+        writer.writerows(rows)
+    original = path.read_bytes()
+    output = tmp_path / "stats.json"
+    assert run_stats([str(path), "--metric", metric, "--output", str(output)]) == 0
+    groups = json.loads(output.read_bytes())["groups"]
+    stats = [(g["mean"], g["n_windows"], g["missing_windows"]) for g in groups]
+    assert stats == [(50, 2, 0)] * 3 + [(None, 0, 2)] * 4
+
+    points = aggregate_plot_metric(prepare_df(str(path)), metric)
+    png = [(None if pd.isna(mean) else mean, valid, missing)
+           for mean, valid, missing in points[[metric, "n_windows", "missing_windows"]].itertuples(index=False, name=None)]
+    assert png == stats
+    assert path.read_bytes() == original
