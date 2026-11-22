@@ -95,10 +95,11 @@ def _collect_window_cases(rows, *, cancelled, precision_target):
     return cases, excluded
 
 
-def finite_metric_values(ordered, name: str) -> list[float]:
-    """Collect usable readings for a registered metric with one observation contract."""
+def metric_values_and_signature(ordered, name: str) -> tuple[list[float], str | None]:
+    """Keep descriptive readings and the common contract eligible for comparison."""
     values = []
     signatures = set()
+    incomplete = False
     for row in ordered:
         value = number(row.get(name))
         if value is None:
@@ -107,7 +108,17 @@ def finite_metric_values(ordered, name: str) -> list[float]:
         if observation['quality'] in USABLE_QUALITIES:
             values.append(value)
             signatures.add(observation_signature(observation))
-    return values if len(signatures) <= 1 else []
+        else:
+            incomplete = True
+    if len(signatures) != 1:
+        return [], None
+    return values, None if incomplete else signatures.pop()
+
+
+def finite_metric_values(ordered, name: str) -> list[float]:
+    """Collect usable readings for a registered metric with one observation contract."""
+    values, _ = metric_values_and_signature(ordered, name)
+    return values
 
 
 def _precision_unavailable_reason(

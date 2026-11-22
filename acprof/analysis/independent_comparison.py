@@ -16,7 +16,7 @@ from acprof.analysis.changes import metric_change
 from acprof.analysis.comparison import compare_snapshots, load_comparison_snapshot
 from acprof.analysis.conditions import ALLOWED_RESOURCE_DIMENSIONS
 from acprof.analysis.coordinates import COORDINATE_IDENTITY, project_coordinates
-from acprof.analysis.uncertainty import finite_metric_values, validate_window_options
+from acprof.analysis.uncertainty import metric_values_and_signature, validate_window_options
 from acprof.artifacts import file_sha256
 from acprof.hardware_conditions import conditions_path
 from acprof.quality import QUALITY_FIELDS, combine_quality
@@ -104,6 +104,12 @@ def _record_experiment_fingerprints(
         fingerprints[artifact] = file_sha256(artifact) if metadata_snapshot.exists(logical_name) else None
 
 
+@dataclass(frozen=True)
+class _RunMetric:
+    summary: dict[str, Any]
+    signature: str | None
+
+
 def _collect_run_case_groups(
     rows: list[dict[str, str]],
     *,
@@ -111,7 +117,7 @@ def _collect_run_case_groups(
     complete: bool,
     purpose: str,
     metrics: list[str],
-) -> dict[tuple[str, ...], dict[str, Any]]:
+) -> dict[tuple[str, ...], _RunMetric]:
     groups = {}
     by_case = defaultdict(list)
     for row in rows:
@@ -132,8 +138,8 @@ def _collect_run_case_groups(
         inferred_count = sum(is_inferred_result(row) for row in windows)
         resources = project_coordinates({"cpu_cores": case[0], "mem_cap_gb": case[1]})
         for metric in metrics:
-            window_values = finite_metric_values(measured, metric)
-            groups[(*comparison_case, metric)] = {
+            window_values, signature = metric_values_and_signature(measured, metric)
+            groups[(*comparison_case, metric)] = _RunMetric({
                 "run_id": run_id,
                 "mean": statistics.fmean(window_values) if window_values and complete else None,
                 "resource_coordinates": resources,
@@ -142,23 +148,22 @@ def _collect_run_case_groups(
                 "missing_windows": len(measured) - len(window_values),
                 "inferred_windows": inferred_count,
                 "eligible": complete,
-            }
+            }, signature)
     return groups
 
 
 def _summarize_group_metric(
     case_metric: tuple[str, ...],
-    sides: dict[str, list[dict[str, Any]]],
+    sides: dict[str, list[_RunMetric]],
     *,
     sources: dict[str, list],
-    checks: list[dict[str, Any]],
     status: str,
     confidence: float,
     resamples: int,
     seed: int,
 ) -> dict[str, Any]:
     _, _, gpu, scale, metric = case_metric
-    coordinates = {side: records[0]["resource_coordinates"] if records else None for side, records in sides.items()}
+    coordinates = {side: records[0].summary["resource_coordinates"] if records else None for side, records in sides.items()}
     # Resource-scaling can change quotas between sides. The group describes its first recorded side.
     resources = coordinates["left"] or coordinates["right"]
     if resources is None:
@@ -174,14 +179,11 @@ def _summarize_group_metric(
         "difference": None, "ratio": None, "percent": None, "performance_ratio": None,
         "difference_ci": None, "ratio_ci": None, "reason": "",
     }
-    blocked = any(
-        check.get("metric_comparability", {}).get(metric, {}).get("status") == "not comparable"
-        for check in checks
-    )
-    result["comparability"] = "not comparable" if blocked or status != "compatible" else "comparable"
+    signatures = {run.signature for runs in sides.values() for run in runs}
+    result["comparability"] = "not comparable"
     values: dict[str, list[float]] = {}
     for side in ("left", "right"):
-        records = sides[side]
+        records = [run.summary for run in sides[side]]
         values[side] = [record["mean"] for record in records if record["mean"] is not None]
         result[side] = {
             **_aggregate_evidence(records),
@@ -195,13 +197,14 @@ def _summarize_group_metric(
             "inferred_windows": sum(record["inferred_windows"] for record in records),
             "runs": records,
         }
-    if blocked:
-        result["reason"] = "not comparable"
-    elif status != "compatible":
+    if status != "compatible":
         result["reason"] = "conditions_" + status
     elif not values["left"] or not values["right"]:
         result["reason"] = "missing_comparable_runs"
+    elif len(signatures) != 1 or None in signatures:
+        result["reason"] = "not comparable"
     else:
+        result["comparability"] = "comparable"
         a, b = result["left"]["mean"], result["right"]["mean"]
         changes = metric_change(a, b, direction=METRICS[metric].direction)
         result.update(difference=changes["delta"], ratio=changes["ratio"], percent=changes["percent"],
@@ -222,7 +225,7 @@ class _ExperimentSnapshot:
     run_id: str
     result_path: Path
     status: Any
-    groups: dict[tuple[str, ...], dict[str, Any]]
+    groups: dict[tuple[str, ...], _RunMetric]
     comparison: dict[str, Any]
     fingerprints: dict[Path, str | None]
 
@@ -281,7 +284,7 @@ class ExperimentComparisonSession:
         run_ids: set[str] = set()
         result_files: set[Path] = set()
         fingerprints: dict[Path, str | None] = {}
-        groups: defaultdict[tuple[str, ...], dict[str, list[dict[str, Any]]]] = defaultdict(
+        groups: defaultdict[tuple[str, ...], dict[str, list[_RunMetric]]] = defaultdict(
             lambda: {"left": [], "right": []}
         )
         checks: list[dict[str, Any]] = []
@@ -320,13 +323,14 @@ class ExperimentComparisonSession:
                     checks.append({"status": "incompatible", "run_id": run_id,
                                    "reason": "replicates_change_experiment_identity",
                                    "differences": within["expected_differences"]})
-                for case_metric, record in deepcopy(loaded.groups).items():
-                    groups[case_metric][side].append({**record, **evidence})
+                for case_metric, run in deepcopy(loaded.groups).items():
+                    run.summary.update(evidence)
+                    groups[case_metric][side].append(run)
         statuses = {check["status"] for check in checks}
         status = "incompatible" if "incompatible" in statuses else "unknown" if "unknown" in statuses else "compatible"
         output = [
             _summarize_group_metric(
-                case_metric, sides, sources=sources, checks=checks,
+                case_metric, sides, sources=sources,
                 status=status, confidence=confidence,
                 resamples=resamples, seed=seed,
             )
