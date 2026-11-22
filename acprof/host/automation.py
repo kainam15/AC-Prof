@@ -1,7 +1,7 @@
 """Preparation and final reports for the conservative automatic collection path."""
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 
 from acprof.artifacts import atomic_write_json, read_json_object
@@ -32,6 +32,8 @@ def check_repository_access(repo_id: str, *, source: str = "huggingface", revisi
         # Provider exceptions can include URLs/headers. Persist a typed reason only.
         from acprof.failures import Failure, RuntimeFailure
         lookup = model_lookup_error(repo_id, exc, revision=revision)
+        if lookup.rate_limited and lookup.failure is not None:
+            raise RuntimeFailure(replace(lookup.failure, stage="access", detail=f"{repo_id} ({source}): {lookup.hint}")) from None
         code = "access_denied" if lookup.reason_code in {"access_denied", "repository_unavailable"} else "runtime_initialization_failed"
         exhausted = next((cause for cause in exception_chain(exc) if isinstance(cause, HfDownloadError)), None)
         detail = (str(exhausted) if exhausted else

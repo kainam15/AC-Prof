@@ -1,6 +1,7 @@
 """Actionable lookup errors shared by host preparation, CLI and TUI."""
 from __future__ import annotations
 
+from acprof.failures import Failure
 from acprof.host.preparation.preparation_log import redact_text
 from acprof.messages import message
 
@@ -20,6 +21,9 @@ _TERMINAL = frozenset({"invalid_model_id", "repository_unavailable", "access_den
 
 class ModelLookupError(ValueError):
     """Preserve the model identity, reason and diagnostics without exiting Python."""
+
+    failure: Failure | None = None
+    rate_limited = False
 
     def __init__(self, model_id: str, reason_code: str, *, revision: str = "", detail: str = "",
                  download_error: dict | None = None):
@@ -86,9 +90,15 @@ def _reason(exc: BaseException) -> str:
         return "offline"
     if isinstance(exc, NotExistError):
         return "repository_unavailable"
+    # ModelScope also reports throttling as a permission error with a service-specific code.
+    if isinstance(exc, RateLimitError) or (
+        isinstance(exc, PermissionDeniedError) and exc.status_code == 403
+        and isinstance(exc.response_body, dict) and str(exc.response_body.get("Code")) == "10013201001"
+    ):
+        return "modelscope_rate_limited"
     if isinstance(exc, (AuthenticationError, PermissionDeniedError)):
         return "access_denied"
-    if isinstance(exc, (RateLimitError, ServerError)):
+    if isinstance(exc, ServerError):
         return "hub_unavailable"
     if isinstance(exc, (httpx.TransportError, ConnectionError, TimeoutError)):
         return "network_error"
@@ -105,6 +115,8 @@ def model_lookup_error(model_id: str, exc: BaseException, *, revision: str | Non
     """Classify actual exception types and causes, never natural-language text."""
     if isinstance(exc, ModelLookupError):
         return exc
+    from modelscope_hub.errors import APIError
+
     from acprof.hub.huggingface.download import HfDownloadError, exception_chain
 
     reason = "lookup_failed"
@@ -114,7 +126,16 @@ def model_lookup_error(model_id: str, exc: BaseException, *, revision: str | Non
             break
     detail = "\n".join(diagnostics) if diagnostics else f"{type(exc).__name__}: {exc}"
     download_error = next((cause.to_dict() for cause in exception_chain(exc) if isinstance(cause, HfDownloadError)), None)
-    return ModelLookupError(model_id, reason, revision=revision or "", detail=detail, download_error=download_error)
+    limited = reason == "modelscope_rate_limited"
+    error = ModelLookupError(model_id, "hub_unavailable" if limited else reason, revision=revision or "",
+                             detail=detail, download_error=download_error)
+    if limited or (reason == "access_denied" and isinstance(cause, APIError)):
+        error.rate_limited = limited
+        error.failure = Failure("resolution", "metadata_unavailable" if limited else "access_denied", str(error),
+                                retryability="transient" if limited else "after_configuration",
+                                evidence={"lookup_reason": error.reason_code, "next_action": error.hint},
+                                exception_type=type(cause).__name__)
+    return error
 
 
 def metadata_read_diagnostic(model_id: str, revision: str, filename: str, exc: Exception) -> dict:

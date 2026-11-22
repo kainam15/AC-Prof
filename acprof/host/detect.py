@@ -778,7 +778,7 @@ def _fallback_config_info(
 def _detect_from_config(
     model_id: str,
     diagnostics: list[str] | None = None,
-    *, requested_revision: str | None = None, failures: list[Exception] | None = None,
+    *, requested_revision: str | None = None, failures: list[Exception] | None = None, cached_only: bool = False,
 ) -> TaskInfo | None:
     """Recover registered model interfaces from snapshot metadata."""
     stage = "model_index"
@@ -796,8 +796,13 @@ def _detect_from_config(
             # An unrelated index does not identify a Diffusers pipeline.
             requested_revision = info.model_revision
         stage = "config_json"
-        metadata = (_download_metadata(model_id, "config.json", requested_revision) if requested_revision
-                    else _download_metadata(model_id, "config.json"))
+        if cached_only:
+            metadata, _ = _cached_metadata_file(model_id, "config.json", requested_revision)
+            if metadata is None:
+                return None
+        else:
+            metadata = (_download_metadata(model_id, "config.json", requested_revision) if requested_revision
+                        else _download_metadata(model_id, "config.json"))
         info = _fallback_config_info(model_id, requested_revision, "config.json", metadata)
     except Exception as exc:
         # A corrupt local manifest or component must also block explicit task selection.
@@ -854,11 +859,14 @@ def detect_task(
         if model_variant.endswith("/"):
             cause = failures[0] if failures else ValueError("model directory selection requires a pinned file inventory")
             raise model_lookup_error(model_id, cause, revision=revision, diagnostics=diagnostics) from cause
+        cached_only = False
         if failures:
             error = model_lookup_error(model_id, failures[0], revision=revision, diagnostics=diagnostics)
             if error.blocks_fallback:
                 raise error from failures[0]
-        info = _detect_from_config(model_id, diagnostics, requested_revision=revision, failures=failures)
+            cached_only = error.rate_limited
+        info = _detect_from_config(model_id, diagnostics, requested_revision=revision, failures=failures,
+                                   cached_only=cached_only)
 
     # If auto-detection failed entirely, require manual override
     if info is None:
