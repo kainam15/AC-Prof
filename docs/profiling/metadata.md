@@ -24,7 +24,7 @@
 | `output_format` | 实际 `/predict` HTTP JSON 响应协议及其 JSON Schema。 |
 | `quantized` | 是否检测到量化配置、量化 tag 或量化权重 dtype；无法确认时为 `null`。 |
 | `quantization_method` | 配置中记录的非空方法名，例如 `gptq`、`awq`。无法从配置取得方法名时可采用已识别的量化 tag，仍未知时为 `null`。 |
-| `quantization_config` | 优先记录已验证的同 revision `config.json` 中的完整量化配置，文件未声明该字段时使用 Hub 概览。两者均未声明时为空 object。 |
+| `quantization_config` | 优先记录同 revision 的 `config.json` 声明，文件未声明时使用 Hub 概览。每份来源先看顶层配置，再看唯一文本解码器（`decoder`、`generator` 或 `text_config`）的量化配置。多个候选时保留未知，视觉或 encoder 专有配置不作为解码器声明。记录中的位宽和排除模块属于该声明的作用范围。 |
 | `model_license` | Hugging Face model card 许可证，例如 `apache-2.0`、`mit`；无法确认时为 `null`。 |
 | `model_metadata_source` | 参数、精度、量化和许可证等模型事实的来源。取自 Hugging Face 或 ModelScope 的 Hub 响应时分别记录 `huggingface_hub`、`modelscope_hub`，也可来自缓存中保留的同一份响应。仅从固定快照的配置推断任务时该字段仍为 `null`，精度与量化声明可由已读取的 `config.json` 提供，其 revision 与原始字节 SHA-256 保留在发现记录中。 |
 | `model_resolution` | 可选的接口解析 object（内部 schema v1）：任务、backend、library、制品格式、loader、operation、model type、固定 revision、元数据文件和 runtime profile。包含 `candidates/evidence`、`conflicts/missing`、`selection`、`interface_kind`、`pipeline_task`、`code_files/code_revision`、有效 `model_spec`；自动解析追加独立 `contract` provenance 和仅在无缺口时生成的 `generated_spec`。依赖固定、用户审阅、接口检查和真实运行的观察分别记录；`contract.runtime_validation` 从 `not_run` 变为包含 mode、image ID、payload／报告 hash 与设备结果的 object，详见[契约生成](../models/contracts.md#自动生成模型契约m1m6)。`candidate` 不是执行成功；`selection_required/ambiguous/needs_configuration/blocked` 保留不同原因，在条件满足前不得进入正式采集。新增 `compatibility` 区分接口能力和制品证据，整体 unknown 不视为静态支持；`artifact_layout` 保留选中加载器的文件布局判断，`failure.evidence.next_action` 给出后续操作。多组检查按 `task_resolutions` 保存独立结果；静态检查不会写入真实推理成功。历史 v7 缺失字段按未知处理，不推算。无数值单位或测量窗口，不增加 CSV 列。 |

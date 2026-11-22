@@ -219,3 +219,73 @@ def test_quantization_method_requires_a_recorded_name(discover_pinned, configura
     assert task.quantized is True
     assert task.quantization_config == configuration
     assert task.quantization_method == method
+
+
+# Condensed from moonshotai/Kimi-K2.5@94b44e57fb4797fde1c1872bed70aef3c93a07f6.
+_KIMI_QUANTIZATION = {"quant_method": "compressed-tensors", "format": "pack-quantized",
+                      "config_groups": {"group_0": {"weights": {"num_bits": 4}}},
+                      "ignore": ["re:vision_tower.*", "re:mm_projector.*"]}
+_DECODER = {"dtype": "int8", "quantization_config": _KIMI_QUANTIZATION}
+_TOP = {"quant_method": "awq", "bits": 4}
+
+
+@pytest.mark.parametrize(("file_config", "hub_config", "expected"), [
+    ({"text_config": _DECODER}, {}, _KIMI_QUANTIZATION),
+    ({"decoder": _DECODER}, {}, _KIMI_QUANTIZATION),
+    ({"generator": _DECODER}, {}, _KIMI_QUANTIZATION),
+    ({"quantization_config": _TOP, "text_config": _DECODER}, {}, _TOP),
+    ({"quantization_config": None, "text_config": _DECODER}, {}, _KIMI_QUANTIZATION),
+    ({"text_config": _DECODER}, {"quantization_config": _TOP}, _KIMI_QUANTIZATION),
+    ({}, {"text_config": _DECODER}, _KIMI_QUANTIZATION),
+    ({"vision_config": _DECODER, "text_encoder": _DECODER}, {}, {}),
+    ({"text_config": _DECODER, "decoder": {}}, {}, {}),
+    ({"text_config": {"quantization_config": ["fp8"]}}, {"quantization_config": _TOP}, {}),
+    ({"quantization_config": [], "text_config": _DECODER}, {}, {}),
+    ({"text_config": _DECODER, "decoder": {}}, {"quantization_config": _TOP}, {}),
+])
+def test_decoder_quantization_follows_one_declared_text_config(discover_pinned, file_config, hub_config, expected):
+    task = discover_pinned({"dtype": "bfloat16", **file_config}, hub_config)
+    assert task.quantization_config == expected
+    assert task.quantization_method == expected.get("quant_method")
+    if expected:
+        assert task.quantized is True
+    assert task.precision_dtype == "BF16"
+    assert "text_config" not in task.model_config
+    assert task.model_config.get("quantization_config") == file_config.get("quantization_config", hub_config.get("quantization_config"))
+
+
+def test_cached_decoder_quantization_keeps_config_provenance(discover_pinned):
+    task = discover_pinned({"text_config": _DECODER}, {}, source="modelscope", offline=True)
+    assert task.quantization_config == _KIMI_QUANTIZATION
+    assert task.quantized is True
+    assert task.precision_dtype is None
+    assert task.model_metadata_source is None
+
+
+def test_nested_hub_quantization_keeps_nonfinite_diagnostic_path(discover_pinned):
+    task = discover_pinned({}, {"text_config": {"quantization_config": {"bits": float("inf")}}})
+    assert not task.quantization_config
+    assert task.quantized is None
+    assert ("hub.config", "/text_config/quantization_config/bits") in {
+        (item["file"], item["json_pointer"]) for item in task.metadata_diagnostics
+    }
+
+
+@pytest.mark.parametrize("file_config", [
+    {"text_config": _DECODER, "decoder": {}},
+    {"text_config": {"quantization_config": ["fp8"]}},
+])
+@pytest.mark.parametrize(("tags", "expected"), [((), None), (("awq",), True)])
+def test_inconclusive_decoder_declaration_keeps_independent_evidence(discover_pinned, file_config, tags, expected):
+    task = discover_pinned({"dtype": "float16", **file_config}, {}, tags=tags)
+    assert task.precision_dtype == "FP16"
+    assert task.quantized is expected
+    assert task.quantization_config == {}
+    assert task.quantization_method == ("awq" if tags else None)
+
+
+def test_unselected_decoder_summary_cannot_invalidate_pinned_declaration(discover_pinned):
+    task = discover_pinned({"text_config": _DECODER},
+                           {"text_config": {"quantization_config": {"bits": float("inf")}}})
+    assert task.quantization_config == _KIMI_QUANTIZATION
+    assert not task.metadata_diagnostics

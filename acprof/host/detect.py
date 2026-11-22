@@ -418,11 +418,43 @@ def _hub_parameter_counts(safetensors: object) -> tuple[int | None, dict[str, in
     return total, counts, unnamed_elements, "Hub safetensors: " + "; ".join(problems) if problems else None
 
 
+@dataclass(frozen=True)
+class _QuantizationDeclaration:
+    section: str
+    config: dict[str, Any] | None  # None means the declaration was ambiguous or malformed.
+
+
+def _quantization_declaration(config: object) -> _QuantizationDeclaration | None:
+    """Select top-level or unambiguous decoder evidence within one configuration."""
+    if not isinstance(config, dict):
+        return None
+    owner = config
+    section = ""
+    top = config.get("quantization_config")
+    if top is None or top == {}:
+        names = [name for name in ("decoder", "generator", "text_config") if config.get(name) is not None]
+        declared = [name for name in names
+                    if isinstance(config[name], dict) and "quantization_config" in config[name]]
+        if declared:
+            if len(names) != 1:
+                return _QuantizationDeclaration("", None)
+            section = declared[0]
+            owner = config[section]
+    if "quantization_config" not in owner:
+        return None
+    value = owner["quantization_config"]
+    if value is not None and not isinstance(value, dict) and not callable(getattr(value, "to_dict", None)):
+        return _QuantizationDeclaration(section, None)
+    return _QuantizationDeclaration(section, _json_mapping(value))
+
+
 def _weight_metadata(
     config: dict[str, Any], *, tags: set[str], dtype_counts: dict[str, int] | None,
+    declaration: _QuantizationDeclaration | None = None,
 ) -> dict[str, Any]:
     """A present but inconclusive histogram cannot be replaced by a config dtype."""
-    quantization_config = _json_mapping(config.get("quantization_config"))
+    declaration = declaration or _quantization_declaration(config)
+    quantization_config = (declaration.config or {}) if declaration else {}
     precision_dtype: str | None = None
     if dtype_counts is not None:
         # A histogram with no elements or a tie has no single dominant dtype.
@@ -453,7 +485,7 @@ def _weight_metadata(
         quantized: bool | None = True
     elif precision_dtype in _QUANTIZED_PRECISIONS:
         quantized = True
-    elif precision_dtype in _DTYPE_BYTE_WIDTHS:
+    elif precision_dtype in _DTYPE_BYTE_WIDTHS and (declaration is None or declaration.config is not None):
         quantized = False
     else:
         quantized = None
@@ -468,6 +500,7 @@ def _weight_metadata(
 
 def _hub_model_metadata(
     info: object, *, config: dict[str, Any] | None = None, source: str = "huggingface",
+    declaration: _QuantizationDeclaration | None = None,
 ) -> dict[str, Any]:
     """Extract Hub facts with the resolved model config when available."""
     if config is None:
@@ -503,7 +536,8 @@ def _hub_model_metadata(
         "parameter_bytes": parameter_bytes,
         "parameter_bytes_reason": bytes_reason,
         "parameter_dtype_counts": dtype_counts,
-        **_weight_metadata(config, tags=tags, dtype_counts=histogram if safetensors is not None else None),
+        **_weight_metadata(config, tags=tags, dtype_counts=histogram if safetensors is not None else None,
+                           declaration=declaration),
         "model_license": str(model_license) if model_license else None,
         "model_metadata_source": f"{source}_hub",
     }
@@ -565,13 +599,21 @@ def _detect_from_hub(
                              key: value for key, value in transformers_info.items()
                              if key in {"auto_model", "pipeline_tag", "processor", "custom_class"} and isinstance(value, str)}
     repository = _repository_metadata(model_id, sha, info, diagnostics)
-    hub_config = _architecture_metadata(getattr(info, "config", None))
-    hub_diagnostics = finite_metadata_diagnostics(hub_config, "hub.config")
+    raw_pinned_config = repository["repository_metadata"].get("config.json")
+    pinned_quantization = _quantization_declaration(raw_pinned_config)
+    raw_hub_config = getattr(info, "config", None) or {}
+    hub_config = _architecture_metadata(raw_hub_config)
+    hub_quantization = None if pinned_quantization else _quantization_declaration(raw_hub_config)
+    hub_evidence = hub_config
+    if hub_quantization and hub_quantization.section:
+        section = hub_quantization.section
+        hub_evidence = {**hub_config, section: {"quantization_config": raw_hub_config[section]["quantization_config"]}}
+    hub_diagnostics = finite_metadata_diagnostics(hub_evidence, "hub.config")
     if hub_diagnostics:
         repository["metadata_diagnostics"] += tuple(hub_diagnostics)
         repository["metadata_errors"] += (str(MetadataValidationError(hub_diagnostics)),)
     model_config = {} if hub_diagnostics else hub_config
-    pinned_config = _architecture_metadata(repository["repository_metadata"].get("config.json"))
+    pinned_config = _architecture_metadata(raw_pinned_config)
     if "dtype" in pinned_config or "torch_dtype" in pinned_config:
         # These are aliases for the same declaration, even across sources.
         model_config.pop("dtype", None)
@@ -609,7 +651,8 @@ def _detect_from_hub(
             f"metadata returned no pipeline_tag (library_name={library_name or 'unknown'})",
         )
 
-    model_metadata = _hub_model_metadata(info, config=model_config, source=source)
+    declaration = pinned_quantization or (None if hub_diagnostics else hub_quantization)
+    model_metadata = _hub_model_metadata(info, config=model_config, source=source, declaration=declaration)
     model_metadata["hub_metadata"].update(
         pipeline_tag=hub_pipeline_tag, transformers_info=transformers_info,
         tags=list(getattr(info, "tags", None) or []),
