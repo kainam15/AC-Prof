@@ -337,6 +337,19 @@ def _validated_csv_fields(path: Path, raw_fields: list[str]) -> tuple[bool, tupl
     return fields != raw_fields, numeric_fields, field_names
 
 
+def _record_observations(rows: list[dict], name: str, observations: dict[int, dict]) -> tuple[list[dict], list[int]]:
+    unique = {}
+    compared = set()
+    for index, item in observations.items():
+        key = _canonical(item)
+        unique[key] = item
+        entry = rows[index]
+        if entry["eligible"] and number(entry["values"].get(name)) is not None:
+            # A finite partial reading still disqualifies a comparison.
+            compared.add(key)
+    return list(unique.values()), [i for i, key in enumerate(unique) if key in compared]
+
+
 def _build_analysis_configs(
     groups: dict[str, list[dict[str, Any]]],
     comparisons: dict[str, PreparedComparison],
@@ -359,15 +372,20 @@ def _build_analysis_configs(
         config["comparison_profiles"] = {purpose: comparisons[rows[0]["source"]].profile(
             purpose=purpose, case=case) for purpose in PURPOSES}
         config["comparability"] = config["comparison_profiles"]["same-hardware"]["status"]
-        summaries, provenance = {}, {}
+        summaries, provenance, comparison_indices = {}, {}, {}
         energy = _prepare_energy_windows(rows, formal)
         for name in VIEW_METRICS:
             observations = energy.get(name)
             if observations is None and name in METRICS and any(name in entry["row"] for entry in formal.values()):
                 observations = {index: metric_observation(entry["row"], name) for index, entry in formal.items()}
-            if observations:
-                provenance[name] = list({_canonical(item): item for item in observations.values()}.values())
             summaries[name] = _summarize(rows, name, observations)
+            if observations:
+                evidence, indices = _record_observations(rows, name, observations)
+                provenance[name] = evidence
+                if summaries[name]["value"] is not None and len(indices) != len(evidence):
+                    comparison_indices[name] = indices
+        if comparison_indices:
+            config["comparison_observation_indices"] = comparison_indices
         config["metric_observations"] = provenance
         config.update(config_id=config_id, status=status, valid_windows=valid,
                       input_scale=number(rows[0]["row"].get("input_scale")),

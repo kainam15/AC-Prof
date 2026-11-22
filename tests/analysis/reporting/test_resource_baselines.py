@@ -140,3 +140,25 @@ def test_cli_window_statistics_and_html_exclude_inferred_observations_consistent
     assert cli["groups"][0]["n_windows"] == group["n_windows"] == 1
     assert group["excluded_windows"] == {"inferred_not_measured": 1}
     assert html["configs"][0]["metrics"]["latency_app_s"]["value"] == 2
+
+
+@pytest.mark.parametrize(("value", "packet", "origin", "delta"), [
+    ("nan", "unavailable", "measured", 2),
+    (101, "partial", "measured", None),
+    (101, "partial", "inferred_not_measured", 2),
+])
+def test_baseline_metric_uses_evidence_from_finite_measured_windows(tmp_path, value, packet, origin, delta):
+    quality = json.dumps({"schema_version": 1, "metrics": {}, "collectors": {"packet_latency": {"status": "available"}}})
+    def packet_row(cpu, latency, state, kind):
+        return row(cpu, 1, latency_s=latency, packet_status=state, result_origin=kind, resource_metric_quality=quality)
+    path = matrix(tmp_path, [packet_row(1, 2, "ok", "measured"), packet_row(2, 4, "ok", "measured"),
+                             packet_row(2, value, packet, origin) | {"repeat_idx": 1}])
+    payload = report_payload(load_analysis([path]))
+    left, right = payload["configs"]
+    assert right["metrics"]["latency_s"]["value"] == 4
+    assert len(right["metric_observations"]["latency_s"]) == 2
+    pair = pair_for(payload, left, right)
+    if delta is None:
+        assert pair["metric_reasons"]["latency_s"] == "incomplete_metric_quality"
+    else:
+        assert pair["metrics"]["latency_s"]["delta"] == delta

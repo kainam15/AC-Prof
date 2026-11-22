@@ -216,16 +216,19 @@ window.ACProfImport = (() => {
         observations[name] = !finite(value) && evidence.quality === "complete" ?
           {...evidence, quality:"unavailable", reason:"missing_window_value"} : evidence;
       }
+      const eligible = raw.status.toLowerCase() === "ok" && formal && raw.result_origin !== "inferred_not_measured";
       if (formal) for (const [name, observation] of Object.entries(observations)) {
         if (!Object.hasOwn(raw, name) && !Object.hasOwn(derived, name)) continue;
         group.observations[name] ||= new Map();
-        group.observations[name].set(stableJson(observation), observation);
+        const key = stableJson(observation), entries = group.observations[name];
+        const value = Object.hasOwn(derived, name) ? derived[name] : number(raw[name]);
+        const compared = eligible && finite(value);
+        if (compared || !entries.has(key)) entries.set(key, {observation, compared});
       }
       const measurement = JSON.stringify([identity.run_id === "unknown" ? group.index : identity.run_id,
         axisKeys.cpu_cores, axisKeys.mem_cap_gb, device, axisKeys.input_scale, phase.key, repeat.key]);
       if (seen.has(measurement)) fail(`CSV 重复或冲突的测量窗口 / Duplicate or conflicting window: ${rowNumber}`);
       seen.add(measurement);
-      const eligible = raw.status.toLowerCase() === "ok" && formal && raw.result_origin !== "inferred_not_measured";
       group.total++;
       if (formal) { group.formal++; group.inferred ||= raw.result_origin === "inferred_not_measured"; }
       if (!eligible) return;
@@ -310,11 +313,19 @@ window.ACProfImport = (() => {
         }
         return [name, {value:finite(value) && !acc.mixedContract ? value : null, n, missing:acc.conflict ? 0 : missing, aggregation}];
       }));
+      const provenance = {}, comparisonIndices = {};
+      for (const [name, entries] of Object.entries(group.observations)) {
+        const records = [...entries.values()];
+        provenance[name] = records.map(item => item.observation);
+        if (finite(metrics[name]?.value) && records.some(item => !item.compared))
+          comparisonIndices[name] = records.flatMap((item, index) => item.compared ? [index] : []);
+      }
       return {...group.identity, ...quality, source:path, config_id:`csv-${digest.slice(0,16)}:${sha256(group.idKey).slice(0,16)}`,
         input_scale:group.input_scale, valid_windows:group.valid, excluded_rows:group.total - group.valid,
         status:group.valid ? (group.valid === group.formal ? "ok" : "partial") : group.inferred ? "inferred_not_measured" : group.formal ? "failed" : "no_formal_windows",
         comparison_profiles:{}, comparability:"unknown", missing_metrics:[], metrics, statistics_status:"not_computed",
-        metric_observations:Object.fromEntries(Object.entries(group.observations).map(([name, items]) => [name, [...items.values()]]))};
+        metric_observations:provenance, ...(Object.keys(comparisonIndices).length ?
+          {comparison_observation_indices:comparisonIndices} : {})};
     });
     const runs = [...new Set(configs.map(config => config.run_id))];
     return {kind:"acprof_analysis_bundle", schema_version:1, analysis_contract:{version:1, statistics_engine:"not_computed"},
@@ -448,6 +459,17 @@ window.ACProfImport = (() => {
       }
       const gap = sources.get(config.source);
       if (!object(config.metrics)) fail("配置缺失指标 / Missing configuration metrics");
+      if (Object.hasOwn(config, "comparison_observation_indices")) {
+        const scoped = config.comparison_observation_indices;
+        if (!object(scoped)) fail("比较证据索引损坏 / Invalid comparison observation indices");
+        for (const [name, indices] of Object.entries(scoped)) {
+          const all = config.metric_observations?.[name];
+          if (!finite(config.metrics[name]?.value) || !Array.isArray(all) || !Array.isArray(indices) ||
+              !indices.length || indices.length >= all.length || indices.some((index, i) =>
+                !Number.isInteger(index) || index < 0 || index >= all.length || (i > 0 && index <= indices[i - 1])))
+            fail("比较证据索引损坏 / Invalid comparison observation indices: " + name);
+        }
+      }
       for (const [name, metric] of viewMetrics) {
         if (gap.has(name)) {
           if (Object.hasOwn(config.metrics, name) || Object.hasOwn(config.metric_observations || {}, name))

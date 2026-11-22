@@ -152,7 +152,12 @@ window.ACProfViews = (() => {
       const recorded = pair(config);
       if (config.experiment_id && baseline.experiment_id && !recorded) {
         if (comparison.status === "incompatible") return {delta:null, percent:null, ratio:null, performance_ratio:null, reason:"incompatible", reasons:comparison.reasons};
-        const reason = observationComparisonReason(baseline.metric_observations?.[metric], config.metric_observations?.[metric]);
+        const evidence = item => {
+          const all = item.metric_observations?.[metric];
+          const subset = item.comparison_observation_indices?.[metric];
+          return subset && !comparison.matched_cross_runtime ? subset.map(index => all[index]) : all;
+        };
+        const reason = observationComparisonReason(evidence(baseline), evidence(config));
         if (reason) return withheldMetric(reason);
         return {...descriptiveChange(value(baseline, metric), value(config, metric), registry[metric]?.direction),
           scope:"browser_descriptive", statistics_status:"not_computed"};

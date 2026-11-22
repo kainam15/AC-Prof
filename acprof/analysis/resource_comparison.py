@@ -40,13 +40,21 @@ def resource_qualification(left: dict, right: dict) -> dict:
             "scope": "within_source_successful_windows; not_independent_runs"}
 
 
+def _comparison_observations(config: dict, metric: str, *, cross_runtime: bool) -> list[dict]:
+    evidence = config.get("metric_observations", {}).get(metric, [])
+    indices = config.get("comparison_observation_indices", {}).get(metric)
+    if cross_runtime or indices is None:
+        return evidence
+    return [evidence[index] for index in indices]
+
+
 def _baseline_metrics(baseline: dict, config: dict, *, cross_runtime: bool) -> dict:
     changes, reasons = {}, {}
     for name, metric in config["metrics"].items():
         reference = baseline["metrics"][name]["value"]
         if reference is None or metric["value"] is None or cross_runtime and not common_runtime_metric(name):
             continue
-        left, right = (item.get("metric_observations", {}).get(name, []) for item in (baseline, config))
+        left, right = (_comparison_observations(item, name, cross_runtime=cross_runtime) for item in (baseline, config))
         reason = observation_comparison_reason(left, right)
         if cross_runtime and not reason and (
             not left or any(obs["quality"] != "complete" for obs in (*left, *right))

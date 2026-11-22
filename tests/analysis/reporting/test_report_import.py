@@ -1357,3 +1357,33 @@ def test_import_derived_energy_keeps_evidence_for_missing_gpu_column(page, tmp_p
                 assert observation["quality"] == "unavailable"
                 assert observation["components"][gpu]["sampling"] == {"sample_hz": 5, "energy_method": None}
             assert actual["metrics"][name]["value"] is None
+
+
+def test_csv_import_compares_available_packet_windows_and_restores_their_scope(page):
+    result = page.evaluate("""async () => {
+      const registry=JSON.parse(document.getElementById("report-data").textContent).registry;
+      const evidence=JSON.stringify({schema_version:1,metrics:{},collectors:{packet_latency:{status:"available"}}});
+      const header="cpu_cores,mem_cap_gb,gpu_mode,input_scale,repeat_idx,warmup,status,latency_s,packet_status,resource_metric_quality";
+      const row=(r,v,s)=>'1,4,off,2,'+r+',0,ok,'+v+','+s+',"' + evidence.replaceAll('"','""') + '"';
+      const load=(name, rows)=>ACProfImport.readCsv(new File([[header,...rows].join("\\n")],name),registry);
+      const first=await load("first.csv",[row(0,2,"ok")]);
+      const second=await load("second.csv",[row(0,4,"ok"),row(1,"nan","unavailable")]);
+      function delta(imported) {
+        const workspace=ACProfWorkspace(first);workspace.add([imported],"second");
+        const [a,b]=workspace.data.configs;
+        return ACProfViews.comparisonContext(a,"same-hardware",workspace.data.baseline_comparisons,registry).delta(b,"latency_s");
+      }
+      const restored=(await ACProfImport.read(new File([JSON.stringify(second)],"result.json"),registry,{}))[0];
+      const historical=structuredClone(restored);delete historical.configs[0].comparison_observation_indices;
+      const rejected=[];
+      for (const indices of [[], [1,0], [0,0], [2], [-1], [0.5]]) {
+        const damaged=structuredClone(restored);damaged.configs[0].comparison_observation_indices.latency_s=indices;
+        try { await ACProfImport.read(new File([JSON.stringify(damaged)],"damaged.json"),registry,{}); }
+        catch(error) { rejected.push(String(error).includes("Invalid comparison observation indices")); }
+      }
+      return [delta(second),delta(restored),delta(historical),second.configs[0].metric_observations.latency_s.length,rejected];
+    }""")
+    assert [result[0]["delta"], result[1]["delta"]] == [2, 2]
+    assert result[2]["reasons"] == ["incomplete_metric_quality"]
+    assert result[3] == 2
+    assert result[4] == [True] * 6
