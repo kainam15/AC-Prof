@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import asdict, replace
+from unittest.mock import Mock
 
 import pytest
 
@@ -184,3 +185,43 @@ def test_model_spec_errors_keep_their_classification(tmp_path, monkeypatch, erro
         assert [(issue.field, str(issue.reason)) for issue in caught.value.issues] == [
             ("model_spec", "模型接口声明无效：model.json；fixture model declaration failure"),
         ]
+
+
+@pytest.mark.parametrize("command", ["run", "auto", "probe"])
+def test_lossy_manual_scale_stops_before_environment_setup(command, tmp_path, monkeypatch, capsys):
+    from acprof.cli.main import main
+
+    scale = "2.0000000000000001"
+    setup = Mock(side_effect=AssertionError("environment setup reached"))
+    monkeypatch.setattr("acprof.cli.run.configure_environment", setup)
+    monkeypatch.setattr("acprof.application.download.apply_download_arguments", setup)
+    output = tmp_path / "output"
+    model = ["fixture/model"] if command == "auto" else ["--model", "fixture/model"]
+    with pytest.raises(SystemExit) as failure:
+        main([command, *model, "--input-scales", f"2,{scale}", "--gpus", "off", "--output-dir", str(output)])
+    assert failure.value.code == 2
+    error = capsys.readouterr().err
+    assert "[input_scales]" in error
+    assert scale in error
+    setup.assert_not_called()
+    assert not output.exists()
+
+
+@pytest.mark.parametrize(("scales", "expected"), [
+    ("2.0000000000000001", "Input scale 2.0000000000000001 cannot be represented exactly by the runtime"),
+    ("2.0000000000000001,-1", "All Input scales values must be greater than 0"),
+    ("0,nan,invalid", "Input scales must be comma-separated numbers"),
+])
+def test_scale_field_preserves_tokens_and_existing_error_priority(scales, expected):
+    from acprof.tui.i18n import translate
+
+    with pytest.raises(RunConfigError) as failure:
+        RunConfig(model="fixture/model", input_scales=scales).validate()
+    issue, = failure.value.issues
+    assert issue.field == "input_scales"
+    assert translate(issue.reason, "en") == expected
+
+
+def test_validated_scale_text_preserves_decimal_aliases_and_adjacent_scales():
+    config = RunConfig(model="fixture/model", input_scales=",0.1,1.0, 1e0,,2.0000000000000004,")
+    assert config.validate().input_scales == "0.1,1.0,1e0,2.0000000000000004"

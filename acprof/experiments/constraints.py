@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from decimal import Decimal
 from numbers import Integral
 from typing import Literal
 
@@ -11,7 +12,7 @@ from typing import Literal
 class ConstraintViolation(ValueError):
     """A stable reason code; presentation layers provide field-specific copy."""
 
-    def __init__(self, code: Literal["integer", "number", "finite", "minimum"], reason: str):
+    def __init__(self, code: Literal["integer", "number", "finite", "minimum", "precision"], reason: str):
         self.code = code
         super().__init__(reason)
 
@@ -41,6 +42,23 @@ def finite_number(value: object, *, allow_text: bool = False) -> float:
     if not math.isfinite(number):
         raise ConstraintViolation("finite", "must be finite")
     return number
+
+
+def parse_input_scale(token: str) -> float:
+    """Accept a positive scale when its runtime spelling preserves the requested decimal."""
+    number = finite_number(token, allow_text=True)
+    if number <= 0:
+        raise ConstraintViolation("minimum", "input scale must be positive")
+    if Decimal(token) != Decimal(str(number)):
+        raise ConstraintViolation("precision", f"input scale {token!r} cannot round-trip through the runtime")
+    return number
+
+
+def format_input_scale(value: float) -> str:
+    """Serialize the runtime decimal coordinate, keeping historical integer labels."""
+    number = float(value)
+    text = str(number)
+    return str(int(Decimal(text))) if number.is_integer() else text
 
 
 @dataclass(frozen=True)

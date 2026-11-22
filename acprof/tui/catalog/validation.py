@@ -104,6 +104,9 @@ MESSAGES: dict[str, Entry] = {
     "validation.value.empty": Entry(zh="{0}不能为空", en="{0} must not be empty"),
     "validation.value.finite_number": Entry(zh="数字必须有限", en="Number must be finite"),
     "validation.value.finite_required": Entry(zh="{0}必须是有限数字", en="{0} must be finite"),
+    "validation.value.input_scale_precision": Entry(
+        zh="输入规模 {0} 无法由运行时精确表示", en="Input scale {0} cannot be represented exactly by the runtime",
+    ),
     "validation.value.integer_list": Entry(zh="{0}必须是逗号分隔的整数", en="{0} must be comma-separated integers"),
     "validation.value.number_list": Entry(zh="{0}必须是逗号分隔的数字", en="{0} must be comma-separated numbers"),
     "validation.value.positive_list": Entry(zh="{0}必须全部大于 0", en="All {0} values must be greater than 0"),

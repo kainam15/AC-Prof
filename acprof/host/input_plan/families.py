@@ -302,6 +302,7 @@ def plan_timeseries_scales(
     cpuset_cpus: str = "",
 ) -> PlannedInputScales:
     """Use the loaded forecasting model's context limit before materialization."""
+    manual_scales = resolve_input_scales(task_info.task_family, input_scales) if input_scales else None
     generator = get_task_generator(task_info, batch_size)
     session = start_probe_session(task_info, image_info, cpu_list, mem_list, gpu_list, cpuset_cpus)
     try:
@@ -321,8 +322,8 @@ def plan_timeseries_scales(
             "rebuild the timeseries image"
         )
     maximum = min(int(limit), int(generator.max_input_scale()))
-    if input_scales:
-        scales = resolve_input_scales(task_info.task_family, input_scales)
+    if manual_scales is not None:
+        scales = manual_scales
         if any(
             not math.isfinite(scale) or scale < 1 or int(scale) != scale or scale > maximum
             for scale in scales

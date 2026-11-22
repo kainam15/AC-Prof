@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 import re
 import sys
 from collections.abc import Iterable, Sequence
@@ -10,7 +9,12 @@ from dataclasses import dataclass, field as dataclass_field, fields, replace
 from pathlib import Path
 
 from acprof.config import DEFAULT_DOCKER_CPUS, DEFAULT_DOCKER_MEMS, docker_resource_limits
-from acprof.experiments.constraints import PROFILER_NUMBERS, RUN_NUMBERS, ConstraintViolation
+from acprof.experiments.constraints import (
+    PROFILER_NUMBERS,
+    RUN_NUMBERS,
+    ConstraintViolation,
+    parse_input_scale,
+)
 from acprof.experiments.options import RunOptions, configuration_arguments
 from acprof.experiments.profiler_resources import profiler_reference_axes
 from acprof.extensions import CATALOG
@@ -64,17 +68,26 @@ def _positive_int_csv(value: str, label: str, field: str) -> list[int]:
     return values
 
 
-def _positive_float_csv(value: str, label: str, field: str) -> list[float]:
-    raw_values = csv_values(value)
-    if not raw_values:
-        return []
-    try:
-        values = [float(item) for item in raw_values]
-    except ValueError as exc:
-        raise RunConfigError([ConfigIssue(field, message('{0}必须是逗号分隔的数字', label))]) from exc
-    if any(not math.isfinite(item) or item <= 0.0 for item in values):
-        raise RunConfigError([ConfigIssue(field, message('{0}必须全部大于 0', label))])
-    return values
+def validate_input_scales(value: str) -> None:
+    """Check requested scale spellings before they reach a runtime float."""
+    failures: dict[str, str] = {}
+    for token in csv_values(value):
+        try:
+            parse_input_scale(token)
+        except ConstraintViolation as exc:
+            failures.setdefault(exc.code, token)
+            if exc.code == "number":
+                break
+    if not failures:
+        return
+    label = message("输入规模")
+    if "number" in failures:
+        reason = message("{0}必须是逗号分隔的数字", label)
+    elif "finite" in failures or "minimum" in failures:
+        reason = message("{0}必须全部大于 0", label)
+    else:
+        reason = message("输入规模 {0} 无法由运行时精确表示", failures["precision"])
+    raise RunConfigError([ConfigIssue("input_scales", reason)])
 
 
 def _normalize_extra_options(options: object, mapped: set[str], errors: list[ConfigIssue]) -> dict:
@@ -369,7 +382,7 @@ class RunConfig(RunOptions):
 
     def _validate_input_scales(self, errors: list[ConfigIssue]) -> None:
         try:
-            _positive_float_csv(self.input_scales, message('输入规模'), "input_scales")
+            validate_input_scales(self.input_scales)
         except RunConfigError as exc:
             errors.extend(exc.issues)
         if self.input_scale_policy not in {"auto", "minimal"}:

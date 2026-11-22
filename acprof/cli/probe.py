@@ -16,6 +16,7 @@ from acprof.config import docker_resource_limits
 from acprof.cpu_affinity import normalize_cpu_set
 from acprof.events.preparation import emit_progress
 from acprof.experiments.arguments import add_gpu_device_argument
+from acprof.experiments.configuration import RunConfigError, validate_input_scales
 from acprof.experiments.options import add_option_arguments
 from acprof.host.env_utils import bootstrap_project_env
 from acprof.host.gpu_device import gpu_device_scope, pin_gpu_device
@@ -102,6 +103,11 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
+    if args.input_scales:
+        try:
+            validate_input_scales(args.input_scales)
+        except RunConfigError as exc:
+            parser.error(str(exc))
     from acprof.application.download import apply_download_arguments
     apply_download_arguments(args)
     if args.batch_size <= 0:

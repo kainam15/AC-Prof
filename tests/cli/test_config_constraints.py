@@ -180,3 +180,28 @@ def test_unusable_profiler_options_do_not_produce_secondary_membership_errors(ru
     with pytest.raises(RunConfigError) as failure:
         config.validate()
     assert [item.field for item in failure.value.issues] == fields
+
+
+@pytest.mark.parametrize("token", [
+    "2e0", "+0.100", "5e-324", "1000000000000000100", "1.7976931348623157e308",
+])
+def test_executable_scale_formatter_preserves_the_authored_decimal_coordinate(token):
+    from decimal import Decimal, localcontext
+
+    from acprof.experiments.constraints import format_input_scale, parse_input_scale
+
+    with localcontext(prec=3):
+        scale = parse_input_scale(token)
+        formatted = format_input_scale(scale)
+        assert Decimal(formatted) == Decimal(token)
+        assert parse_input_scale(formatted) == scale
+
+
+@pytest.mark.parametrize("token", ["2.0000000000000001", "9007199254740993", "1.00000000000000011e18"])
+def test_distinct_decimal_coordinates_cannot_collapse_in_manual_input(token):
+    from acprof.experiments.constraints import parse_input_scale
+
+    with pytest.raises(ConstraintViolation) as exc:
+        parse_input_scale(token)
+    assert exc.value.code == "precision"
+    assert token in str(exc.value)

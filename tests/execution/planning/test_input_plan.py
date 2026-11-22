@@ -2,6 +2,7 @@ import json
 import os
 import re
 import tempfile
+from decimal import Decimal
 from functools import partial
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -12,6 +13,24 @@ from acprof.host import docker_runtime, input_plan, model_schema
 from acprof.host.detect import TaskInfo
 from acprof.host.images import runtime as runtime_images
 from acprof.host.input_plan import families, materialize, planner, probe
+
+
+def test_manual_scales_are_unique_sorted_and_round_trip_as_recorded_decimals():
+    values = input_plan.resolve_input_scales("cv", "1e23, 2.50, 0.1, 2.500, 1.0000000000000002")
+    assert values == [0.1, 1.0000000000000002, 2.5, 1e23]
+    serialized = input_plan.serialize_input_scales(values)
+    assert [Decimal(value) for value in serialized.split(",")] == [Decimal(str(value)) for value in values]
+
+
+@pytest.mark.parametrize(("token", "reason"), [
+    ("2.0000000000000001", "round-trip"), ("9007199254740993", "round-trip"), ("1e-400", "positive"), ("nan", "finite"),
+])
+def test_manual_scale_rejected_before_forecasting_model_probe(tmp_path, token, reason):
+    task = TaskInfo("test/forecast", "time-series-forecasting", "timeseries", "chronos", "chronos", "main", "unit")
+    with patch.object(families, "start_probe_session", side_effect=AssertionError("invalid scale reached probe")):
+        with pytest.raises(ValueError, match=reason):
+            input_plan.plan_input_scales(task, runtime_images.ImageInfo(tag="fixture"), [1], [4], ["off"],
+                                         1, str(tmp_path), input_scales=token)
 
 
 class TestInputPlan:

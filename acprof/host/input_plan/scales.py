@@ -3,19 +3,12 @@
 import math
 
 from acprof.config import SCALING_DIMENSIONS
+from acprof.experiments.constraints import (
+    format_input_scale as format_scale_value,
+    parse_input_scale,
+)
 
 AUTO_INPUT_SCALE_COUNT = 6
-
-
-def _parse_float_list(value: str) -> list[float]:
-    return [float(item.strip()) for item in value.split(",") if item.strip()]
-
-
-def format_scale_value(scale: float) -> str:
-    value = float(scale)
-    if value.is_integer():
-        return str(int(value))
-    return str(value)
 
 
 def serialize_input_scales(scales: list[float]) -> str:
@@ -24,7 +17,7 @@ def serialize_input_scales(scales: list[float]) -> str:
 
 def resolve_input_scales(task_family: str, input_scales: str | None = None) -> list[float]:
     if input_scales:
-        return sorted(set(_parse_float_list(input_scales)))
+        return sorted({parse_input_scale(item.strip()) for item in input_scales.split(",") if item.strip()})
 
     scaling_cfg = SCALING_DIMENSIONS.get(task_family)
     if scaling_cfg:
