@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import csv
+import dataclasses
 import hashlib
 import io
+import os
 import struct
 import sys
 from collections import deque
@@ -67,6 +69,12 @@ class ResultCsvSnapshot:
     rows: list[dict[str, str]]
     sha256: str
     run_id: str | None = None  # Recorded by the v3 root manifest, even with no rows.
+    flat_file_id: tuple[int, int] | None = dataclasses.field(default=None, kw_only=True, compare=False)
+
+
+def flat_file_identity(stat: os.stat_result) -> tuple[int, int] | None:
+    """Use the same device/inode identity as samefile when the filesystem supplies one."""
+    return (stat.st_dev, stat.st_ino) if stat.st_ino else None
 
 
 @dataclass(frozen=True)
@@ -415,14 +423,20 @@ def read_hashed_flat_csv(path: Path, *, expected: ExpectedMeasurements | None = 
                          capture: BinaryIO | None = None) -> tuple[list[str], ValidatedResultRows, str]:
     """Validate, hash and optionally copy the same raw CSV stream."""
     check_cancelled(cancelled)
-    digest = hashlib.sha256()
     with path.open("rb", buffering=0) as raw:
-        reader = _DigestingRawReader(raw, digest, cancelled, capture=capture)
-        buffered = io.BufferedReader(reader, buffer_size=_HASH_BUFFER_BYTES)
-        with io.TextIOWrapper(buffered, encoding="utf-8-sig", newline="") as stream:
-            fields, validated = parse_result_stream(stream, path, expected,
-                                                   allow_empty=not validate_measurements,
-                                                   validate_measurements=validate_measurements, cancelled=cancelled)
+        return _parse_hashed_flat_csv(raw, path, expected, validate_measurements, cancelled, capture=capture)
+
+
+def _parse_hashed_flat_csv(raw: BinaryIO, path: Path, expected: ExpectedMeasurements | None,
+                           validate_measurements: bool, cancelled: Callable[[], bool] | None, *,
+                           capture: BinaryIO | None = None) -> tuple[list[str], ValidatedResultRows, str]:
+    digest = hashlib.sha256()
+    reader = _DigestingRawReader(raw, digest, cancelled, capture=capture)
+    buffered = io.BufferedReader(reader, buffer_size=_HASH_BUFFER_BYTES)
+    with io.TextIOWrapper(buffered, encoding="utf-8-sig", newline="") as stream:
+        fields, validated = parse_result_stream(stream, path, expected,
+                                               allow_empty=not validate_measurements,
+                                               validate_measurements=validate_measurements, cancelled=cancelled)
     check_cancelled(cancelled)
     return fields, validated, digest.hexdigest()
 
@@ -456,10 +470,10 @@ def read_result_csv_snapshot(path: str | Path, *, expected: ExpectedMeasurements
         verify_result_source(path, layer_digest, cancelled=cancelled)
         check_cancelled(cancelled)
         return ResultCsvSnapshot(path=path, fields=fields, rows=rows, sha256=layer_digest)
-    fields, validated, sha256 = read_hashed_flat_csv(
-        path, expected=expected, validate_measurements=validate_measurements, cancelled=cancelled,
-    )
-    return ResultCsvSnapshot(path=path, fields=fields, rows=validated.rows, sha256=sha256)
+    with path.open("rb", buffering=0) as raw:
+        file_id = flat_file_identity(os.fstat(raw.fileno()))
+        fields, validated, sha256 = _parse_hashed_flat_csv(raw, path, expected, validate_measurements, cancelled)
+    return ResultCsvSnapshot(path=path, fields=fields, rows=validated.rows, sha256=sha256, flat_file_id=file_id)
 
 
 def result_csv_snapshot_unchanged(snapshot: ResultCsvSnapshot, *, verify_rows: bool = True,

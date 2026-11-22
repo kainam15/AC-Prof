@@ -6,6 +6,7 @@ import math
 import random
 import statistics
 from collections import defaultdict
+from collections.abc import Iterable
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,6 +24,8 @@ from acprof.quality import QUALITY_FIELDS, combine_quality
 from acprof.results import is_inferred_result
 from acprof.results.csv import (
     ResultCsvSnapshot,
+    ResultValidationError,
+    flat_file_identity,
     is_measured_success,
     measurement_key,
     read_result_csv_snapshot,
@@ -233,6 +236,7 @@ def _summarize_group_metric(
 class _ExperimentSnapshot:
     run_id: str
     result_path: Path
+    flat_file_id: tuple[int, int] | None
     status: Any
     groups: dict[tuple[str, ...], _RunMetric]
     comparison: dict[str, Any]
@@ -246,6 +250,23 @@ def _unique_run_id(run_id: object, seen: set[str]) -> str:
     if run_id in seen:
         raise ValueError(f"duplicate independent run: {run_id}")
     return run_id
+
+
+def _record_result_source(seen: set[Path | tuple[int, int]], path: Path, flat_file_id: tuple[int, int] | None) -> None:
+    if path in seen or (flat_file_id is not None and flat_file_id in seen):
+        raise ResultValidationError(f"duplicate independent result source: {path}")
+    seen.add(path)
+    if flat_file_id is not None:
+        seen.add(flat_file_id)
+
+
+def verify_distinct_result_sources(sources: Iterable[Path]) -> None:
+    """Recheck aliases at publication. A layer manifest's relative paths are scoped to its directory."""
+    seen: set[Path | tuple[int, int]] = set()
+    for source in sources:
+        path = source.resolve()
+        file_id = None if path.name == "result_layers.json" else flat_file_identity(path.stat())
+        _record_result_source(seen, path, file_id)
 
 
 class ExperimentComparisonSession:
@@ -277,8 +298,8 @@ class ExperimentComparisonSession:
             result_snapshot.rows, run_id=run_id, complete=state.get("status") == "complete",
             purpose=purpose, metrics=metrics,
         )
-        loaded = _ExperimentSnapshot(run_id, result_snapshot.path, state.get("status"), groups,
-                                     current_snapshot, fingerprints)
+        loaded = _ExperimentSnapshot(run_id, result_snapshot.path, result_snapshot.flat_file_id,
+                                     state.get("status"), groups, current_snapshot, fingerprints)
         self._snapshots[key] = loaded
         return loaded
 
@@ -291,7 +312,7 @@ class ExperimentComparisonSession:
         sources = {"left": expand_result_sources(left), "right": expand_result_sources(right)}
         experiments: dict[str, list[dict[str, Any]]] = {}
         run_ids: set[str] = set()
-        result_files: set[Path] = set()
+        result_files: set[Path | tuple[int, int]] = set()
         fingerprints: dict[Path, str | None] = {}
         groups: defaultdict[tuple[str, ...], dict[str, list[_RunMetric]]] = defaultdict(
             lambda: {"left": [], "right": []}
@@ -308,9 +329,7 @@ class ExperimentComparisonSession:
                 loaded = self._load(source, run_ids, metrics=metrics, purpose=purpose)
                 run_id = loaded.run_id
                 run_ids.add(run_id)
-                if loaded.result_path in result_files:
-                    raise ValueError(f"duplicate independent result source: {loaded.result_path}")
-                result_files.add(loaded.result_path)
+                _record_result_source(result_files, loaded.result_path, loaded.flat_file_id)
                 complete = loaded.status == "complete"
                 fingerprints.update(loaded.fingerprints)
                 # Returned comparison dictionaries must not expose the reusable evidence.
@@ -347,6 +366,7 @@ class ExperimentComparisonSession:
         ]
         for artifact, digest in fingerprints.items():
             _verify_source(artifact, digest)
+        verify_distinct_result_sources(Path(run["source"]) for runs in experiments.values() for run in runs)
         return {"schema_version": 1, "kind": "independent_experiment_comparison", "status": status,
                 "coordinate_identity": COORDINATE_IDENTITY,
                 "allowed_resource_dimensions": ALLOWED_RESOURCE_DIMENSIONS if purpose == "resource-scaling" else [],

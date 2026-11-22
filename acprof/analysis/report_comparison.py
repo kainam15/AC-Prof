@@ -5,7 +5,10 @@ import json
 from itertools import permutations
 from pathlib import Path
 
-from acprof.analysis.independent_comparison import ExperimentComparisonSession
+from acprof.analysis.independent_comparison import (
+    ExperimentComparisonSession,
+    verify_distinct_result_sources,
+)
 from acprof.analysis.model import AnalysisModel, verify_analysis_sources
 from acprof.analysis.statistics_report import DEFAULT_STATISTICS_METRICS
 from acprof.results.csv import ResultValidationError, verify_result_source
@@ -38,11 +41,14 @@ def verify_independent_report(report: dict) -> None:
             verified.add(artifact.absolute())
     # Older reports stored directory names. Their selected file must still be
     # the one whose bytes the independent comparison actually fingerprinted.
+    sources = []
     for runs in report["experiments"].values():
         for run in runs:
             source = resolve_result_file(run["source"]).absolute()
             if source not in verified:
                 raise ValueError(f"independent comparison source changed: no fingerprint for {source}")
+            sources.append(source)
+    verify_distinct_result_sources(sources)
 
 
 def _verify_group_metadata(report, sources, left, right):

@@ -31,6 +31,9 @@ def test_cancelled_raw_reads_are_bounded_and_closed(tmp_path, monkeypatch, opera
         def readable(self):
             return True
 
+        def fileno(self):
+            return self.raw.fileno()
+
         def readinto(self, buffer):
             size = self.raw.readinto(buffer)
             received.append(size)

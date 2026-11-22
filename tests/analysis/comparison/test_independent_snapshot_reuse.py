@@ -8,6 +8,7 @@ import pytest
 
 from acprof.analysis.independent_comparison import compare_experiments
 from tests.analysis.comparison.test_comparison_source_integrity import (
+    change_during_aggregation,
     incremental_copy,
     legacy_snapshot,
 )
@@ -214,3 +215,63 @@ def test_distinct_runs_check_the_files_actually_read(experiment_fixture, monkeyp
     monkeypatch.setattr(independent_comparison, "_collect_run_case_groups", retarget_after_read)
     with pytest.raises(ValueError, match="duplicate independent.*source"):
         compare_experiments([target], [alias], metrics=["latency_app_s"], resamples=20)
+
+
+@pytest.fixture
+def identical_flat_files(experiment_fixture):
+    left, right = (experiment_fixture.replicate(side, 0, [2]) / "result_all.csv" for side in ("left", "right"))
+    assert left.read_bytes() == right.read_bytes()
+    assert not left.samefile(right)
+    return left, right
+
+
+def test_flat_hardlinks_are_checked_on_the_open_measurement_file(identical_flat_files, monkeypatch):
+    left, right = identical_flat_files
+    right.unlink()
+    right.hardlink_to(left)
+    open_path = Path.open
+
+    def rebind_while_open(path, *args, **kwargs):
+        stream = open_path(path, *args, **kwargs)
+        if path == right and args == ("rb",) and kwargs.get("buffering") == 0:
+            # The open stream still reads the first run's file.
+            right.unlink()
+            right.write_bytes(left.read_bytes())
+        return stream
+
+    monkeypatch.setattr(Path, "open", rebind_while_open)
+    with pytest.raises(ValueError, match="duplicate independent result source"):
+        compare_experiments([left], [right], metrics=["latency_app_s"], resamples=20)
+
+
+@pytest.mark.parametrize("saved_report", [False, True])
+def test_flat_files_rebound_to_one_run_cannot_publish_an_interval(identical_flat_files, monkeypatch, saved_report):
+    from acprof.analysis.report_comparison import verify_independent_report
+
+    left, right = identical_flat_files
+    options = {"metrics": ["latency_app_s"], "resamples": 20}
+
+    def link_same_file():
+        right.unlink()
+        right.hardlink_to(left)
+
+    if saved_report:
+        report = compare_experiments([left], [right], **options)
+        link_same_file()
+        with pytest.raises(ValueError, match="duplicate independent result source"):
+            verify_independent_report(report)
+    else:
+        change_during_aggregation(monkeypatch, link_same_file)
+        with pytest.raises(ValueError, match="duplicate independent result source"):
+            compare_experiments([left], [right], **options)
+
+
+def test_distinct_layered_runs_can_share_a_partition(experiment_fixture):
+    left, right = (experiment_fixture.replicate(side, 0, [value]) for side, value in (("left", 2), ("right", 3)))
+    files = [root / json.loads((root / "result_layers.json").read_bytes())["layers"]["energy"]["path"]
+             for root in (left, right)]
+    assert files[0].read_bytes() == files[1].read_bytes()
+    files[1].unlink()
+    files[1].hardlink_to(files[0])
+    report = compare_experiments([left], [right], metrics=["latency_app_s"], resamples=10)
+    assert report["groups"][0]["difference"] == 1
