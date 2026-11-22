@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 from textual.widgets import Button, Input, Select, Static, TabbedContent
+from textual.worker import Worker, WorkerState
 
 from acprof.experiments.configuration import RunConfig
 from acprof.host.container_lifecycle import ContainerCleanupError
@@ -235,12 +236,23 @@ async def test_malformed_field_skips_checks_then_recovers(tmp_path, diagnostics,
 async def test_failed_auto_check_stays_failed_until_manual_retry(tmp_path, diagnostics, failure):
     check, scan = diagnostics
     app = make_app(tmp_path)
-    async with app.run_test(size=(120, 30)) as pilot:
+    completed = asyncio.Queue()
+
+    def observe_preflight(message):
+        if (isinstance(message, Worker.StateChanged) and message.worker.group == "preflight"
+                and message.state == WorkerState.SUCCESS):
+            completed.put_nowait(app.preflight.checked_config)
+
+    async with app.run_test(size=(120, 30), message_hook=observe_preflight) as pilot:
+        initial = await asyncio.wait_for(completed.get(), timeout=5)
+        assert initial is not None
+        assert initial.gpus == "off"
         await ready(app, pilot)
         check.side_effect = failure
         app.query_one("#gpus", Select).value = "on"
-        await wait_for_condition(pilot, lambda: check.call_count == 2 and not app.preflight.check_running,
-                                 description="automatic diagnostic failure", timeout=3)
+        edited = await asyncio.wait_for(completed.get(), timeout=3)
+        assert edited is not None
+        assert edited.gpus == "on"
         assert app.preflight.collection_state == "failed"
         assert type(failure).__name__ in str(app.query_one("#preflight-run-reason", Button).label)
         assert app.query_one("#start-run", Button).disabled
@@ -250,6 +262,7 @@ async def test_failed_auto_check_stays_failed_until_manual_retry(tmp_path, diagn
         check.side_effect = None
         check.return_value = [PreflightCheck("Runtime", "ok", "fixture", runtime_kind="docker", check_id="runtime")]
         app.preflight.quick_check()
+        assert await asyncio.wait_for(completed.get(), timeout=3) == edited
         await ready(app, pilot)
         assert check.call_count == 3
         assert scan.call_count == 2
