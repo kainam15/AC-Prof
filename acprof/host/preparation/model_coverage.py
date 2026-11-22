@@ -1,8 +1,11 @@
 """Frozen model samples and coverage reports, independent of formal measurements."""
 from __future__ import annotations
 
+import errno
 import logging
 import math
+import os
+import subprocess
 from collections import Counter
 from collections.abc import Mapping
 from datetime import UTC, datetime
@@ -320,16 +323,31 @@ def run_sample(sample: dict, root: Path, *, probe: str = "none", cpus: int = 2, 
         raise ValueError("coverage resume requires an existing report directory")
     with ExitStack() as batch:
         measurement_lock = batch.enter_context(MeasurementLock()) if probe == "full" else None
-        if not resume:
-            root.mkdir(parents=True, exist_ok=False)
-        batch.enter_context(ResultDirectoryLock(root))
+        if resume:
+            batch.enter_context(ResultDirectoryLock(root))
+        else:
+            # Check conflicts before probing, then claim the path atomically
+            # after configuration succeeds. A competing creator keeps its files.
+            try:
+                root.lstat()
+            except FileNotFoundError:
+                pass
+            else:
+                raise FileExistsError(errno.EEXIST, os.strerror(errno.EEXIST), str(root))
         batch.enter_context(gpu_device_scope())
-        device = pin_gpu_device() if gpu and probe == "full" else {}
+        try:
+            device = pin_gpu_device() if gpu and probe == "full" else {}
+        except (RuntimeError, subprocess.TimeoutExpired) as exc:
+            from acprof.system.cleanup import format_exception_notes
+            raise ValueError(f"coverage GPU preflight failed: {format_exception_notes(exc)}") from exc
         configuration = coverage_configuration(
             probe=probe, resources={"cpus": cpus, "memory_gb": memory_gb, "gpu": gpu,
                                     "timeout_seconds": timeout_seconds},
             budgets={"max_parameters": max_parameters, "max_download_bytes": max_download_bytes},
             device={"kind": "gpu" if gpu else "cpu", "uuid": device.get("uuid")})
+        if not resume:
+            root.mkdir(parents=True, exist_ok=False)
+            batch.enter_context(ResultDirectoryLock(root))
         state = CoverageState(root, sample, configuration, resume=resume, retry_failed=retry_failed,
                               retry_stages=retry_stages, retry_reasons=retry_reasons)
         sample_weight = sum(item["weight"] for item in sample["models"])
