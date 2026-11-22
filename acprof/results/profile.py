@@ -15,6 +15,14 @@ USABLE_QUALITIES = frozenset({'complete', 'unknown'})
 RESOURCE_SOURCES = {'psutil_observed_process_tree', 'procfs_observed_process_tree', 'service_cgroup', 'nvml_selected_device'}
 
 
+# Row context used by metric_observation in addition to the metric value itself.
+OBSERVATION_CONTEXT_FIELDS = (
+    "runtime_kind", "gpu_mode", "cpu_cores", "resource_metric_quality", "packet_status",
+    "resource_limit_source", "gpu_energy_source", "cpu_perf_running_pct",
+    "input_pixels_per_request", "output_pixels_per_request",
+)
+
+
 def observation_contract(observation: dict) -> dict:
     return {key: observation[key] for key in ('source', 'scope', 'window', 'derivation', 'sampling', 'components')
             if key in observation}

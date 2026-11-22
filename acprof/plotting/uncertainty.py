@@ -15,8 +15,10 @@ from acprof.analysis.uncertainty import summarize_windows
 from acprof.plotting.data import aggregate_metric_series, is_gpu_on, make_config_labels
 from acprof.results.csv import KEY_FIELDS
 from acprof.results.metrics import METRICS
+from acprof.results.profile import OBSERVATION_CONTEXT_FIELDS
 
 _CONTEXT = ("run_id", "environment_class", "runtime_kind", "runtime_id", "resource_scope")
+_WINDOW_FIELDS = tuple(dict.fromkeys((*KEY_FIELDS, *_CONTEXT, "status", "result_origin", *OBSERVATION_CONTEXT_FIELDS)))
 _INTERVAL_FIELDS = ("ci_low", "ci_high", "n_windows", "missing_windows", "std", "reason")
 INTERVAL_NOTE = "Mean; 95% within-run bootstrap CI. No band/bar when unavailable."
 
@@ -28,8 +30,8 @@ class WindowStatistics:
         self.groups: dict[tuple, dict | None] = {}
 
     def summarize(self, rows: list[dict], metric: str) -> dict | None:
-        fields = (*KEY_FIELDS, *_CONTEXT, "status", "result_origin", metric)
-        key = (metric, tuple(sorted(tuple(str(row.get(name, "")) for name in fields) for row in rows)))
+        fields = (*_WINDOW_FIELDS, metric)
+        key = (metric, tuple(tuple(str(row[name]) if name in row else None for name in fields) for row in rows))
         if key not in self.groups:
             groups = summarize_windows(rows, [metric])["groups"]
             if len(groups) > 1:
@@ -64,10 +66,14 @@ def aggregate_plot_series(
     source, factor = specification
     cache = statistics if statistics is not None else WindowStatistics()
     group_columns = [*config_columns, "input_scale"]
-    fields = list(dict.fromkeys([*KEY_FIELDS, *[name for name in (*_CONTEXT, "result_origin") if name in frame], "status", source]))
+    fields = [name for name in dict.fromkeys((*_WINDOW_FIELDS, source)) if name in frame]
+    projected = frame.loc[:, list(dict.fromkeys([*group_columns, *fields]))]
+    if "gpu_energy_source" in projected:
+        # A blank CSV method is a string in stats; Pandas otherwise passes NaN into its signature.
+        projected = projected.assign(gpu_energy_source=projected["gpu_energy_source"].fillna(""))
     records = []
-    for coordinates, group in frame.groupby(group_columns, dropna=False, sort=sort):
-        summary = cache.summarize(group[fields].to_dict("records"), source)
+    for coordinates, group in projected.groupby(group_columns, dropna=False, sort=sort)[fields]:
+        summary = cache.summarize(group.to_dict("records"), source)
         if summary is None:
             continue
         values = {name: summary[name] for name in _INTERVAL_FIELDS}
