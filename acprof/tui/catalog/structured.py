@@ -68,6 +68,17 @@ MESSAGES: dict[str, Entry] = {
     "structured.reason.backend_unsupported.problem": Entry(
         zh="所选推理后端尚未受支持。", en="The selected inference backend is unsupported.",
     ),
+    "structured.reason.compatibility_budget.impact": Entry(
+        zh="模型在该设备和配置下的兼容性仍未确认。",
+        en="Model compatibility remains unverified on this device with the recorded configuration.",
+    ),
+    "structured.reason.compatibility_budget.next": Entry(
+        zh="查看验证日志，必要时延长时限并重新运行兼容性验证。",
+        en="Review the probe log. If needed, retry the probe with a longer time limit.",
+    ),
+    "structured.reason.compatibility_budget.problem": Entry(
+        zh="独立兼容性验证已达到时限。", en="The compatibility probe reached its time limit.",
+    ),
     "structured.reason.dependency_incompatible.impact": Entry(
         zh="当前依赖组合无法可靠执行该任务。",
         en="The current dependency combination cannot reliably run this task.",

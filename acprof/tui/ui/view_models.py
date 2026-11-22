@@ -115,6 +115,7 @@ _REASONS = {
     "runtime_dependency_missing": ("error", "dependency_missing"),
     "runtime_dependency_incompatible": ("error", "dependency_incompatible"),
     "request_timeout": ("warning", "timeout"),
+    "compatibility_budget_exhausted": ("warning", "compatibility_budget"),
     "runtime_initialization_failed": ("error", "initialization"),
     "inference_failed": ("error", "inference"),
 }

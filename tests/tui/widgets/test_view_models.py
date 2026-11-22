@@ -140,6 +140,21 @@ def test_reason_presentation_maps_only_typed_codes_and_preserves_raw_evidence():
     assert reason_presentation("", detail).detail == detail
 
 
+def test_compatibility_probe_deadline_explains_the_unverified_outcome_in_both_languages():
+    code = "compatibility_budget_exhausted"
+    detail = "runtime_validation_timeout (300s); compatibility budget exhausted"
+    result = reason_presentation(code, detail)
+    assert result.level == "warning"
+    assert result.detail == f"{code}\n{detail}"
+    assert translate(result.problem, "zh") == "独立兼容性验证已达到时限。"
+    assert translate(result.problem, "en") == "The compatibility probe reached its time limit."
+    assert "兼容性仍未确认" in translate(result.impact, "zh")
+    assert "compatibility remains unverified" in translate(result.impact, "en")
+    assert "验证日志" in translate(result.next_step, "zh")
+    assert "longer time limit" in translate(result.next_step, "en")
+    assert result.problem != reason_presentation("request_timeout", detail).problem
+
+
 def test_view_models_do_not_import_textual_in_a_fresh_interpreter():
     result = subprocess.run(
         [sys.executable, "-c",
