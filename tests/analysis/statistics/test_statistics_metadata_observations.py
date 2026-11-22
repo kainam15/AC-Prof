@@ -94,15 +94,15 @@ def test_stable_read_failure_is_preserved_until_original_read_recovers(result, f
 def test_failed_presence_probe_stays_distinct_from_absence(result, monkeypatch):
     source, metadata = result
     path = source.with_name("quality_checks.json")
-    original = Path.stat
+    original = Path.lstat
 
-    def denied(self, **kwargs):
-        if self == path and kwargs.get("follow_symlinks", True):
+    def denied(self):
+        if self == path:
             raise PermissionError(13, "permission denied", str(path))
-        return original(self, **kwargs)
+        return original(self)
 
     with monkeypatch.context() as denied_access:
-        denied_access.setattr(Path, "stat", denied)
+        denied_access.setattr(Path, "lstat", denied)
         with pytest.raises(PermissionError, match="permission denied"):
             metadata.exists(path.name)
         metadata.verify_current(source)

@@ -6,6 +6,7 @@ from unittest.mock import patch
 import pytest
 from textual.widgets import Button, Collapsible, ProgressBar, Static
 
+from acprof.analysis.compatibility import RecordedModelIdentity
 from acprof.tui.experiments.catalog import ExperimentRecord
 from acprof.tui.i18n import translate
 from acprof.tui.results.data_status import ExperimentDataStatus
@@ -18,18 +19,20 @@ from tests.support.tui_fixtures import AcprofTui
 @pytest.fixture
 def recorded_overview(tmp_path):
     directory = tmp_path / "研究模型-2026-11-08"
+    model_id = "fixture/中文-model"
+    revision = "1234567890abcdef1234567890abcdef12345678"
     record = ExperimentRecord(
         directory=directory,
         aliases=(directory,),
         run_id="fixture-run-2026-11-08-abcdefghijklmnop",
-        model_id="fixture/中文-model",
-        model_source="huggingface",
-        revision="1234567890abcdef1234567890abcdef12345678",
+        model_id=model_id,
+        identity=RecordedModelIdentity("huggingface", model_id, revision),
+        revision=revision,
         runtime_profile="transformers-cpu",
         created_at="2026-11-08T10:20:30.456+08:00",
         status="interrupted",
         device="cpu",
-        options={"model": "fixture/中文-model", "cpus": "1,2", "mems": "4", "gpus": "off"},
+        options={"model": model_id, "cpus": "1,2", "mems": "4", "gpus": "off"},
         state={
             "runtime": {"kind": "process", "task": {"pipeline_tag": "text-classification"}},
             "attempts": [
