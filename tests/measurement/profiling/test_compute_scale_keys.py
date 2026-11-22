@@ -64,3 +64,10 @@ def test_scale_keys_preserve_historical_finite_values_independently_of_decimal_c
             assert compute_plan.compute_scale_key(raw) == Decimal(raw)
         for invalid in (False, "", "nan", "inf", "1e999", "1e-9999999999999999999999", Decimal("sNaN"), 10 ** 309):
             assert compute_plan.compute_scale_key(invalid) is None
+
+
+def test_missing_profile_diagnostic_identifies_the_exact_runtime_scale():
+    plan = {"profiles": {"cpu": {"torch_profiler_eager": {"entries": []}}}}
+    for scale in [1.0000001, 1.0000002]:
+        result = compute_plan.find_compute_profile_entry(plan, "off", scale)
+        assert result[compute_plan.TORCH_ERROR_FIELD] == f"compute_profile_missing_scale:{scale}"

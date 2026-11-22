@@ -1,6 +1,20 @@
+import csv
+from decimal import Decimal
+
 import pytest
 
-from acprof.host.measurement.error_rows import reconcile_case_error_rows
+from acprof.host.detect import TaskInfo
+from acprof.host.measurement.error_rows import reconcile_case_error_rows, write_case_error_csv
+
+
+def test_failure_csv_keeps_the_recorded_decimal_scale(tmp_path):
+    path = tmp_path / "result.csv"
+    task = TaskInfo("test/model", "image-classification", "cv", "transformers_pipeline", "transformers", "main", "unit")
+    write_case_error_csv(task_info=task, out_csv=str(path), cpu=1, mem=4, gpu="off", warmup=0, repeat=1,
+                         repeat_in_window=1, input_scales="1e23", error="fixture failure")
+    with path.open(newline="") as stream:
+        row, = csv.DictReader(stream)
+    assert Decimal(row["input_scale"]) == Decimal("1e23")
 
 
 def _row(scale, *, status="error", repeat_idx=0):

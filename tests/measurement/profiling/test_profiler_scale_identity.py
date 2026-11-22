@@ -3,6 +3,7 @@ import json
 import math
 import sys
 from contextlib import nullcontext
+from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import Mock
@@ -17,10 +18,10 @@ SCALES = [1.0000001, 1.0000002]
 NCU_METRIC = "smsp__sass_thread_inst_executed_op_ffma_pred_on.sum"
 
 
-@pytest.mark.parametrize("scale", [8.0, 1.0000001, 1.0000002, 0.13392857142857142])
+@pytest.mark.parametrize("scale", [8.0, 1.0000001, 1.0000002, 0.13392857142857142, 1e23])
 def test_runner_argument_preserves_scale(scale):
     args = support.profile_runner_args({"input_scale": scale}, 1, "cpu")
-    assert float(args[args.index("--input-scale") + 1]) == scale
+    assert Decimal(args[args.index("--input-scale") + 1]) == Decimal(str(scale))
     if scale == 8.0:
         assert args[args.index("--input-scale") + 1] == "8"
 

@@ -11,6 +11,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from acprof.artifacts import read_json_object
+from acprof.experiments.constraints import format_input_scale
 from acprof.gpu_mode import normalize_gpu_mode
 from acprof.results.measurement_plan import decimal_coordinate
 
@@ -140,7 +141,7 @@ def _resolve_profile_entry(
 
     label = str(key) if key is not None else "nan"
     if isinstance(input_scale, float):
-        label = f"{input_scale:g}"
+        label = format_input_scale(input_scale)
     return {}, f"compute_profile_missing_scale:{label}"
 
 

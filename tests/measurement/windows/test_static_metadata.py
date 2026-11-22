@@ -597,6 +597,11 @@ class TestStaticMetadata:
                                 "model_logical_mflop_per_request_torch_profiler_eager": 25.25,
                                 "error": "",
                             },
+                            {
+                                "input_scale": 1e23,
+                                "model_logical_mflop_per_request_torch_profiler_eager": 50,
+                                "error": "",
+                            },
                         ],
                     }
                 }
@@ -622,6 +627,7 @@ class TestStaticMetadata:
                 "values": [
                     {"input_scale": 64, "flops_per_request": 12_500_000},
                     {"input_scale": 128, "flops_per_request": 25_250_000},
+                    {"input_scale": 10**23, "flops_per_request": 50_000_000},
                 ],
             })
         assert (enriched.static_macs) is None

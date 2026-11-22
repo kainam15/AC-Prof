@@ -10,6 +10,7 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
 from acprof.artifacts import atomic_write, read_input_scale_plan
+from acprof.experiments.constraints import format_input_scale as format_scale_value
 
 if TYPE_CHECKING:
     from acprof.host.detect import TaskInfo
@@ -24,14 +25,6 @@ from acprof.runtime.settings import runtime_docker_env_args
 from acprof.system.cleanup import cleanup_on_exit
 
 CONTAINER_INPUT_SCALE_PLAN_FILE = "/payloads/input_scale_plan.json"
-
-
-def format_scale_value(scale: float) -> str:
-    """Preserve float identity in runner arguments and artifact names."""
-    value = float(scale)
-    if value.is_integer():
-        return str(int(value))
-    return repr(value)
 
 
 def parse_last_json_line(text: str) -> dict[str, Any]:

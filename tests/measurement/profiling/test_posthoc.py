@@ -24,6 +24,15 @@ from acprof.platform import Environment
 
 
 class TestPosthocProfile:
+    def test_backfilled_static_flops_preserve_the_recorded_integer_scale(self, tmp_path):
+        self._write_fixture(tmp_path, torch_complete=False)
+        context = host_posthoc_context.load_result_context(tmp_path)
+        plan = self._torch_plan()
+        plan["profiles"]["gpu"]["torch_profiler_eager"]["entries"][0]["input_scale"] = 1e23
+        updated = host_posthoc_backfill.update_static_meta(context, tools=("torch",), compute_plan=plan,
+                                                          execution_plan=None)
+        assert updated["static_flops"]["values"] == [{"input_scale": 10**23, "flops_per_request": 222_000_000}]
+
     @pytest.mark.parametrize("tool", ["torch", "ncu"])
     @pytest.mark.parametrize(("app_latency", "packet_latency", "app_rate", "packet_rate"), [
         ("inf", "0.5", "nan", "240.000000"),

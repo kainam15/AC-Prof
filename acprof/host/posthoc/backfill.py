@@ -10,6 +10,7 @@ from typing import (
     Any,
 )
 
+from acprof.experiments.constraints import format_input_scale
 from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host.collection_history import append_collection_record
 from acprof.host.posthoc.context import (
@@ -264,7 +265,7 @@ def _static_flops_from_compute_plan(
             if not math.isfinite(scale) or not math.isfinite(mflop) or mflop < 0:
                 continue
             normalized_scale: int | float = (
-                int(scale) if scale.is_integer() else scale
+                int(format_input_scale(scale)) if scale.is_integer() else scale
             )
             if normalized_scale in seen_scales:
                 continue

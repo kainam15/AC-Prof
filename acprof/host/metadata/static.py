@@ -9,6 +9,7 @@ from typing import Any
 
 from acprof.artifacts import atomic_write_json, read_json_object
 from acprof.config import STATIC_META_FIELDS, STATIC_META_SCHEMA_VERSION
+from acprof.experiments.constraints import format_input_scale
 from acprof.host.detect import TaskInfo
 from acprof.host.input_plan import (
     PlannedInputScales,
@@ -403,7 +404,7 @@ def _static_flops_from_compute_plan(
             ):
                 continue
             normalized_scale: Any = (
-                int(input_scale) if input_scale.is_integer() else input_scale
+                int(format_input_scale(input_scale)) if input_scale.is_integer() else input_scale
             )
             if normalized_scale in seen_scales:
                 continue
