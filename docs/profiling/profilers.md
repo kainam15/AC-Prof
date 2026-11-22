@@ -114,7 +114,7 @@ NCU 和 Massif 会按 input scale 保存 checkpoint。NCU 可复用匹配的 CSV
 NCU metrics（适用时）必须匹配，才能恢复旧报告。分析固定使用不可变镜像 ID，
 旧 tag 形式的 Massif checkpoint 与新 ID 不匹配时会重采。Massif 新采集先写入本次尝试的
 `.partial` 文件，命令成功且快照解析通过后才发布正式 `.out` 和 checkpoint。失败或中断留下的
-`.partial` 可用于诊断，续跑时重新采集该尺度。历史目录只有正式 `.out` 时，若已有执行计划，该尺度须有成功记录才能恢复。完整成功的已有 plan 也可复用。
+`.partial` 可用于诊断，续跑时重新采集该尺度。恢复正式 `.out` 时会重新解析快照，并与匹配 checkpoint（历史目录无 checkpoint 时使用已有计划）中该尺度的 heap、heap-extra、stack 峰值、总峰值及其时间逐项核对。记录出错或数值不一致时重采。完整成功的已有 plan 也可复用。
 
 `input_scale` 是计划条目的数值身份。Profiler 命令参数和原始文件名保留已解析浮点值的
 完整可往返表示，整数尺度仍使用 `8` 这样的紧凑形式。payload、plan 指标及 NCU／Massif

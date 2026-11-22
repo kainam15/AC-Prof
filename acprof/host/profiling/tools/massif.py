@@ -183,10 +183,8 @@ def _massif_checkpoint_matches(
     schema_version = raw_schema_version
     checkpoint_cpu = raw_cpu
     checkpoint_mem = raw_mem
-    assert isinstance(raw_scale, (int, float))
-    checkpoint_scale = float(raw_scale)
     checkpoint_repeat = raw_repeat
-    if not math.isfinite(checkpoint_scale) or checkpoint_scale <= 0.0:
+    if not math.isfinite(input_scale) or input_scale <= 0.0:
         return False
     return (
         schema_version == MASSIF_CHECKPOINT_SCHEMA_VERSION
@@ -196,7 +194,7 @@ def _massif_checkpoint_matches(
         and str(checkpoint.get("derived_image") or "") == derived_image
         and checkpoint_cpu == int(cpu)
         and checkpoint_mem == int(mem)
-        and checkpoint_scale == input_scale
+        and raw_scale == input_scale
         and checkpoint_repeat == max(1, int(repeat))
     )
 
@@ -221,81 +219,44 @@ def _resume_massif_entry(
         mem=mem,
         input_scale=input_scale,
     )
-    checkpoint_exists = os.path.isfile(checkpoint_path)
-    checkpoint = (
-        _read_massif_checkpoint(checkpoint_path)
-        if checkpoint_exists
-        else None
-    )
-    if checkpoint_exists and (
-        checkpoint is None
-        or not _massif_checkpoint_matches(
-            checkpoint,
-            task_info=task_info,
-            derived_image=derived_image,
-            cpu=cpu,
-            mem=mem,
-            input_scale=input_scale,
-            repeat=repeat,
-        )
+    if not os.path.isfile(host_report):
+        return None
+    checkpoint_exists = os.path.lexists(checkpoint_path)
+    recorded = None
+    if checkpoint_exists:
+        checkpoint = _read_massif_checkpoint(checkpoint_path) if os.path.isfile(checkpoint_path) else None
+        if checkpoint is None or not _massif_checkpoint_matches(
+            checkpoint, task_info=task_info, derived_image=derived_image, cpu=cpu, mem=mem,
+            input_scale=input_scale, repeat=repeat,
+        ):
+            print(f"[execution-profile][massif][resume] scale={scale_label}: "
+                  "checkpoint does not match this run; recollecting")
+            return None
+        recorded = checkpoint.get("entry")
+        size = checkpoint.get("report_size_bytes")
+        if (not isinstance(recorded, Mapping) or type(size) is not int or size != os.path.getsize(host_report)
+                or type(recorded.get("input_scale")) not in (int, float) or recorded["input_scale"] != input_scale):
+            return None
+    elif previous_plan is not None:
+        recorded = previous_plan.resolve(cpu, mem, "off", input_scale)
+
+    if recorded is not None and (recorded.get("error") or recorded.get("compute_profile_error_massif")):
+        return None
+    resumed = _massif_entry_from_report(entry=entry, host_report=host_report, output_dir=output_dir)
+    if not _massif_entry_complete(resumed) or recorded is not None and any(
+        type(recorded.get(field)) not in (int, float) or recorded[field] != resumed[field] for field in MASSIF_FIELDS
     ):
-        print(
-            f"[execution-profile][massif][resume] scale={scale_label}: "
-            "checkpoint does not match this run; recollecting"
-        )
+        print(f"[execution-profile][massif][resume] scale={scale_label}: "
+              "existing report is incomplete or disagrees with recorded metrics; recollecting")
         return None
 
-    if checkpoint is not None and os.path.isfile(host_report):
-        checkpoint_entry = checkpoint.get("entry")
-        expected_size = finite_float(checkpoint.get("report_size_bytes"))
-        if (
-            isinstance(checkpoint_entry, Mapping)
-            and _massif_entry_complete(checkpoint_entry)
-            and expected_size is not None
-            and os.path.getsize(host_report) == int(expected_size)
-        ):
-            resumed = dict(checkpoint_entry)
-            resumed["report"] = relative_artifact(host_report, output_dir)
-            print(
-                f"[execution-profile][massif][resume] scale={scale_label}: "
-                f"reusing checkpoint {checkpoint_path}"
-            )
-            return resumed
-
-    if checkpoint is None and os.path.isfile(host_report):
-        if previous_plan is not None:
-            recorded = previous_plan.resolve(cpu, mem, "off", input_scale)
-            if recorded.get("compute_profile_error_massif") or not _massif_entry_complete(recorded):
-                print(f"[execution-profile][massif][resume] scale={scale_label}: "
-                      "earlier plan does not confirm this report; recollecting")
-                return None
-        resumed = _massif_entry_from_report(
-            entry=entry,
-            host_report=host_report,
-            output_dir=output_dir,
+    if not checkpoint_exists:
+        _write_massif_checkpoint(
+            checkpoint_path=checkpoint_path, task_info=task_info, derived_image=derived_image, cpu=cpu,
+            mem=mem, input_scale=input_scale, repeat=repeat, host_report=host_report, entry=resumed,
         )
-        if _massif_entry_complete(resumed):
-            _write_massif_checkpoint(
-                checkpoint_path=checkpoint_path,
-                task_info=task_info,
-                derived_image=derived_image,
-                cpu=cpu,
-                mem=mem,
-                input_scale=input_scale,
-                repeat=repeat,
-                host_report=host_report,
-                entry=resumed,
-            )
-            print(
-                f"[execution-profile][massif][resume] scale={scale_label}: "
-                f"reusing valid report {host_report}"
-            )
-            return resumed
-        print(
-            f"[execution-profile][massif][resume] scale={scale_label}: "
-            "existing report is incomplete; recollecting"
-        )
-    return None
+    print(f"[execution-profile][massif][resume] scale={scale_label}: reusing valid report {host_report}")
+    return resumed
 
 
 def _collect_massif_entry(

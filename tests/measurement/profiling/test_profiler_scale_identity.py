@@ -187,7 +187,8 @@ def test_resume_requires_exact_checkpoint_scale(tmp_path, profile_fixture, tool,
     profile, collections, task = profile_fixture
     prefix = "ncu_scale_1" if tool == "ncu" else "massif_cpu_2_mem_4_scale_1"
     raw = tmp_path / (prefix + (".csv" if tool == "ncu" else ".out"))
-    raw.write_text("cached fixture\n")
+    raw.write_text("cached fixture\n" if tool == "ncu" else
+                   "time_unit: ms\nsnapshot=0\ntime=2\nmem_heap_B=42\nmem_heap_extra_B=4\nmem_stacks_B=8\n")
     fields = ncu.NCU_COMPLETE_ENTRY_FIELDS if tool == "ncu" else massif.MASSIF_FIELDS
     checkpoint: dict[str, Any] = {
         "schema_version": 1, "model_id": task.model_id, "model_revision": task.model_revision,
@@ -201,6 +202,7 @@ def test_resume_requires_exact_checkpoint_scale(tmp_path, profile_fixture, tool,
         )
         checkpoint["entry"]["flop_counting_version"] = 2
     else:
+        checkpoint["entry"].update(massif.parse_massif_output(str(raw)))
         checkpoint.update(derived_image="fixture-image", cpu_cores=2, mem_cap_gb=4, report_size_bytes=raw.stat().st_size)
     (tmp_path / (prefix + ".checkpoint.json")).write_text(json.dumps(checkpoint))
 
