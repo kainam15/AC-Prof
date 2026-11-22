@@ -56,3 +56,20 @@ async def test_docker_scene_ready_without_descendant_focus(tmp_path) -> None:
             assert app.query_one("#download-progress").display
             assert not app.query_one("#stop-run", Button).disabled
     assert not guard.blocked_calls
+
+
+@pytest.mark.parametrize("scene", ["form", "docker-frontend"])
+async def test_scene_refresh_uses_the_terminal_app_driver(tmp_path, scene) -> None:
+    with isolate_fixture() as guard:
+        app = VisualFixtureApp(scene, settings_path=tmp_path / "settings.json")
+
+        async def check_scene(pilot):
+            try:
+                await app.wait_for_scene(pilot)
+                assert app.query_one("#main-tabs", TabbedContent).active == app.scenario.page
+            finally:
+                app.exit()
+
+        await app.run_async(headless=True, auto_pilot=check_scene,
+                            size=(app.scenario.columns, app.scenario.rows))
+    assert guard.closed

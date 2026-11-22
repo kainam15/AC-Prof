@@ -162,8 +162,9 @@ class VisualFixtureApp(AcprofTui):
                                  description="mounted PNG scene refreshed", timeout=5)
 
     async def prepare_scene(self) -> None:
-        await self.wait_for_refresh()
+        # Widgets own a message-pump task under both App.run() and run_test().
         tabs = self.query_one("#main-tabs", TabbedContent)
+        await tabs.wait_for_refresh()
         page = self.scenario.page
         pane = tabs.query_one(f"#{page}", TabPane)
         button = self.query_one(f"#nav-{page}", Button)
