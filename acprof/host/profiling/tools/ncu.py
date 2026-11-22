@@ -468,9 +468,9 @@ def _resume_ncu_for_entry(
     # A completed collection whose export was interrupted owns the native report only.
     # A CSV at the public name can still belong to the previous collection.
     if not report_ready and os.path.isfile(host_csv):
-        if recorded_entry is not None and record.get("csv_size_bytes") != os.path.getsize(host_csv):
-            return None
-        resumed = read_csv()
+        # With a truncated CSV, the companion native report can still verify the checkpoint.
+        if recorded_entry is None or record.get("csv_size_bytes") == os.path.getsize(host_csv):
+            resumed = read_csv()
     if resumed is None or not _ncu_entry_complete(resumed):
         if not os.path.isfile(host_report):
             return None
@@ -652,11 +652,12 @@ def profile_gpu_entries(
     for entry in entries:
         try:
             profile_entry = None
-            if resume_existing:
-                previous_error = (
-                    find_compute_profile_entry(previous_plan, "on", entry["input_scale"])[NCU_ERROR_FIELD]
-                    if previous_plan is not None else ""
-                )
+            previous_error = (
+                find_compute_profile_entry(previous_plan, "on", entry["input_scale"])[NCU_ERROR_FIELD]
+                if resume_existing and previous_plan is not None else ""
+            )
+            # A successful checkpoint can predate the failed collection recorded in the plan.
+            if resume_existing and not previous_error.startswith(("ncu_failed:", "compute_profile_plan_invalid:")):
                 profile_entry = _resume_ncu_for_entry(
                     ncu_bin=ncu_bin,
                     ncu_metrics=collection_metrics,
@@ -669,9 +670,7 @@ def profile_gpu_entries(
                     tool_mount_roots=mount_roots,
                     entry=entry,
                     repeat=repeat,
-                    allow_legacy_recovery=allow_legacy_recovery and not str(previous_error).startswith(
-                        ("ncu_failed:", "compute_profile_plan_invalid:")
-                    ),
+                    allow_legacy_recovery=allow_legacy_recovery,
                 )
             if profile_entry is None:
                 scale_label = format_scale_value(float(entry["input_scale"]))

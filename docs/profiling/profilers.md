@@ -111,7 +111,7 @@ Torch 匹配已有 CPU/GPU 数据，NCU/Nsys 只用于 GPU 行，Massif 只用�
 
 NCU 和 Massif 按 input scale 保存 checkpoint。恢复时核对模型 revision、镜像、repeat 和各工具记录的资源条件。NCU 还核对指标列表，并从 CSV 重新计算六项指标，与当前公式版本的 checkpoint 逐项核对。新采集记录 CPU 和内存限额。显式指定补采限额时，缺少资源记录的历史原始报告需要重采。
 
-NCU 先写入本次尝试的 `.partial.ncu-rep`。命令失败留下的文件可用于诊断，续跑会重新采集该尺度。命令成功后才发布正式 `.ncu-rep`，随后的 CSV 导出如果中断，续跑从该报告重新导出，并保留采集时的 GPU 探测信息。历史目录仍支持从完整 CSV 或已有 `.ncu-rep` 恢复；如果已有计划明确记载该尺度采集失败，缺少采集身份的残留文件会触发重采。
+NCU 先写入本次尝试的 `.partial.ncu-rep`。命令失败留下的文件可用于诊断，续跑会重新采集该尺度。命令成功后才发布正式 `.ncu-rep`，随后的 CSV 导出如果中断，续跑从该报告重新导出，并保留采集时的 GPU 探测信息。历史目录仍支持从完整 CSV 或已有 `.ncu-rep` 恢复；CSV 长度与 checkpoint 不同时，会从正式 `.ncu-rep` 重新导出并核对当前公式版本的六项指标。已有计划记载该尺度 NCU 采集失败或计划损坏时，恢复会重采。即使目录中有完整 checkpoint，现有格式也无法证明它晚于这次失败。
 
 Massif 可复用匹配的 `.out`。分析固定使用不可变镜像 ID，
 旧 tag 形式的 Massif checkpoint 与新 ID 不匹配时会重采。Massif 新采集先写入本次尝试的

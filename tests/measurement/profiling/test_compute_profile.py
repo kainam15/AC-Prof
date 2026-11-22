@@ -999,7 +999,7 @@ class TestComputeProfile:
                 assert (tmp_path / Path(cmd[cmd.index("--import") + 1]).name).is_file()
                 kind = "export"
             events.append(kind)
-            stdout = ('{"gpu_sm_count":24}' if kind == "collect" else _ncu_resume_csv_text())
+            stdout = ('{"gpu_sm_count":24}' if kind == "collect" else outcomes.get("csv", _ncu_resume_csv_text()))
             return SimpleNamespace(returncode=outcomes.get(kind, 0), stdout=stdout, stderr=kind + " failed")
 
         monkeypatch.setattr(ncu, "run_profiler_command", run)
@@ -1037,7 +1037,8 @@ class TestComputeProfile:
         failed = profile()
         assert failed["error"].startswith("ncu_import_failed:")
         outcomes.clear()
-        recovered = profile(resume=True)
+        failed_plan = {"profiles": {"gpu": {"ncu": {"entries": [failed]}}}}
+        recovered = profile(resume=True, previous_plan=failed_plan)
         assert events == ["collect", "export", "export"]
         assert recovered["gpu_executed_mflop_per_request_ncu"] == 0.00046
         assert recovered["gpu_sm_count"] == 24
@@ -1073,6 +1074,50 @@ class TestComputeProfile:
         assert recovered["gpu_executed_mflop_per_request_ncu"] == 0.00046
         checkpoint = json.loads((tmp_path / "ncu_scale_1.checkpoint.json").read_text())
         assert ("resources" in checkpoint) == (unbound != "allowed")
+
+    @pytest.mark.parametrize("previous", ["failed-force", "invalid-plan", "unpublished-force"])
+    def test_failed_plan_cannot_resume_a_complete_checkpoint(self, tmp_path, ncu_attempt, previous):
+        profile, outcomes, events = ncu_attempt
+        assert ncu._ncu_entry_complete(profile())
+        canonical = [tmp_path / f"ncu_scale_1.{suffix}" for suffix in ("csv", "ncu-rep", "checkpoint.json")]
+        before = [path.read_bytes() for path in canonical]
+        outcomes["collect"] = 1
+        failed = profile()
+        assert failed["error"].startswith("ncu_failed:")
+        assert [path.read_bytes() for path in canonical] == before
+        plan = {"profiles": {"gpu": {"ncu": {"entries": [failed]}}}}
+        if previous == "invalid-plan":
+            plan = {"profiles": {}, "_load_error": "compute_profile_plan_invalid:missing_profiles"}
+        if previous == "unpublished-force":
+            # A new checkpoint may have been published before its replacement plan.
+            outcomes.clear()
+            assert ncu._ncu_entry_complete(profile())
+        outcomes.clear()
+        events.clear()
+        assert ncu._ncu_entry_complete(profile(resume=True, previous_plan=plan))
+        assert events == ["collect", "export"]
+
+    @pytest.mark.parametrize("native", ["matches", "differs", "missing"])
+    def test_truncated_csv_recovers_from_matching_native_report(self, tmp_path, ncu_attempt, native):
+        profile, outcomes, events = ncu_attempt
+        original = profile()
+        csv_path = tmp_path / "ncu_scale_1.csv"
+        original_csv = csv_path.read_bytes()
+        csv_path.write_bytes(original_csv[:32])
+        if native == "missing":
+            (tmp_path / "ncu_scale_1.ncu-rep").unlink()
+        elif native == "differs":
+            outcomes["csv"] = _ncu_resume_csv_text().replace('"300"', '"900"')
+        outcomes["collect"] = 1
+        events.clear()
+        result = profile(resume=True)
+        if native == "matches":
+            assert result == original
+            assert csv_path.read_bytes() == original_csv
+            assert events == ["export"]
+        else:
+            assert result["error"].startswith("ncu_failed:")
+            assert events == (["export", "collect"] if native == "differs" else ["collect"])
 
     def test_crash_publishing_ncu_report_prevents_mixing_old_csv(self, tmp_path, ncu_attempt, monkeypatch):
         profile, _outcomes, events = ncu_attempt
