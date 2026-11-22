@@ -38,7 +38,7 @@ def test_torch_backfill_derives_rates_without_changing_original_latencies(
         WORK: "nan", ERROR: "compute_profile_disabled",
     }
     before = dict(row)
-    context = SimpleNamespace(fieldnames=list(row), rows=[row])
+    context = SimpleNamespace(fieldnames=list(row), rows=[row], gpu_uuid="GPU-fixture")
     plan = {"profiles": {"gpu": {"torch_profiler_eager": {
         "tool": "torch_profiler_eager", "error": "",
         "entries": [{"input_scale": 8, WORK: work, "error": ""}],
