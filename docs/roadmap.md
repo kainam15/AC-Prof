@@ -55,6 +55,8 @@ ModelScope 自动识别依据固定版本的配置与模型声明选择任务和
 
 11 月新榜单中，MS MARCO MiniLM 与 BGE reranker 的已审阅版本默认按查询与文档成对评分。MS MARCO MiniLM 的原生 Torch 下载计划从 23 个文件缩至 8 个，预计大小从 849 MiB 降至 87.6 MiB。超出静态读取上限的权重索引会显示字节数与上限。ModelScope 返回限流业务码时会保留稍后重试的原因，同次识别只继续读取本地缓存。冻结榜单中的两款 OpenAI CLIP 通过静态回放确认了零样本图像分类路径，默认处理器使用图片和候选标签。覆盖审计可按已记录的重试条件筛选，暂时限流与固定版本元数据超限可分别处理。[参数协议](models/inference-configuration.md) · [静态元数据](profiling/metadata.md) · [Kokoro 边界](models/adaptation.md#kokoro-原生适配)。
 
+冻结样本现在可逐模型指定一个已发现的语义任务或配置组。T5 的英译法与摘要已按固定 revision 对照各自的验证输入和采集输入；Qwen3-0.6B 的文本生成通过静态检查，对话任务仍保留当前运行时的阻塞原因。两款模型的单项回放不计入整榜的运行时通过率。[冻结样本与覆盖审计](usage/cli-discovery.md)
+
 ### 结果质量、恢复与服务口径
 
 Docker / Process 的报告、审计、比较和离线 HTML 统一按**来源身份、精确窗口坐标、采样条件和指标质量**判断可比性；冻结计划及提交／恢复前核对原始证据，失效或缺失保留 `unknown` 或诊断，不静默改写。严格审计与 Profiler 补采已对照冻结输入计划的原始字节。独立实验比较按坐标核对指标证据，并识别指向同一份 CSV 的硬链接。同一 runtime 中，HTML 与 CLI 已对齐缺包窗口的描述性差值，质量不足的有限测量仍保留拒绝比较的原因。HTML 配置按 CPU / GPU 归属质量检查，历史 CSV 审计按表头统计未记录的指标。已有事务、取消、崩溃及兼容性恢复的离线回归。任务集合续跑遇到测量锁占用，或在读清单后发现另一进程已发布结果时，会保留已有集合状态及结果索引。真实测量中断、Docker daemon / Model Store 恢复仍待现场证据。[结果字段](results/fields.md) · [实验产物与恢复](profiling/artifacts.md) · [实验比较](results/comparisons.md)。
