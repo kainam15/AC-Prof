@@ -94,12 +94,13 @@ def test_light_overview_uses_metadata_without_opening_csv(tmp_path, monkeypatch)
 
 
 @pytest.mark.parametrize("operation", ["overview", "catalog"])
-def test_cancel_during_record_metadata_closes_stream_and_allows_retry(tmp_path, monkeypatch, operation):
+@pytest.mark.parametrize("artifact", ["static_meta.json", "interface_validation.json"])
+def test_cancel_during_record_metadata_closes_stream_and_allows_retry(tmp_path, monkeypatch, operation, artifact):
     from acprof.tui.experiments.catalog import scan_experiments
     from acprof.tui.results.overview import read_experiment_overview
 
-    meta = tmp_path / "static_meta.json"
-    meta.write_bytes(b'{"model_name":"demo/overview"}' + b" " * (1024 * 1024))
+    meta = tmp_path / artifact
+    meta.write_bytes(b'{"model_id":"demo/overview"}' + b" " * (1024 * 1024))
     cancelled = Event()
     with monkeypatch.context() as scoped:
         opened, received = watch_cancelled_read(scoped, meta, cancelled)

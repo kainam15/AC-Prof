@@ -50,8 +50,12 @@ class ExperimentRecord:
     metadata: dict
     validation: dict
     failures: tuple[dict, ...]
-    model_source: str
+    identity: RecordedModelIdentity
     issues: tuple[str, ...] = ()
+
+    @property
+    def model_source(self) -> str:
+        return self.identity.source
 
     @property
     def has_recovery_state(self) -> bool:
@@ -83,14 +87,15 @@ def read_artifact(path: Path, *, cancelled: Callable[[], bool] | None = None) ->
     return read_json_object(path, cancelled=cancelled)
 
 
-def _read_standalone_or_embedded(path: Path, metadata: dict, cancelled: Callable[[], bool] | None) -> tuple[dict, str]:
+def _read_standalone_or_embedded(path: Path, parent: dict, parent_name: str,
+                                 cancelled: Callable[[], bool] | None) -> tuple[dict, str]:
     check_cancelled(cancelled)
     if recorded_artifact_present(path):
         record = read_json_object(path, cancelled=cancelled)
         origin = path.name
     else:
-        record = metadata.get(path.stem, {})
-        origin = "static_meta.json"
+        record = parent.get(path.stem, {})
+        origin = parent_name
     if not isinstance(record, dict):
         raise ValueError(f"{origin} {path.stem}: expected an object")
     if path.name == "runtime_validation.json":
@@ -186,26 +191,34 @@ def _record(layout: ArtifactLayout, warnings: list[str], *,
     directory = layout.root
     values: dict[str, dict] = {}
     issues: list[str] = []
-    resolution_name = "model_resolution.json"
-    for name in ('run_state.json', 'static_meta.json', 'runtime_validation.json', 'runtime_failures.json', 'model_resolution.json'):
+    embedded_parents = {
+        "runtime_validation.json": "static_meta.json",
+        "model_resolution.json": "static_meta.json",
+        "interface_validation.json": "model_resolution.json",
+    }
+    origins: dict[str, str] = {}
+    for name in ('run_state.json', 'static_meta.json', 'runtime_failures.json', *embedded_parents):
+        origins[name] = name
         try:
             path = layout.path(name)
             if not path.resolve().is_relative_to(directory):
                 raise ValueError(f'{name}: artifact_outside_experiment')
-            if name in {"runtime_validation.json", "model_resolution.json"}:
-                values[name], origin = _read_standalone_or_embedded(path, values["static_meta.json"], cancelled)
-                if name == "model_resolution.json":
-                    resolution_name = origin
+            parent_name = embedded_parents.get(name)
+            if parent_name is not None:
+                values[name], origins[name] = _read_standalone_or_embedded(
+                    path, values[parent_name], origins[parent_name], cancelled,
+                )
             else:
                 values[name] = read_artifact(path, cancelled=cancelled)
         except (OSError, ValueError) as exc:
             detail = f'{directory}: {name}: {exc}'
             warnings.append(detail)
-            if name in {'static_meta.json', 'model_resolution.json', 'run_state.json'}:
+            if name in {'static_meta.json', 'model_resolution.json', 'interface_validation.json', 'run_state.json'}:
                 issues.append(detail)
             values[name] = {}
     state, metadata, validation = (values[name] for name in ('run_state.json', 'static_meta.json', 'runtime_validation.json'))
     resolution = values['model_resolution.json']
+    interface = values['interface_validation.json']
     task = state.get('runtime', {}).get('task', {})
     options = state.get('options', {})
     if not isinstance(options, dict):
@@ -223,7 +236,8 @@ def _record(layout: ArtifactLayout, warnings: list[str], *,
     run_id = state.get('run_id')
     try:
         identity = RecordedModelIdentity() if issues else recorded_model_identity(
-            metadata, resolution, state, resolution_name=resolution_name,
+            metadata, resolution, state, resolution_name=origins['model_resolution.json'],
+            interface=interface, interface_name=origins['interface_validation.json'],
         )
     except RecordedSourceError as exc:
         identity = RecordedModelIdentity()
@@ -234,11 +248,11 @@ def _record(layout: ArtifactLayout, warnings: list[str], *,
     runtime_env = recorded_runtime_env if isinstance(recorded_runtime_env, dict) else {}
     return ExperimentRecord(directory, (directory,), run_id if isinstance(run_id, str) and run_id else None,
         str(identity.model_id or metadata.get('model_name') or metadata.get('model_id') or task.get('model_id') or resolution.get('model_id') or options.get('model') or 'unknown'),
-        identity.revision(metadata.get('model_revision'), task.get('model_revision'), resolution.get('model_revision')),
-        str(metadata.get('runtime_profile_id') or runtime_env.get('profile_id') or task.get('runtime_profile_id') or resolution.get('runtime_profile') or 'unknown'),
+        identity.revision(metadata.get('model_revision'), task.get('model_revision'), resolution.get('model_revision'), interface.get('revision')),
+        str(metadata.get('runtime_profile_id') or runtime_env.get('profile_id') or task.get('runtime_profile_id') or resolution.get('runtime_profile') or interface.get('runtime_profile') or 'unknown'),
         str(state.get('created_at') or metadata.get('created_at') or 'unknown'),
         str(state.get('status') or ('failed' if failures else 'unknown')), device,
-        options, state, metadata, validation, tuple(failures), identity.source, tuple(issues))
+        options, state, metadata, validation, tuple(failures), identity, tuple(issues))
 
 
 def read_experiment_record(directory: Path | ArtifactLayout, *,
@@ -350,7 +364,7 @@ def scan_experiments(roots: Iterable[Path], *, cancelled: Callable[[], bool] = l
             layout = ArtifactLayout.discover(directory, cancelled=cancelled)
             is_collection = (directory / 'metadata' / 'task_runs').is_dir()
             is_experiment = not is_collection and any(layout.path(name).is_file() for name in (
-                'run_state.json', 'static_meta.json', 'model_resolution.json', 'result_layers.json', 'result_all.csv'))
+                'run_state.json', 'static_meta.json', 'model_resolution.json', 'interface_validation.json', 'result_layers.json', 'result_all.csv'))
             record = _record(layout, warnings, cancelled=cancelled) if is_experiment else None
         except CancelledError as exc:
             raise InterruptedError('experiment scan cancelled') from exc
@@ -361,9 +375,16 @@ def scan_experiments(roots: Iterable[Path], *, cancelled: Callable[[], bool] = l
             if record.run_id and record.run_id in identities:
                 index = identities[record.run_id]
                 previous = records[index]
-                source_conflict = previous.model_source != record.model_source
+                prior, current = previous.identity, record.identity
+                identity_conflict = prior.source != current.source or any(
+                    left and right and left != right
+                    for left, right in ((prior.model_id, current.model_id), (prior.commit, current.commit))
+                )
+                identity = RecordedModelIdentity() if identity_conflict else RecordedModelIdentity(
+                    prior.source, prior.model_id or current.model_id, prior.commit or current.commit,
+                )
                 try:
-                    conflicting = source_conflict or (
+                    conflicting = identity_conflict or (
                         _duplicate_digest(previous, cancelled, duplicate_budget) != _duplicate_digest(record, cancelled, duplicate_budget)
                     )
                     issue = 'run_id_content_conflict' if conflicting else ''
@@ -373,9 +394,10 @@ def scan_experiments(roots: Iterable[Path], *, cancelled: Callable[[], bool] = l
                     raise InterruptedError('experiment scan cancelled') from exc
                 except (OSError, ValueError):
                     issue = 'duplicate_evidence_unverified'
-                issues = tuple(dict.fromkeys((*previous.issues, *((issue,) if issue else ()))))
+                issues = tuple(dict.fromkeys((*previous.issues, *record.issues, *((issue,) if issue else ()))))
                 records[index] = replace(previous, aliases=(*previous.aliases, directory), issues=issues,
-                                         model_source='unknown' if source_conflict else previous.model_source)
+                                         identity=identity, model_id=identity.model_id or previous.model_id,
+                                         revision=identity.revision(previous.revision))
             else:
                 if record.run_id:
                     identities[record.run_id] = len(records)

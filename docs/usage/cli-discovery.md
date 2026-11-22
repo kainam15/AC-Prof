@@ -191,8 +191,9 @@ snapshot 不把 Hub 标签自动当成正确答案。零总权重和没有审阅
 版本核对使用已解析的 40 位 Git commit。同一主模型只记录了一个固定 commit 时，报告会导出它，TUI 的“使用”会将它带入 `--revision`。只有符号版本的历史记录保留原引用，选择候选时不固定 commit。
 命令行请求的模型别名、branch 或 tag 可以与解析结果同时出现；
 依赖仓库使用自己的 ID 和版本，任务覆盖也有独立语义。主模型 ID 或固定 commit 发生冲突时，
-报告按实际产物和冲突字段列出诊断，版本显示为 `unknown`，TUI 中的归档候选仅可查看。本地实验目录使用已读取的静态元数据、
-解析记录和冻结任务核对身份；打开 `coverage.json` 还可查看报告在接口探测中发现的冲突。
+报告按实际产物和冲突字段列出诊断，版本显示为 `unknown`，TUI 的本地和归档候选均只可查看。
+本地目录也会核对独立或内嵌的接口探测记录，包含准备阶段结束、尚无冻结任务的目录。
+同一 run ID 的副本若记载了不同的主模型、固定 commit 或仓库来源，会保留两个路径并禁止复用。
 
 run/report 同时输出 `coverage.json`、`models.csv` 和 `REPORT.md`。失败列保留稳定的
 `reason_code` 及 evidence，质量警告单独保留在 `quality_checks`；TUI 的 `/report <coverage.json>`

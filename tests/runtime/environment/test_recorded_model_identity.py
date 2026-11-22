@@ -68,6 +68,13 @@ def test_mixed_primary_model_evidence_stays_with_its_actual_file(tmp_path, recor
     assert valid["status"] == "full_success"
     assert valid["source"] == "modelscope"
 
+    from acprof.tui.experiments.catalog import read_experiment_record
+    from acprof.tui.models.candidates import candidate_from_record, model_choice
+    observed = read_experiment_record(source)
+    assert observed.model_source == "unknown"
+    assert any(filename in issue for issue in observed.issues)
+    assert model_choice(candidate_from_record(observed, {})).actions == {"view"}
+
 
 @pytest.mark.parametrize(("model", "commit", "expected"), [
     (MODEL, REVISION, "interrupted"), ("fixture/stale", REVISION, "inconclusive"),
@@ -216,14 +223,88 @@ def test_report_and_picker_use_the_unique_resolved_primary_commit(tmp_path, pin_
     local = candidate_from_record(read_experiment_record(source), {})
     archived, = coverage_candidates(output / "coverage.json")
     for candidate in (local, archived):
-        # The standalone interface artifact is read only by the report importer.
-        shown = "main" if candidate is local and pin_location == "interface" else expected
-        assert candidate.revision == shown
+        assert candidate.revision == expected
         if pin_location == "conflict":
             assert model_choice(candidate).actions == {"view"}
             continue
         app = Mock()
         ModelController(app).model_candidate_selected(("use", candidate), {MODEL})
         app.configuration.select_model_candidate.assert_called_once_with(
-            MODEL, "modelscope", REVISION if shown == REVISION else "",
+            MODEL, "modelscope", REVISION if expected == REVISION else "",
         )
+
+
+@pytest.mark.parametrize("storage", ["interface", "resolution", "static-nested", "resolution-only"])
+def test_preparation_identity_without_frozen_state_is_discovered(tmp_path, storage):
+    from acprof.tui.experiments.catalog import scan_experiments
+    from acprof.tui.models.candidates import (
+        candidate_from_record,
+        coverage_candidates,
+        model_choice,
+    )
+
+    source = tmp_path / "history" / "model"
+    source.mkdir(parents=True)
+    iface = {"status": "ok", "model_id": MODEL, "revision": REVISION, "runtime_profile": "fixture"}
+    if storage == "interface":
+        filename, record = "interface_validation.json", iface
+    elif storage == "resolution":
+        filename, record = "model_resolution.json", {"interface_validation": iface}
+    elif storage == "resolution-only":
+        filename, record = "model_resolution.json", {"model_id": MODEL, "model_revision": REVISION}
+    else:
+        filename, record = "static_meta.json", {"model_resolution": {"interface_validation": iface}}
+    (source / filename).write_text(json.dumps(record))
+    local, = scan_experiments([source.parent]).records
+    output = tmp_path / "report"
+    row, = report_results([source], output)["rows"]
+    archived, = coverage_candidates(output / "coverage.json")
+    for candidate in (archived, candidate_from_record(local, {})):
+        assert (candidate.model_id, candidate.revision, candidate.model_source) == (MODEL, REVISION, "huggingface")
+        assert "use" in model_choice(candidate).actions
+    assert row["runtime_status"] == "unverified"
+
+
+def test_empty_standalone_interface_shadows_a_conflicting_embedded_copy(tmp_path):
+    from acprof.tui.experiments.catalog import read_experiment_record
+
+    metadata = saved_metadata()
+    metadata["model_resolution"]["interface_validation"].update(model_id="fixture/stale", revision=OTHER_REVISION)
+    source = tmp_path / "model"
+    layout = write_metadata(source, metadata)
+    layout.path("interface_validation.json").write_text("{}")
+    local = read_experiment_record(source)
+    row, = report_results([source], tmp_path / "report")["rows"]
+    assert local.issues == ()
+    assert (local.model_source, local.revision) == ("modelscope", REVISION)
+    assert row["status"] == "full_success"
+
+
+@pytest.mark.parametrize("coordinate", ["same", "model", "commit"])
+@pytest.mark.parametrize("artifact", ["model_resolution.json", "interface_validation.json"])
+def test_duplicate_run_compares_its_independent_primary_identity(tmp_path, coordinate, artifact):
+    from acprof.tui.experiments.catalog import scan_experiments
+    from acprof.tui.models.candidates import candidate_from_record, model_choice
+
+    for subdir in ("first", "second"):
+        source = tmp_path / subdir
+        source.mkdir()
+        (source / "run_state.json").write_text(json.dumps({"schema_version": 1, "run_id": "shared", "status": "interrupted"}))
+        iface = {"status": "ok", "revision": OTHER_REVISION if coordinate == "commit" and subdir == "second" else REVISION,
+                 "model_id": "fixture/other" if coordinate == "model" and subdir == "second" else MODEL}
+        if artifact == "model_resolution.json":
+            iface["model_revision"] = iface.pop("revision")
+        (source / artifact).write_text(json.dumps(iface))
+        (source / "result_all.csv").write_text("status,value\nok,1\n")
+    record, = scan_experiments([tmp_path]).records
+    assert len(record.aliases) == 2
+    choice = model_choice(candidate_from_record(record, {}))
+    if coordinate == "same":
+        assert record.issues == ()
+        assert record.revision == REVISION
+        assert "use" in choice.actions
+    else:
+        assert "run_id_content_conflict" in record.issues
+        assert record.model_source == "unknown"
+        assert record.revision == "unknown"
+        assert choice.actions == {"view"}
