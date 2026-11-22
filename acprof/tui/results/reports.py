@@ -3,8 +3,7 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Callable
-from concurrent.futures import CancelledError
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal, overload
@@ -12,6 +11,7 @@ from typing import Any, Literal, overload
 from acprof.analysis.changes import metric_change
 from acprof.analysis.coordinates import COORDINATE_IDENTITY, RESOURCE_AXES, report_coordinate_labels
 from acprof.analysis.uncertainty import WINDOW_FILTER
+from acprof.cancellation import cancellable, check_cancelled
 from acprof.messages import join_messages, message
 from acprof.tui.i18n import message_id
 from acprof.tui.ui.presentation import NOT_APPLICABLE, STATUS_LEGEND, UNKNOWN
@@ -88,10 +88,21 @@ def _interval(row: dict, low_key: str, high_key: str) -> tuple[float | None, flo
     return low, high
 
 
-def _objects(value) -> list[dict]:
-    if not isinstance(value, list) or any(not isinstance(row, dict) for row in value):
+def _objects(value, cancelled) -> Iterator[dict]:
+    if not isinstance(value, list):
         raise ValueError(message_id('results.report.no_valid_rows'))
-    return value
+    for item in cancellable(value, cancelled):
+        if not isinstance(item, dict):
+            raise ValueError(message_id('results.report.no_valid_rows'))
+        yield item
+
+
+def _detail_json(value, cancelled, *, indent: int | None = None) -> str:
+    """Preserve JSON formatting while allowing cancellation inside nested run evidence."""
+    if cancelled is None:
+        return json.dumps(value, ensure_ascii=False, indent=indent)
+    encoder = json.JSONEncoder(ensure_ascii=False, indent=indent)
+    return "".join(cancellable(encoder.iterencode(value), cancelled))
 
 
 def _text(value, fallback: str = "") -> str:
@@ -102,7 +113,7 @@ def _text(value, fallback: str = "") -> str:
     return value
 
 
-def render_quality_summary(payload: dict) -> str:
+def render_quality_summary(payload: dict, *, cancelled: Callable[[], bool] | None = None) -> str:
     """Keep state, observed-window completeness and output quality separate."""
     if "quality_reasons" not in payload:
         from acprof.quality import combine_quality, summarize_quality
@@ -114,18 +125,18 @@ def render_quality_summary(payload: dict) -> str:
                      payload.get("measurement_status", "unknown"), payload.get("quality_status", "unknown")),
              message_id('results.quality.selection_summary', message("可参与" if payload.get("auto_selection_eligible") is True else "暂停"),
                      ", ".join(payload.get("quality_reasons", ["quality_evidence_missing"])) or "—")]
-    for check in payload.get("quality_checks", []):
+    for check in cancellable(payload.get("quality_checks", []), cancelled):
         lines.append(message_id('results.quality.evidence', check.get("code", "unknown"),
-                             check.get("detail", ""), json.dumps(check.get("evidence", {}), ensure_ascii=False)))
+                             check.get("detail", ""), _detail_json(check.get("evidence", {}), cancelled)))
     return join_messages("\n", lines)
 
 
-def _windows(source: Path, data: dict) -> ReportView:
+def _windows(source: Path, data: dict, cancelled) -> ReportView:
     confidence = _number(data.get("confidence"))
     if not 0 < confidence < 1 or data.get("filter") not in {"status=ok and warmup=0", WINDOW_FILTER}:
         raise ValueError(message_id('results.report.unsupported_statistics_contract'))
     rows = []
-    for group in _objects(data.get("groups")):
+    for group in _objects(data.get("groups"), cancelled):
         name = _text(group.get("metric"))
         if not name:
             raise ValueError(message_id('results.report.missing_metric_name'))
@@ -164,7 +175,7 @@ def _windows(source: Path, data: dict) -> ReportView:
         STATUS_LEGEND,
         message_id('results.statistics.window_scope_notice'),
         message_id('results.report.data_source', origin),
-        render_quality_summary(data),
+        render_quality_summary(data, cancelled=cancelled),
     ))
     return ReportView(source, message_id('results.statistics.summary_title', confidence * 100, len(rows)),
                       ("资源/输入", "指标", "均值", message_id('results.column.confidence_interval', confidence * 100),
@@ -180,7 +191,7 @@ def _comparison_row(label: str, row: dict, count: int, detail: str) -> ReportRow
     return ReportRow((label, str(count), f"{change:+.6g}%", f"[{low:.6g}%, {high:.6g}%]", message(state)), detail)
 
 
-def _comparisons(source: Path, data: dict) -> ReportView:
+def _comparisons(source: Path, data: dict, cancelled) -> ReportView:
     if data.get("successful") is not True:
         raise ValueError(message_id('results.overhead.incomplete', _text(data.get("error")) or UNKNOWN))
     rows = []
@@ -188,7 +199,7 @@ def _comparisons(source: Path, data: dict) -> ReportView:
         mode = data.get("gpu_mode")
         if mode not in {"on", "off"}:
             raise ValueError(message_id('results.report.invalid_device_configuration'))
-        for row in _objects(data.get("comparisons")):
+        for row in _objects(data.get("comparisons"), cancelled):
             label = _text(row.get("scenario"))
             if label.startswith("monitors-"):
                 label = label.removeprefix("monitors-") + " Hz"
@@ -196,12 +207,12 @@ def _comparisons(source: Path, data: dict) -> ReportView:
                                         message_id('results.overhead.monitor_scope')))
         title = message_id('results.overhead.monitor_title', "GPU" if mode == "on" else "CPU")
     else:
-        pairs = _objects(data.get("pairs"))
+        pair_count = sum(1 for _ in _objects(data.get("pairs"), cancelled))
         ui = data.get("ui")
         if ui not in {"terminal", "headless"}:
             raise ValueError(message_id('results.overhead.invalid_ui_mode'))
         detail = message_id('results.overhead.terminal_scope') if ui == "terminal" else message_id('results.overhead.headless_scope')
-        rows.append(_comparison_row("TUI / CLI", data, len(pairs), detail))
+        rows.append(_comparison_row("TUI / CLI", data, pair_count, detail))
         title = message_id('results.overhead.ui_title')
     if not rows:
         raise ValueError(message_id('results.report.no_valid_rows'))
@@ -233,7 +244,7 @@ def _comparison_config(group: dict, report: dict) -> str:
     return join_messages("/", (resources, _text(group.get("gpu_mode")), axes["input_scale"]))
 
 
-def _independent_comparison(source: Path, data: dict) -> ReportView:
+def _independent_comparison(source: Path, data: dict, cancelled) -> ReportView:
     confidence = _number(data.get("confidence"))
     if (not 0 < confidence < 1 or data.get("resampling_unit") != "independent_run_mean"
             or data.get("direction") != "right_minus_left_and_right_divided_by_left"
@@ -241,7 +252,7 @@ def _independent_comparison(source: Path, data: dict) -> ReportView:
             or data.get("status") not in {"compatible", "incompatible", "unknown"}):
         raise ValueError(message_id('results.comparison.invalid_contract'))
     rows = []
-    for group in _objects(data.get("groups")):
+    for group in _objects(data.get("groups"), cancelled):
         metric, unit = _text(group.get("metric")), _text(group.get("unit"))
         multiplier, display_unit = (1000, "ms") if unit == "s" else (1, unit)
 
@@ -276,30 +287,30 @@ def _independent_comparison(source: Path, data: dict) -> ReportView:
             config = _comparison_config(group, data)
         except ValueError as error:
             raise ValueError(message_id('results.comparison.invalid_contract')) from error
-        detail = json.dumps(group, ensure_ascii=False, indent=2)
+        detail = _detail_json(group, cancelled, indent=2)
         rows.append(ReportRow((explanation, config, message(_METRIC_LABELS.get(metric, metric)),
             value(left.get("mean")), value(right.get("mean")), UNKNOWN if percent is None else f"{percent:+.6g}%",
             value(group.get("difference")), interval("difference_ci"), interval("ratio_ci", ratio=True),
             f"{_count(left.get('n_runs'))}/{_count(right.get('n_runs'))}"), detail))
+    detail_fields = ("condition_checks", "experiments", "quality", "limitations", "source_sha256", "allowed_resource_dimensions")
     note = join_messages("\n", (
         message_id('results.comparison.resampling_notice'),
         message_id('results.comparison.comparability', data["status"], confidence * 100),
-        json.dumps({key: data.get(key) for key in ("condition_checks", "experiments", "quality", "limitations", "source_sha256", "allowed_resource_dimensions")},
-                   ensure_ascii=False, indent=2),
+        _detail_json({key: data.get(key) for key in detail_fields}, cancelled, indent=2),
     ))
     return ReportView(source, message_id('results.comparison.summary_title', data["status"], len(rows)),
         ("说明", "资源/输入", "指标", "基线均值", "对比均值", "变化", "差值", "差值区间", "比值区间", "独立实验数"),
         tuple(rows), note)
 
 
-def read_report(path: str | Path, *, cancelled: Callable[[], bool] = lambda: False) -> ReportView:
+def read_report(path: str | Path, *, cancelled: Callable[[], bool] | None = None) -> ReportView:
     """读取一次完整 JSON；失败/未知报告不能冒充成功结果。"""
+    check_cancelled(cancelled)
     source = Path(path).expanduser().resolve()
     content = bytearray()
     with source.open("rb") as stream:
         while len(content) <= _MAX_REPORT_BYTES:
-            if cancelled():
-                raise CancelledError()
+            check_cancelled(cancelled)
             remaining = _MAX_REPORT_BYTES + 1 - len(content)
             chunk = stream.read(min(_REPORT_READ_CHUNK_BYTES, remaining))
             if not chunk:
@@ -307,21 +318,23 @@ def read_report(path: str | Path, *, cancelled: Callable[[], bool] = lambda: Fal
             content.extend(chunk)
     if len(content) > _MAX_REPORT_BYTES:
         raise ValueError(message_id('results.report.size_limit_exceeded'))
-    if cancelled():
-        raise CancelledError()
+    check_cancelled(cancelled)
     try:
         data = json.loads(content)
     except (ValueError, UnicodeError) as exc:
         raise ValueError(message_id('results.report.malformed_json')) from exc
-    return report_view(source, data)
+    return report_view(source, data, cancelled=cancelled)
 
 
-def report_view(source: Path, data: dict) -> ReportView:
+def report_view(source: Path, data: dict, *, cancelled: Callable[[], bool] | None = None) -> ReportView:
     """Validate an in-memory payload through the same rules as imported JSON."""
-    return replace(_validated_report_view(source, data), payload=data)
+    check_cancelled(cancelled)
+    view = _validated_report_view(source, data, cancelled)
+    check_cancelled(cancelled)
+    return replace(view, payload=data)
 
 
-def _validated_report_view(source: Path, data: dict) -> ReportView:
+def _validated_report_view(source: Path, data: dict, cancelled) -> ReportView:
     coverage_v2 = (isinstance(data, dict) and data.get("schema_version") == 2
                    and data.get("scope") == "selected_sample_only; no_formal_measurement"
                    and not data.get("kind") and not data.get("resampling_unit"))
@@ -329,15 +342,15 @@ def _validated_report_view(source: Path, data: dict) -> ReportView:
             or data["schema_version"] != 1 and not coverage_v2):
         raise ValueError(message_id('results.report.unsupported_type'))
     if data.get("resampling_unit") == "csv_request_window":
-        return _windows(source, data)
+        return _windows(source, data, cancelled)
     if data.get("kind") in {"monitor_overhead_diagnostic", "ui_overhead"}:
-        return _comparisons(source, data)
+        return _comparisons(source, data, cancelled)
     if data.get("kind") == "independent_experiment_comparison":
-        return _independent_comparison(source, data)
+        return _independent_comparison(source, data, cancelled)
     if data.get("scope") in {"selected_sample_only; no_formal_measurement", "recorded_results; no_reexecution"}:
         from acprof.analysis.compatibility import result_status
         rows = []
-        for row in _objects(data.get("rows")):
+        for row in _objects(data.get("rows"), cancelled):
             failure = row.get("failure") or {}
             diagnostic = failure or row
             details = {key: row[key] for key in ("run_status", "run_outcome", "runtime_status", "full_profile_complete")
@@ -348,7 +361,7 @@ def _validated_report_view(source: Path, data: dict) -> ReportView:
                            cleanup_status=row.get("cleanup_status"), cleanup_errors=row.get("cleanup_errors", []),
                            attempt_id=row.get("attempt_id"), attempts=data.get("attempts", []))
             rows.append(ReportRow((row["model_id"], result_status(row), _text(diagnostic.get("reason_code"))),
-                join_messages("\n", (render_quality_summary(row), json.dumps(details, ensure_ascii=False, indent=2)))))
+                join_messages("\n", (render_quality_summary(row, cancelled=cancelled), _detail_json(details, cancelled, indent=2)))))
         note = message_id('results.compatibility.recorded_results_notice') if data["scope"] == "recorded_results; no_reexecution" else message_id('results.compatibility.sample_scope_notice')
         return ReportView(source, message_id('results.compatibility.title'), ("模型", "状态", "reason_code"), tuple(rows), note)
     raise ValueError(message_id('results.report.unsupported_type'))
