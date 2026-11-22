@@ -58,17 +58,29 @@ def cached_entry(tmp_path, monkeypatch):
     return _write_verified_entry(tmp_path, ENTRY_ID, payloads, context)
 
 
+@pytest.fixture
+def inspect_cached_model(tmp_path, monkeypatch):
+    from acprof.cli.inspect import main
+
+    monkeypatch.chdir(tmp_path)
+
+    def inspect(arguments):
+        # The in-process CLI selects a source and normalizes Hub endpoints.
+        # Give each invocation its own environment, as a real CLI process has.
+        with patch.dict(os.environ, {"ACPROF_MODEL_STORE": str(tmp_path), "ACPROF_MODEL_SOURCE": "huggingface"}):
+            return main(arguments)
+
+    return inspect
+
+
 @pytest.mark.parametrize(("architecture", "declares_task", "status", "selected"), [
     ("BertForMaskedLM", False, "candidate", "fill-mask"),
     ("CustomEncoderModel", False, "needs_configuration", None),
     ("CustomEncoderModel", True, "candidate", "tabular-classification"),
 ])
 def test_old_modelscope_context_uses_only_pinned_task_evidence(
-    tmp_path, monkeypatch, architecture, declares_task, status, selected,
+    tmp_path, inspect_cached_model, architecture, declares_task, status, selected,
 ):
-    from acprof.cli.inspect import main
-
-    monkeypatch.setenv("ACPROF_MODEL_STORE", str(tmp_path))
     config = json.dumps({"model_type": "bert", "architectures": [architecture]}).encode()
     payloads = {"config.json": config, "model.safetensors": b"x"}
     if declares_task:
@@ -85,7 +97,7 @@ def test_old_modelscope_context_uses_only_pinned_task_evidence(
     args = [MODEL_ID, "--model-source", "modelscope", "--revision", REVISION]
     with patch("acprof.hub.repository.modelscope_api") as api:
         output = tmp_path / "inspection"
-        code = main([*args, "--output-dir", str(output)])
+        code = inspect_cached_model([*args, "--output-dir", str(output)])
         report = json.loads((output / "model_resolution.json").read_text())
         assert (code, report["status"]) == (0 if selected else 2, status)
         if selected:
@@ -98,7 +110,7 @@ def test_old_modelscope_context_uses_only_pinned_task_evidence(
             assert report["contract"]["fields"]["library"] == {
                 "value": "transformers", "state": "derived", "sources": ["modelscope.default_library"]}
         if not selected:
-            assert main([*args, "--task", "fill-mask"]) == 0
+            assert inspect_cached_model([*args, "--task", "fill-mask"]) == 0
         api.assert_not_called()
     assert manifest.read_bytes() == original
 
@@ -108,10 +120,7 @@ def test_old_modelscope_context_uses_only_pinned_task_evidence(
     ("unrelated-index", "diffusers", "fill-mask", "transformers_pipeline"),
     ("ddpm", "transformers", "unconditional-image-generation", "diffusers"),
 ])
-def test_modelscope_library_of_cached_snapshot(tmp_path, monkeypatch, layout, stale_library, task, backend):
-    from acprof.cli.inspect import main
-
-    monkeypatch.setenv("ACPROF_MODEL_STORE", str(tmp_path))
+def test_modelscope_library_of_cached_snapshot(tmp_path, inspect_cached_model, layout, stale_library, task, backend):
     payloads = {"config.json": b'{"model_type":"bert","architectures":["BertForMaskedLM"]}', "model.safetensors": b"x"}
     if layout == "unrelated-index":
         payloads["model_index.json"] = b'{"evaluation_results":[]}'
@@ -129,7 +138,7 @@ def test_modelscope_library_of_cached_snapshot(tmp_path, monkeypatch, layout, st
         for explicit in (False, True):
             out = tmp_path / ("explicit" if explicit else "auto")
             args = [MODEL_ID, "--model-source", "modelscope", "--revision", REVISION, "--output-dir", str(out)]
-            assert main(args + (["--task", task] if explicit else [])) == 0
+            assert inspect_cached_model(args + (["--task", task] if explicit else [])) == 0
             result = json.loads((out / "model_resolution.json").read_text())
             assert (result["task"], result["backend"]) == (task, backend)
             assert result["library"] == ("diffusers" if layout == "ddpm" else "transformers")
