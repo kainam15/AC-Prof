@@ -280,9 +280,12 @@ def _independent_comparison(source: Path, data: dict, cancelled) -> ReportView:
         percent = (metric_change(_number(left.get("mean"), nullable=True),
                                  _number(right.get("mean"), nullable=True))["percent"]
                    if ratio is not None else None)
-        reason = _text(group.get("reason")) or _text(group.get("comparability"))
+        reason = _text(group.get("reason"))
+        comparability = _text(group.get("comparability"))
         qualities = "/".join(_text(side.get("quality_status"), "unknown") for side in (left, right))
-        explanation = f"{reason} · quality={qualities}"
+        # Older reports can repeat the comparability verdict as their reason.
+        labels = dict.fromkeys((reason, comparability, f"quality={qualities}"))
+        explanation = " · ".join(label for label in labels if label)
         try:
             config = _comparison_config(group, data)
         except ValueError as error:

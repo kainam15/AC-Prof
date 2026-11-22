@@ -5,15 +5,15 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
-import tests.support.independent_comparison_fixtures as comparison_fixture
 import pytest
 from textual.widgets import Button, DataTable, Input, Select, TabbedContent
-from tests.support.tui_fixtures import AcprofTui
 
+import tests.support.independent_comparison_fixtures as comparison_fixture
 from acprof.experiments.configuration import RunConfig
 from acprof.quality import loading_quality
 from acprof.tui.results.reports import read_report
 from acprof.tui.run.stages import Stage
+from tests.support.tui_fixtures import AcprofTui
 
 
 class TestIndependentReport:
@@ -122,7 +122,9 @@ class TestIndependentReport:
 
     def test_insufficient_independent_runs_is_the_first_visible_explanation(self):
         source, _ = self.report(1)
-        assert ("insufficient_independent_runs") in (read_report(source).rows[0].cells[0])
+        explanation = read_report(source).rows[0].cells[0].split(" · ")
+        assert explanation[0] == "insufficient_independent_runs"
+        assert "comparable" in explanation
 
     def test_incompatible_conditions_and_quality_evidence_remain_traceable(self):
         source, report = self.report()
@@ -136,7 +138,9 @@ class TestIndependentReport:
             quality_checks=loading_quality({"missing_keys": ["head.weight"]}, source="weights.log"))
         source.write_text(json.dumps(report))
         view = read_report(source)
-        assert ("conditions_incompatible") in (view.rows[0].cells[0])
+        explanation = view.rows[0].cells[0].split(" · ")
+        assert explanation[0] == "conditions_incompatible"
+        assert "not comparable" in explanation
         assert ("weights_reinitialized") in (view.rows[0].detail)
         assert ("weights.log") in (view.rows[0].detail)
         assert ('"auto_selection_eligible": false') in (view.rows[0].detail)
