@@ -385,18 +385,21 @@ def _nonnegative_count(value: object) -> int | None:
     return None
 
 
-def _hub_parameter_counts(safetensors: object) -> tuple[int | None, dict[str, int], str | None]:
+def _hub_parameter_counts(safetensors: object) -> tuple[int | None, dict[str, int], int, str | None]:
     total = _nonnegative_count(_mapping_value(safetensors, "total"))
     raw_counts = _mapping_value(safetensors, "parameters")
     counts: dict[str, int] = {}
     if not isinstance(raw_counts, dict) or (not raw_counts and total != 0):
-        return total, counts, "Hub safetensors.parameters is missing or empty"
+        return total, counts, 0, "Hub safetensors.parameters is missing or empty"
+    unnamed_elements = 0
     problems = []
     for raw_dtype, raw_count in raw_counts.items():
         dtype = _normalize_dtype_name(raw_dtype) if isinstance(raw_dtype, str) else ""
         count = _nonnegative_count(raw_count)
         if not dtype:
             problems.append("missing dtype name")
+            if count is not None:
+                unnamed_elements += count
         elif count is None:
             problems.append(f"invalid count for {dtype}")
         else:
@@ -405,13 +408,13 @@ def _hub_parameter_counts(safetensors: object) -> tuple[int | None, dict[str, in
         problems.append("missing or invalid total")
     elif not problems and (counted := sum(counts.values())) != total:
         problems.append(f"dtype counts sum to {counted}, declared total is {total}")
-    return total, counts, "Hub safetensors: " + "; ".join(problems) if problems else None
+    return total, counts, unnamed_elements, "Hub safetensors: " + "; ".join(problems) if problems else None
 
 
 def _hub_model_metadata(info: object, *, source: str = "huggingface") -> dict[str, Any]:
     """Extract reproducible model-card metadata from a Hub ModelInfo object."""
     safetensors = getattr(info, "safetensors", None)
-    parameter_count, dtype_counts, counts_reason = _hub_parameter_counts(safetensors)
+    parameter_count, dtype_counts, unnamed_elements, counts_reason = _hub_parameter_counts(safetensors)
     parameter_bytes = _parameter_bytes_from_dtype_counts(dtype_counts) if counts_reason is None else None
     bytes_reason = counts_reason
     if bytes_reason is None and parameter_bytes is None:
@@ -469,6 +472,7 @@ def _hub_model_metadata(info: object, *, source: str = "huggingface") -> dict[st
         model_license = license_tags[0] if license_tags else None
 
     return {
+        "hub_metadata": {"unnamed_dtype_elements": unnamed_elements} if unnamed_elements else {},
         "parameter_count": parameter_count,
         "parameter_bytes": parameter_bytes,
         "parameter_bytes_reason": bytes_reason,
@@ -580,6 +584,12 @@ def _detect_from_hub(
         )
 
     model_metadata = _hub_model_metadata(info, source=source)
+    model_metadata["hub_metadata"].update(
+        pipeline_tag=hub_pipeline_tag, transformers_info=transformers_info,
+        tags=list(getattr(info, "tags", None) or []),
+        task_hint=pipeline_tag if pipeline_tag != hub_pipeline_tag else None,
+        task_hint_source=task_hint_source,
+    )
     if hub_diagnostics:
         # The raw Hub configuration is retained as invalid evidence, not passed
         # into executable configuration or a non-standard JSON report.
@@ -597,10 +607,6 @@ def _detect_from_hub(
         model_revision=sha,
         detection_method="hub_api",
         model_config=model_config,
-        hub_metadata={"pipeline_tag": hub_pipeline_tag, "transformers_info": transformers_info,
-                      "tags": list(getattr(info, "tags", None) or []),
-                      "task_hint": pipeline_tag if pipeline_tag != hub_pipeline_tag else None,
-                      "task_hint_source": task_hint_source},
         **repository,
         **model_metadata,
     )

@@ -243,6 +243,38 @@ class TestCoverageResume:
             if counts:
                 assert result["evidence"]["known_dtype_elements"] == sum(counts.values())
 
+    @pytest.mark.parametrize(("declared", "named", "unnamed", "retryability"), [
+        (2, {"FP16": 2}, 40, "after_configuration"),
+        (2, {}, 3, "after_configuration"),
+        (20, {"FP16": 20}, 2, "higher_budget"),
+        (20, {"FP16": 40}, 0, "higher_budget"),
+        (8, {"FP16": 2}, 4, None),
+    ])
+    def test_parameter_budget_accounts_for_unnamed_elements(self, declared, named, unnamed, retryability):
+        def saved_task(model_id, *, revision):
+            task = self.task(model_id, revision=revision)
+            task.parameter_count = declared
+            task.parameter_dtype_counts = named
+            task.hub_metadata["unnamed_dtype_elements"] = unnamed
+            return task
+
+        with patch("acprof.host.detect.detect_task", side_effect=saved_task):
+            row = run_sample(self.sample, self.root, max_parameters=10)["rows"][0]
+        preflight = row["resource_preflight"]
+        if retryability:
+            assert preflight["status"] == "unverified"
+            assert preflight["failure"]["retryability"] == retryability
+        else:
+            assert preflight["status"] == "within_budget"
+        evidence = preflight["evidence"]
+        assert evidence["parameter_count"] == declared
+        assert evidence["known_dtype_elements"] == sum(named.values())
+        if unnamed:
+            assert evidence["unnamed_dtype_elements"] == unnamed
+        else:
+            assert "unnamed_dtype_elements" not in evidence
+        assert evidence["unknown_budget_inputs"] == (["parameter budget"] if retryability == "after_configuration" else [])
+
     def test_parameter_budget_retry_does_not_replace_initial_budget(self):
         def bounded_task(model_id, *, revision):
             task = self.task(model_id, revision=revision)

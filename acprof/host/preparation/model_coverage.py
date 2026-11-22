@@ -194,6 +194,7 @@ def _evaluate_model(item: dict, output: Path, *, probe, cpus, memory_gb, gpu,
                 from acprof.host.model_store.store import plan_model
                 plan = plan_model(task)
             budget = assess_resource_budget(parameter_count=task.parameter_count, parameter_dtype_counts=task.parameter_dtype_counts,
+                                            unnamed_dtype_elements=task.hub_metadata.get("unnamed_dtype_elements", 0),
                                             max_parameters=max_parameters,
                                             plan=plan, max_download_bytes=max_download_bytes)
             row["resource_preflight"] = budget

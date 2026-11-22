@@ -218,7 +218,8 @@ Process 错误消息、Docker 最终状态与操作诊断，并对其中的凭�
 `--max-parameters` 和 `--max-download-bytes` 默认不设置，传入时须为正整数。
 超预算或无法确定所需大小时保存 `resource_limit` 与 `unverified`，不下载权重、不宣称实测 OOM。
 selected artifact size 包括显式模型依赖；参数量不是峰值 RAM/VRAM 预测。
-负数大小按未知处理；已知 dtype 分项合计超过声明参数总数时，参数预算记录两项证据并报告无法核验。
+负数大小按未知处理。有名称的 dtype 元素数记为 `known_dtype_elements`，缺少类型名称但数量有效的正数分项另计入 `unnamed_dtype_elements`。
+两者之和超过声明总数时，不能据该总数判定模型符合预算。声明总数本身已经超限时仍报告超限。
 `--timeout-seconds` 默认保持 300；例如复核 60 秒耗尽的条目，可用同一固定 manifest，显式传入
 `--timeout-seconds 600 --resume --retry-reason request_timeout`。每个选中模型在本次调用中只执行
 一次 probe，不自动无限重试。

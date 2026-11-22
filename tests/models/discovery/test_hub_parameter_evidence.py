@@ -76,6 +76,24 @@ def test_unknown_dtype_keeps_recorded_identity_without_quantization_claim(discov
     assert task.quantized is None
 
 
+@pytest.mark.parametrize(("unnamed", "expected"), [
+    ({"": "40", " ": 2.0}, 42),
+    ({"": 0, " ": False, "\t": -1}, None),
+    ({}, None),
+])
+def test_unnamed_elements_remain_separate_from_dtype_counts(discover, unnamed, expected):
+    task = discover({"F16": 2, **unnamed}, 2)
+    assert task.parameter_count == 2
+    assert task.parameter_dtype_counts == {"FP16": 2}
+    if expected is None:
+        assert "unnamed_dtype_elements" not in task.hub_metadata
+    else:
+        assert task.hub_metadata["unnamed_dtype_elements"] == expected
+        assert task.parameter_bytes is None
+        assert "missing dtype name" in task.parameter_bytes_reason
+        assert task.precision_dtype is None
+
+
 def test_config_dtype_fallback_and_quantization_evidence(discover):
     fallback = discover(None, None, config={"torch_dtype": "float16"}, omit_safetensors=True)
     assert fallback.precision_dtype == "FP16"
