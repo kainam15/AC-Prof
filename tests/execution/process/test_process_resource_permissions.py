@@ -253,23 +253,100 @@ def test_missing_controller_on_leaf_can_use_empty_delegation_root(hierarchy, mon
     assert set((parent / 'cgroup.subtree_control').read_text().split()) == {'cpu', 'memory'}
 
 
-def test_unreadable_caller_memory_limit_does_not_block_cpu_only(hierarchy, monkeypatch):
+@pytest.mark.parametrize('mode', ['automatic', 'explicit-sibling'])
+@pytest.mark.parametrize(('requested', 'field', 'caller_limit', 'target_limit', 'expected'), [
+    ((1, None), 'memory.max', '536870912', 'max', 'parent_limit'),
+    ((1, None), 'memory.max', '536870912', '1073741824', 'parent_limit'),
+    ((1, None), 'memory.max', '536870912', '536870912', 'ready'),
+    ((1, None), 'memory.max', '536870912', '268435456', 'ready'),
+    ((None, 1), 'cpu.max', '50000 100000', 'max 100000', 'parent_limit'),
+    ((None, 1), 'cpu.max', '50000 100000', '75000 100000', 'parent_limit'),
+    ((None, 1), 'cpu.max', '50000 100000', '25000 50000', 'ready'),
+    ((None, 1), 'cpu.max', '50000 100000', '25000 100000', 'ready'),
+])
+def test_mixed_axes_keep_caller_limit_when_changing_parent(
+    hierarchy, monkeypatch, mode, requested, field, caller_limit, target_limit, expected,
+):
     from acprof.host.runtimes import cgroups
-    _, parent, current = hierarchy
+    root, parent, current = hierarchy
     monkeypatch.delenv('ACPROF_CGROUP_ROOT')
     (current / 'cgroup.subtree_control').write_text('')
     (current / 'cgroup.procs').write_text(str(cgroups.os.getpid()))
+    (current / field).write_text(caller_limit)
+    # The fixture provisions kernel pseudo-files for children of parent.
+    # For an explicit sibling, place the caller under another mount child.
+    if mode == 'explicit-sibling':
+        other = root / 'other'
+        current.rename(other)
+        cgroups.PROC_CGROUP.write_text('0::/other')
+        monkeypatch.setenv('ACPROF_CGROUP_ROOT', str(parent))
+    (parent / field).write_text(target_limit)
+    if expected == 'ready':
+        diagnostic = resources.preflight_resources([requested[0]], [requested[1]], '')
+        assert diagnostic.code == 'ready'
+    else:
+        with pytest.raises(cgroups.ProcessResourceError) as caught:
+            resources.ProcessLimits(*requested)
+        diagnostic = caught.value.diagnostic
+        assert diagnostic.code == expected
+        assert field in diagnostic.detail
+    assert diagnostic.parent == str(parent)
+    assert not list(root.rglob('acprof-*'))
+
+
+@pytest.mark.parametrize(('keep_caller', 'expected'), [(False, 'permission_denied'), (True, 'ready')])
+def test_unreadable_inherited_axis_depends_on_whether_caller_stays_an_ancestor(hierarchy, monkeypatch, keep_caller, expected):
+    from acprof.host.runtimes import cgroups
+    _, parent, current = hierarchy
+    if keep_caller:
+        cgroups.PROC_CGROUP.write_text(f'0::/{parent.name}')
     read = Path.read_text
 
-    def read_cpu_only(path, *args, **kwargs):
-        if path == current / 'memory.max':
+    def read_quota(path, *args, **kwargs):
+        if path == (parent if keep_caller else current) / 'memory.max':
             raise PermissionError(13, 'fixture unreadable memory limit', str(path))
         return read(path, *args, **kwargs)
 
-    monkeypatch.setattr(Path, 'read_text', read_cpu_only)
-    diagnostic = resources.preflight_resources([1], [None], '')
-    assert diagnostic.code == 'ready'
-    assert diagnostic.parent == str(parent)
+    monkeypatch.setattr(Path, 'read_text', read_quota)
+    if expected == 'ready':
+        assert resources.preflight_resources([1], [None], '').code == 'ready'
+    else:
+        with pytest.raises(cgroups.ProcessResourceError) as caught:
+            resources.ProcessLimits(1, None)
+        assert caught.value.diagnostic.code == expected
+        assert str(current / 'memory.max') in caught.value.diagnostic.detail
+
+
+@pytest.mark.parametrize(('shared_limit', 'expected'), [('max', 'permission_denied'), ('268435456', 'ready')])
+def test_mixed_axis_uses_visible_stricter_bound_when_target_has_partial_evidence(hierarchy, monkeypatch, shared_limit, expected):
+    from acprof.host.runtimes import cgroups
+    root, parent, current = hierarchy
+    (current / 'memory.max').write_text('536870912')
+    (root / 'memory.max').write_text(shared_limit)
+    read = Path.read_text
+
+    def read_limit(path, *args, **kwargs):
+        if path == parent / 'memory.max':
+            raise PermissionError(13, 'fixture unreadable target memory', str(path))
+        return read(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, 'read_text', read_limit)
+    if expected == 'ready':
+        assert resources.preflight_resources([1], [None], '').code == 'ready'
+    else:
+        with pytest.raises(cgroups.ProcessResourceError) as caught:
+            resources.ProcessLimits(1, None)
+        assert caught.value.diagnostic.code == expected
+        assert str(parent / 'memory.max') in caught.value.diagnostic.detail
+
+
+def test_cpu_only_delegation_can_keep_memory_inherited_without_a_memory_controller(hierarchy):
+    root, parent, current = hierarchy
+    for directory in (root, parent, current):
+        (directory / 'memory.max').unlink()
+        (directory / 'cgroup.controllers').write_text('cpu')
+        (directory / 'cgroup.subtree_control').write_text('cpu')
+    assert resources.preflight_resources([1], [None], '').code == 'ready'
 
 
 @pytest.mark.parametrize('hierarchy', ['user@1000.service', 'system.slice', 'init.scope'], indirect=True)
@@ -428,3 +505,40 @@ def test_parent_limit_change_invalidates_previous_quota_evidence(hierarchy):
     assert error.value.diagnostic.code == 'parent_limit'
     assert not limits.evidence()['verified']
     limits.close()
+
+
+@pytest.mark.parametrize('axis', ['cpu.max', 'memory.max'])
+@pytest.mark.parametrize(('change', 'expected'), [('same', 'ready'), ('tighter', 'parent_limit'), ('denied', 'permission_denied')])
+def test_workload_verification_rechecks_requested_limit_in_caller_leaf(hierarchy, monkeypatch, axis, change, expected):
+    from acprof.host.runtimes import cgroups
+    _, parent, current = hierarchy
+    monkeypatch.delenv('ACPROF_CGROUP_ROOT')
+    (current / 'cgroup.subtree_control').write_text('')
+    (current / 'cgroup.procs').write_text(str(cgroups.os.getpid()))
+    caller_limit = current / axis
+    caller_limit.write_text('200000 100000' if axis == 'cpu.max' else str(2 * 1024**3))
+    limits = resources.ProcessLimits(1 if axis == 'cpu.max' else None, 1 if axis == 'memory.max' else None)
+    try:
+        assert limits.diagnostic.parent == str(parent)
+        (Path(limits.path) / 'cgroup.procs').write_text('7777')
+        if change == 'tighter':
+            caller_limit.write_text('50000 100000' if axis == 'cpu.max' else str(512 * 1024**2))
+        elif change == 'denied':
+            read = Path.read_text
+
+            def after_preparation(path, *args, **kwargs):
+                if path == caller_limit:
+                    raise PermissionError(13, 'fixture caller permission changed', str(path))
+                return read(path, *args, **kwargs)
+
+            monkeypatch.setattr(Path, 'read_text', after_preparation)
+        if expected == 'ready':
+            limits.verify(7777)
+            assert limits.evidence()['verified']
+        else:
+            with pytest.raises(cgroups.ProcessResourceError) as caught:
+                limits.verify(7777)
+            assert caught.value.diagnostic.code == expected
+            assert not limits.evidence()['verified']
+    finally:
+        limits.close()

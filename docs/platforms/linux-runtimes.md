@@ -104,7 +104,10 @@ acprof load results/process-smoke --gpu off --requests 5 --warmup 1 \
 例如 systemd 的 `DelegateSubgroup=controller` 把服务进程放在叶组内时，CLI 和 TUI 可在同一
 service 的委派根创建实验子组。自动查找止于当前 service / scope 或可见挂载边界，跳过 systemd
 管理的 slice、user manager 和挂载根。设置 `ACPROF_CGROUP_ROOT` 时只检查指定目录。
-当前进程和选中父级的可见配额都约束数值请求。请求所需的可见限额若因权限无法读取，预检会报告权限错误。
+预检和 workload 启动时均读取当前进程与目标子树的可见配额。若只为一个轴指定数值，另一个轴保持
+`auto`。当实验移到调用者子树以外时，目标路径须能维持被移出的有限 CPU 带宽或内存上限。
+例如调用者受 512 MiB 限制，CPU-only 运行可使用同样限制或更严的目标；目标内存无上限时会报告
+`parent_limit`。若读取权限不足以确认所需约束，则报告 `permission_denied`。
 参见 [systemd 对 DelegateSubgroup 的定义](https://github.com/systemd/systemd/blob/main/man/systemd.resource-control.xml)。
 预检区分 v1/v2、所需控制器缺失、委派/写权限不足、可见父级配额不足
 和回读/进程归属验证失败。只请求 CPU 时不要求 Memory 控制器，反之亦然。
