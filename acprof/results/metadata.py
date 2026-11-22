@@ -101,7 +101,8 @@ class ResultMetadataSnapshot:
     def _read_record(self, name: str, label: str, cancelled: Callable[[], bool] | None) -> JsonObjectSnapshot:
         path = self.layout.path(name)
         decode = decode_hardware_conditions if path.name == "hardware_conditions.json" else None
-        return read_json_object_snapshot(path, label=label, cancelled=cancelled, decode=decode)
+        return read_json_object_snapshot(path, label=label, cancelled=cancelled, decode=decode,
+                                         preserve_input_scales=path.name == "input_scale_plan.json")
 
     def verify_current(self, source: str | Path, *, cancelled: Callable[[], bool] | None = None) -> None:
         """Raise the first verification error for callers requiring a stable source."""

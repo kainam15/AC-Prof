@@ -30,6 +30,7 @@ from acprof.host.run_state import (
 )
 from acprof.host.runtimes.service import execution_runtime
 from acprof.installation import module_command, resource_root
+from acprof.results.csv import numeric_coordinate_key
 from acprof.results.layout import ArtifactLayout, resolve_single_result_source
 from acprof.system.cleanup import cleanup_on_exit
 from acprof.system.command import run_command
@@ -93,15 +94,20 @@ def validate_packets(path, result, *, port=8002):
             "per_request_wire_bytes": "unavailable_on_shared_streams"}
 
 
+def _input_scale_key(value: str | float) -> str:
+    return numeric_coordinate_key("input_scale", str(value))
+
+
 def _read_source_input_entry(
-    plan_path: Path, expected_sha256: str | None, requested_scale: float | None,
+    plan_path: Path, expected_sha256: str | None, requested_scale: str | float | None,
 ) -> dict[str, Any]:
     if not expected_sha256:
         raise ValueError("source input plan is missing its recorded SHA256")
     entries = read_input_scale_plan(plan_path, expected_sha256=expected_sha256)["entries"]
     if requested_scale is None:
         return entries[0]
-    entry = next((item for item in entries if float(item["input_scale"]) == requested_scale), None)
+    requested_key = _input_scale_key(requested_scale)
+    entry = next((item for item in entries if _input_scale_key(item["input_scale"]) == requested_key), None)
     if entry is None:
         raise ValueError("input scale must be present in the source experiment")
     return entry
@@ -125,7 +131,7 @@ def main(argv=None):
     parser.add_argument("--gpu", choices=("off", "on"))
     parser.add_argument("--cpu", type=int)
     parser.add_argument("--mem", type=int)
-    parser.add_argument("--input-scale", type=float)
+    parser.add_argument("--input-scale", type=_input_scale_key)
     parser.add_argument("--scenario", choices=("serial", "concurrent", "arrival-rate"), default="serial")
     parser.add_argument("--connections", choices=("close", "reuse"), default="close")
     parser.add_argument("--concurrency", type=int, default=1)

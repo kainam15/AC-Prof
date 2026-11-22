@@ -1,5 +1,6 @@
 """Input plan publication preserves frozen payload bytes and complete files."""
 import hashlib
+import json
 import stat
 from pathlib import Path
 from types import SimpleNamespace
@@ -106,6 +107,47 @@ def test_duplicate_scale_cannot_replace_an_existing_plan(existing_plan, task_inf
                for index, scale in enumerate([1, 2, 1.0])]
     with pytest.raises(ValueError, match=r"duplicate input_scale.*entries 0 and 2"):
         _write_fixture(path, task_info, entries)
+    _assert_old_plan_preserved(path, mode)
+
+
+@pytest.mark.parametrize("token", ["2.0000000000000001", "9007199254740993", "9007199254740993.00"])
+def test_execution_rejects_plan_scale_that_rounds_to_another_window(tmp_path, token):
+    path = tmp_path / "renamed-plan.json"
+    path.write_text('{"schema_version":2,"entries":[{"input_scale":' + token + ',"payload":{}}]}')
+    with pytest.raises(ValueError, match=r"input_scale.*index 0.*round-trip"):
+        artifacts.read_input_scale_plan(path, expected_sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+
+
+def test_plan_metadata_preserves_only_original_scale_evidence_and_native_request(tmp_path):
+    from acprof.results.metadata import ResultMetadataSnapshot
+
+    path = tmp_path / "input_scale_plan.json"
+    raw = (b'\xef\xbb\xbf{"schema_version":2,"exact_input_scales":{"1":"forged"},"entries":['
+           b'{"input_scale":2.00000000000000010,"payload":{"input_scale":3.0000000000000001,'
+           b'"values":[1e-999999999999999999999999,-0.0]}},'
+           b'{"input_scale":2.00,"payload":{},"exact_input_scale":"forged"},'
+           b'{"input_scale":"2.0000000000000001","payload":{}},'
+           b'{"input_scale":9007199254740993,"payload":{}}]}')
+    path.write_bytes(raw)
+    snapshot = ResultMetadataSnapshot(tmp_path / "result_all.csv").read(path.name)
+    assert snapshot.content == raw
+    assert snapshot.payload == json.loads(raw)
+    assert snapshot.exact_input_scales == {0: "2.0000000000000001"}
+    payload = snapshot.payload["entries"][0]["payload"]
+    assert json.dumps(payload) == '{"input_scale": 3.0, "values": [0.0, -0.0]}'
+    assert type(payload["input_scale"]) is float
+    assert all(type(value) is float for value in payload["values"])
+
+
+def test_scale_evidence_cannot_override_a_custom_decoder(tmp_path):
+    with pytest.raises(ValueError, match=r"preserve_input_scales.*decode"):
+        artifacts.read_json_object_snapshot(tmp_path / "absent.json", preserve_input_scales=True, decode=json.loads)
+
+
+def test_lossy_integer_cannot_replace_a_published_plan(existing_plan, task_info):
+    path, mode = existing_plan
+    with pytest.raises(ValueError, match=r"input_scale.*index 0.*round-trip"):
+        _write_fixture(path, task_info, [{"input_scale": 2**53 + 1, "payload": {}}])
     _assert_old_plan_preserved(path, mode)
 
 

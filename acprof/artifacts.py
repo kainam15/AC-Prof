@@ -11,7 +11,7 @@ import stat
 import tempfile
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import AbstractContextManager, contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from functools import partial
 from io import BytesIO
@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, BinaryIO, TextIO
 
 from acprof.cancellation import cancellable, check_cancelled
+from acprof.results.measurement_plan import decimal_coordinate, decimal_key_text
 from acprof.system.cleanup import cleanup_on_exit
 
 MAX_JSON_ARTIFACT_BYTES = 4 * 1024 * 1024
@@ -95,6 +96,57 @@ class JsonObjectSnapshot:
 
     content: bytes
     payload: dict
+    exact_input_scales: dict[int, str] = field(default_factory=dict)
+
+
+class _PlanNumberToken(str):
+    """A bare JSON number whose spelling differs from its native float."""
+
+
+def _restore_plan_numbers(container, cancelled) -> None:
+    def children(value):
+        items = value.items() if isinstance(value, dict) else enumerate(value)
+        return iter(cancellable(items, cancelled))
+
+    pending = [(container, children(container))]
+    while pending:
+        parent, items = pending[-1]
+        for key, value in items:
+            if isinstance(value, _PlanNumberToken):
+                parent[key] = float(value)
+            elif isinstance(value, (dict, list)):
+                pending.append((value, children(value)))
+                break
+        else:
+            pending.pop()
+
+
+def _decode_input_plan(text: str, exact: dict[int, str], cancelled) -> Any:
+    marked = False
+
+    def number(token: str) -> float | _PlanNumberToken:
+        nonlocal marked
+        value = _finite_json_number(token)
+        if token == str(value):
+            return value
+        marked = True
+        return _PlanNumberToken(token)
+
+    payload = json.loads(text, parse_float=number, parse_constant=_finite_json_number)
+    if marked and isinstance(payload, dict):
+        entries = payload.get("entries")
+        if isinstance(entries, list):
+            for index, entry in enumerate(cancellable(entries, cancelled)):
+                token = entry.get("input_scale") if isinstance(entry, dict) else None
+                if isinstance(token, _PlanNumberToken):
+                    try:
+                        coordinate = decimal_coordinate(token)
+                    except InvalidOperation as error:
+                        raise ValueError(f"input_scale at index {index} is outside the decimal range") from error
+                    if coordinate != decimal_coordinate(str(float(token))):
+                        exact[index] = decimal_key_text(coordinate)
+        _restore_plan_numbers(payload, cancelled)
+    return payload
 
 
 def _read_json_bytes(
@@ -156,6 +208,7 @@ def read_json_object_snapshot(
     path: str | Path, *, label: str = "artifact", expected_sha256: str | None = None,
     bounded: bool = True, cancelled: Callable[[], bool] | None = None,
     byte_budget: list[int] | None = None, decode: Callable[[str], Any] | None = None,
+    preserve_input_scales: bool = False,
 ) -> JsonObjectSnapshot:
     """Read and validate JSON without reopening it to obtain its byte identity.
 
@@ -163,11 +216,16 @@ def read_json_object_snapshot(
     overflow probe. Growing records may opt out of the metadata limit while
     retaining cancellation, any shared budget and content validation.
     """
+    if preserve_input_scales and decode is not None:
+        raise ValueError("preserve_input_scales cannot be combined with a custom decode function")
     source = Path(path)
     content = _read_json_bytes(source, label, expected_sha256=expected_sha256, bounded=bounded,
                                cancelled=cancelled, byte_budget=byte_budget)
+    exact: dict[int, str] = {}
+    if preserve_input_scales:
+        decode = partial(_decode_input_plan, exact=exact, cancelled=cancelled)
     payload = _json_object(source, label, _json_text(source, label, content), cancelled, decode or loads_finite_json)
-    return JsonObjectSnapshot(content, payload)
+    return JsonObjectSnapshot(content, payload, exact)
 
 
 def read_json_object(
@@ -213,6 +271,8 @@ def input_plan_scales(plan: Mapping[str, Any], *, cancelled: Callable[[], bool] 
             raise ValueError(f"input_scale at index {index} exceeds the finite float range") from exc
         if not math.isfinite(scale) or scale <= 0:
             raise ValueError(f"invalid input_scale at index {index}: expected a finite positive value")
+        if isinstance(raw, int) and raw != decimal_coordinate(str(scale)):
+            raise ValueError(f"input_scale at index {index} cannot round-trip through the runtime: {raw!r}")
         if scale in positions:
             raise ValueError(f"duplicate input_scale {scale} in plan entries {positions[scale]} and {index}")
         positions[scale] = index
@@ -223,8 +283,12 @@ def read_input_scale_plan_snapshot(
     path: str | Path, *, expected_sha256: str | None = None, expected_scales: set[float] | None = None,
 ) -> JsonObjectSnapshot:
     """Validate the scale-to-payload mapping and retain its original bytes."""
-    snapshot = read_json_object_snapshot(path, label="input scale plan", expected_sha256=expected_sha256)
+    snapshot = read_json_object_snapshot(path, label="input scale plan", expected_sha256=expected_sha256,
+                                         preserve_input_scales=True)
     require_schema_version(snapshot.payload, 2, "input_scale_plan.json")
+    if snapshot.exact_input_scales:
+        index, value = next(iter(snapshot.exact_input_scales.items()))
+        raise ValueError(f"input_scale at index {index} cannot round-trip through the runtime: {value}")
     scales = input_plan_scales(snapshot.payload)
     if expected_scales is not None and scales != expected_scales:
         raise ValueError(f"{path}: input plan scales do not match the matrix scales")
