@@ -12,6 +12,13 @@ def _shape(value: Any) -> list[int] | None:
     return [int(item) for item in shape] if shape is not None else None
 
 
+def uses_text_generation_contract(task: str, model_ctx: dict) -> bool:
+    """Native chat returns generated replies. Custom pipelines retain their declared output protocol."""
+    return (task in {'text-generation', 'text2text-generation', 'summarization', 'translation',
+                     'image-to-text', 'image-text-to-text', 'audio-text-to-text', 'video-text-to-text', 'any-to-any'}
+            or task == 'conversational' and model_ctx.get('native_chat') is True)
+
+
 def summarize_workload_contracts(contracts: list[dict | None]) -> dict:
     """Count identical facts after the window; preserve unknown and variable outputs.
 
@@ -61,8 +68,7 @@ def workload_contract(model_ctx: dict, raw_input: dict, processed: Any, response
                                                 prepared.get('prompt_length', prepared.get('_effective_input_scale'))),
                           'token_scope': 'model_input_including_special_tokens' if actual_input is not None else
                                          prepared.get('_input_token_scope', 'effective_scale_excludes_special_tokens')}
-    if task in {'text-generation', 'text2text-generation', 'summarization', 'translation',
-                'image-to-text', 'image-text-to-text', 'audio-text-to-text', 'video-text-to-text', 'any-to-any'}:
+    if uses_text_generation_contract(task, model_ctx):
         actual = response.get('actual_output_tokens')
         contract['generation'] = {
             'parameters': dict(params),

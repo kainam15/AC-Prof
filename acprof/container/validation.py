@@ -10,7 +10,7 @@ from numbers import Number
 from typing import Any, cast
 
 from acprof.extensions import CATALOG
-from acprof.workloads.contract import workload_contract
+from acprof.workloads.contract import uses_text_generation_contract, workload_contract
 
 
 class OutputValidationError(ValueError):
@@ -140,8 +140,7 @@ def validate_output(model_ctx: dict, raw_input: dict, processed_input: Any,
         if horizon is not None and shape[-1] != horizon:
             raise OutputValidationError('forecast shape differs from prediction_length')
         task_checks.append('forecast_horizon')
-    if task in {'text-generation', 'text2text-generation', 'summarization', 'translation',
-                'image-to-text', 'image-text-to-text', 'audio-text-to-text', 'video-text-to-text', 'any-to-any'}:
+    if uses_text_generation_contract(task, model_ctx):
         texts = _texts(raw_output) or _texts(response)
         if texts and not any(text.strip() for text in texts):
             raise OutputValidationError('text generation sanity check returned empty text')
