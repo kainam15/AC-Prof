@@ -12,6 +12,41 @@ from acprof.results.csv import read_result_csv_snapshot
 REPEATED_FIELDS = ("latency_app_s", "latency_p90_s", "throughput_samples_per_s")
 
 
+def test_sparse_header_counts_unrecorded_columns_without_per_window_lookups(tmp_path, monkeypatch):
+    path = tmp_path / "result_all.csv"
+    fields = ("cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale", "warmup", "repeat_idx",
+              "status", "error", "environment_class", "latency_app_s")
+    with path.open("w", newline="") as stream:
+        writer = csv.writer(stream)
+        writer.writerow(fields)
+        for index, (warmup, status, latency) in enumerate([
+            (1, "ok", ""), (0, "ok", "0"), (0, "warn", ""), (0, "ok", ""), (0, "ok", "1.25"),
+        ]):
+            writer.writerow((1, 4, "off", 1, warmup, index, status, "", "native_linux", latency))
+    (tmp_path / "static_meta.json").write_text(json.dumps(Environment("native_linux").metadata()))
+    absent = set(audit.NUMERIC_FIELDS).difference(fields)
+    lookups = []
+    original = audit.MissingReasons.for_row
+
+    def track_missing(self, row):
+        reason = original(self, row)
+
+        def track(field):
+            if field in absent:
+                lookups.append(field)
+            return reason(field)
+
+        return track
+
+    monkeypatch.setattr(audit.MissingReasons, "for_row", track_missing)
+    report = audit.audit_result(path)
+    assert report["valid"], report["issues"]
+    assert report["counts"]["formal_ok"] == 3
+    assert all(report["missing_metrics"][field] == {"not_recorded": 3} for field in absent)
+    assert report["missing_metrics"]["latency_app_s"] == {"unavailable_unspecified": 1}
+    assert len(lookups) <= len(absent)
+
+
 def write_rows(root, values, *, environment="native_linux", **changes):
     path = root / "result_all.csv"
     rows = [{**dict.fromkeys(CSV_FIELDS, "nan"), "cpu_cores": "1", "mem_cap_gb": "4",

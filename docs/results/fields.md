@@ -7,6 +7,7 @@
 每行对应一个资源配置、一个 input scale 和一次 warmup/repeat 请求窗口。
 常规性能分析只取 `status=ok` 且 `warmup=0`；错误行中的部分数值不作为正式测量。
 不可用或不适用的数值为 `nan`，历史 CSV 缺少新字段时不能补成 `0`。
+`acprof audit` 将表头缺少的数值指标记为 `not_recorded`，次数等于实际测量成功的正式窗口数。表头中已有的指标仍按各窗口的证据解释空值。
 
 字段按用途分组，列顺序、类型、单位、来源和窗口由 [results/metrics.py](../../acprof/results/metrics.py) 统一登记；
 `config.CSV_FIELDS` 引用同一字段列表。完整元数据见[字段速查](metric_reference.md)，绘图数值转换和补采完成条件复用登记表。

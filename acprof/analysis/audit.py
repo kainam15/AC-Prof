@@ -438,9 +438,9 @@ def _audit_process_row(report, runtime, metadata, hardware, index, row, status, 
         issue('service_cgroup_scope', '服务 cgroup 指标缺少独立 cgroup 归属证据', row=index)
 
 
-def _audit_numeric_row(report, runtime, missing_reasons, missing, partial, index, row, formal, issue, cancelled):
+def _audit_numeric_row(report, runtime, fields, missing_reasons, missing, partial, index, row, formal, issue, cancelled):
     reason_for_row = None
-    for field in cancellable(NUMERIC_FIELDS, cancelled):
+    for field in cancellable(fields, cancelled):
         if (runtime == "process" and (field.startswith("container_") or field.startswith("cold_start_"))
                 and number(row.get(field)) is not None):
             issue("unsupported_process_metric", f"Process 不能记录 Docker 专属指标 {field}", row=index, field=field)
@@ -475,11 +475,13 @@ def _audit_formula_row(index, row, formal, issue):
             issue("formula_mismatch", f"{field}: 实际 {actual_value:g}，应为 {expected_value:g}", row=index, field=field)
 
 
-def _audit_rows(report, runtime, metadata, hardware, rows, issue, cancelled):
+def _audit_rows(report, runtime, metadata, hardware, table: ResultCsvSnapshot, issue, cancelled):
     missing: dict[str, Counter[str]] = defaultdict(Counter)
     partial: dict[str, Counter[str]] = defaultdict(Counter)
     missing_reasons = MissingReasons(metadata, environment_class=report["environment_class"])
-    for index, row in enumerate(cancellable(rows, cancelled), 2):
+    header = set(table.fields)
+    recorded = tuple(field for field in NUMERIC_FIELDS if field in header)
+    for index, row in enumerate(cancellable(table.rows, cancelled), 2):
         status = row.get("status", "").strip().lower()
         warmup = number(row["warmup"]) == 1
         report["counts"]["warmup"] += warmup
@@ -498,9 +500,16 @@ def _audit_rows(report, runtime, metadata, hardware, rows, issue, cancelled):
             issue("workload_contract", error, row=index)
         observed = (not inferred and not warmup and status in {"ok", "warn"}
                     and row.get("resource_metric_quality", "") not in MISSING_CSV_TEXT)
-        _audit_numeric_row(report, runtime, missing_reasons, missing, partial if observed else None,
+        # The first measured window establishes the existing order of missing metrics.
+        numeric_fields = NUMERIC_FIELDS if measured_ok and report["counts"]["formal_ok"] == 1 else recorded
+        _audit_numeric_row(report, runtime, numeric_fields, missing_reasons, missing, partial if observed else None,
                            index, row, measured_ok, issue, cancelled)
         _audit_formula_row(index, row, formal, issue)
+    formal_ok = report["counts"]["formal_ok"]
+    if formal_ok > 1:
+        for field in NUMERIC_FIELDS:
+            if field not in header:
+                missing[field]["not_recorded"] = formal_ok
     report["missing_metrics"] = {name: dict(reasons) for name, reasons in missing.items()}
     if partial:
         report["partial_metrics"] = {name: dict(reasons) for name, reasons in partial.items()}
@@ -604,7 +613,7 @@ def audit_with_metadata(source: str | Path, *, result_snapshot: ResultCsvSnapsho
     _audit_environment(report, fields, rows, issue, cancelled)
     _audit_input_plan(metadata_reader, metadata, issue, cancelled)
     _audit_plan_coverage(report, state, rows, issue, cancelled)
-    _audit_rows(report, runtime, metadata, hardware, rows, issue, cancelled)
+    _audit_rows(report, runtime, metadata, hardware, loaded, issue, cancelled)
     _finalize_measurement_status(report)
     if verify_result_snapshot:
         _verify_audited_table(loaded, result_snapshot, issue, cancelled)
