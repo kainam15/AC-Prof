@@ -115,6 +115,12 @@ class TestTuiInput:
                 assert (field.content_region.contains(*expected))
                 assert (field.value) == (value)
 
+            await pilot.resize_terminal(80, 24)
+            await pilot.pause()
+            expected = field.content_region.offset + Offset(cell_len(field.value) - field.scroll_offset.x, 0)
+            assert field.content_region.contains(*expected)
+            assert app._input_cursor_offset() == expected
+
             field.value = "abcd"
             await pilot.click("#model", offset=(3, 1))
             await pilot.press("home", "right", "X")

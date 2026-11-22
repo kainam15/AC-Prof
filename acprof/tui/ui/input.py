@@ -7,7 +7,7 @@ from textual.app import App
 from textual.binding import Binding
 from textual.driver import Driver
 from textual.errors import NoWidget
-from textual.geometry import Offset
+from textual.geometry import Offset, Region
 from textual.timer import Timer
 from textual.widgets import Input
 
@@ -16,6 +16,14 @@ class BarCursorInput(Input):
     """Keep Input's editing/selection rendering without its simulated block."""
 
     BINDINGS = [Binding("ctrl+a", "select_all", "全选文本", show=False)]
+
+    def on_resize(self) -> None:
+        # Textual reveals the insertion point on selection changes. A narrower
+        # viewport can also move it out of view without changing the selection.
+        if self.has_focus:
+            self.scroll_to_region(
+                Region(self._cursor_offset, 0, 1, 1), animate=False, immediate=True, force=True,
+            )
 
     def _restart_blink(self) -> None:
         super()._restart_blink()
