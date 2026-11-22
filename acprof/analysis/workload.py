@@ -64,6 +64,13 @@ def _window_requests(raw: object) -> int | None:
     return None
 
 
+def window_request_weight(raw: str | None, projected: float | None) -> float | None:
+    """Accept a report weight only if the original CSV count survives numeric projection."""
+    if projected is None or projected <= 0 or not raw or not raw.isascii() or "_" in raw:
+        return None
+    return projected if _window_requests(raw) == projected else None
+
+
 def _case_evidence(counts: Counter[str], uncounted_windows: int) -> dict:
     observed = sum(counts.values())
     variants = [

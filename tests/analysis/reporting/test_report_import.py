@@ -10,7 +10,11 @@ import pytest
 
 from acprof.analysis.model import load_analysis
 from acprof.plotting.report import report_payload, write_report
-from tests.analysis.statistics.test_observed_energy_quality import energy_csv as energy_csv
+from tests.analysis.statistics.test_observed_energy_quality import (
+    assert_request_energy_summaries,
+    energy_csv as energy_csv,
+    weighted_energy_csv as weighted_energy_csv,
+)
 
 
 @pytest.fixture
@@ -1280,6 +1284,15 @@ def test_csv_import_validates_collector_evidence_per_metric(page, tmp_path):
             sibling_quality = {"legacy": "unknown", "invalid-envelope": "error"}.get(label, "complete")
             assert observations[sibling][0]["quality"] == sibling_quality, label
             assert metrics[sibling]["value"] == (None if sibling_quality == "error" else 17), label
+
+
+def test_import_observed_energy_uses_exact_request_counts(page, weighted_energy_csv):
+    configs = page.evaluate("""async text => {
+      const {registry} = JSON.parse(document.getElementById("report-data").textContent);
+      const bundle = await ACProfImport.readCsv(new File([text], "weights.csv"), registry);
+      return bundle.configs;
+    }""", weighted_energy_csv.read_text())
+    assert_request_energy_summaries(configs)
 
 
 def test_import_derived_energy_matches_python_windows_and_comparisons(page, energy_csv):

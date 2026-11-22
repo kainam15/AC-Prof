@@ -10,6 +10,47 @@ from tests.analysis.reporting.test_report_statistics import row, write_rows
 
 
 @pytest.fixture
+def weighted_energy_csv(tmp_path):
+    # Historical rows without collector evidence still describe their recorded CPU energy.
+    windows = {
+        1: [("1.5", 10)], 2: [("1.0000000000000001", 10)], 3: [(" 2e0 ", 10)],
+        4: [("0", 10)], 5: [("", 10)], 6: [("-1", 10)], 7: [("1", 2), ("1.5", 10)],
+        8: [("2.00", 2), ("4", 5)], 9: [(str(2**53 + 1), 1)], 10: [(str(2**53 + 2), 1)],
+        11: [(str(2**1023), .25), (str(2**1023), .25)],
+    }
+    path = tmp_path / "weights.csv"
+    write_rows(path, [row(i, 3, cpu_cores=case, repeat_in_window=count, cpu_energy_total_j=energy)
+                      for case, values in windows.items() for i, (count, energy) in enumerate(values)])
+    return path
+
+
+def assert_request_energy_summaries(configs):
+    expected = {
+        # request-weighted mean, total, contributing windows, missing windows
+        1: (None, None, 0, 1), 2: (None, None, 0, 1), 3: (10, 20, 1, 0),
+        4: (None, None, 0, 1), 5: (None, None, 0, 1), 6: (None, None, 0, 1),
+        7: (None, None, 1, 1), 8: (4, 24, 2, 0), 9: (None, None, 0, 1),
+        10: (1, 2**53 + 2, 1, 0), 11: (None, float(2**1022), 2, 0),
+    }
+    assert {config["cpu"] for config in configs} == expected.keys()
+    for config in configs:
+        weighted, total, n, missing = expected[config["cpu"]]
+        metrics = config["metrics"]
+        for name, value in (("observed_energy_per_request_j", weighted), ("observed_energy_j", total)):
+            summary = metrics[name]
+            assert (summary["value"], summary["n"], summary["missing"]) == (value, n, missing), (config["cpu"], name)
+        assert metrics["latency_app_s"]["n"] == n + missing
+        assert metrics["cpu_energy_total_j"]["n"] == n + missing
+
+
+def test_energy_aggregates_require_positive_integral_request_counts(weighted_energy_csv):
+    model = load_analysis([weighted_energy_csv])
+    assert_request_energy_summaries(model.configs)
+    for entry in model.raw_rows:
+        assert entry["values"]["observed_energy_per_request_j"] == entry["values"]["cpu_energy_total_j"]
+
+
+@pytest.fixture
 def energy_csv(tmp_path):
     cpu, gpu = "cpu_energy_total_j", "gpu_energy_total_j"
     complete = {"quality": "complete"}

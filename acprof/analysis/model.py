@@ -16,6 +16,7 @@ from acprof.analysis.audit import require_consistent_run_identity
 from acprof.analysis.comparison import load_comparison_snapshot
 from acprof.analysis.conditions import PURPOSES, PreparedComparison
 from acprof.analysis.lifecycle import LifecycleConflict, unique_startup_observations
+from acprof.analysis.workload import window_request_weight
 from acprof.gpu_mode import normalize_gpu_mode
 from acprof.platform import recorded_identity
 from acprof.quality import QUALITY_FIELDS, read_quality
@@ -184,15 +185,14 @@ def _window_energy(entry: dict) -> tuple[dict[str, float | None], dict[str, dict
     if entry["device"] not in {"CPU", "GPU"}:
         quality, reason = "unknown", "unknown_device"
     derived = {"components": contracts, "quality": quality, "reason": reason}
-    energy = _derive_energy(entry["values"], entry["device"], quality)
+    energy = _derive_energy(entry["values"], entry["device"], quality, entry["request_weight"])
     observed = {name: {**derived, "quality": "unavailable", "reason": "missing_window_value"}
                 if value is None and quality == "complete" else derived for name, value in energy.items()}
     return energy, {**components, **observed}
 
 
-def _derive_energy(values: dict, device: str, quality: str) -> dict[str, float | None]:
-    cpu, gpu, count = (values.get(name) for name in
-                      ("cpu_energy_total_j", "gpu_energy_total_j", "repeat_in_window"))
+def _derive_energy(values: dict, device: str, quality: str, weight: float | None) -> dict[str, float | None]:
+    cpu, gpu = values.get("cpu_energy_total_j"), values.get("gpu_energy_total_j")
     energy = None
     if quality in USABLE_QUALITIES and cpu is not None and cpu >= 0:
         if device == "CPU":
@@ -200,7 +200,7 @@ def _derive_energy(values: dict, device: str, quality: str) -> dict[str, float |
         elif device == "GPU" and gpu is not None and gpu >= 0:
             energy = cpu + gpu
     energy = number(energy)
-    total = number(energy * count) if energy is not None and count and count > 0 else None
+    total = number(energy * weight) if energy is not None and weight is not None else None
     return {"observed_energy_per_request_j": energy, "observed_energy_j": total}
 
 
@@ -244,6 +244,8 @@ def _usable_windows(entries, name, observations: dict[int, dict] | None) -> tupl
 def _summarize(entries, name, observations: dict[int, dict] | None = None):
     metric = ANALYSIS_METRICS[name]
     valid, signatures = _usable_windows(entries, name, observations)
+    if metric.aggregation == "request_weighted":
+        valid = [(entry, value) for entry, value in valid if entry["request_weight"] is not None]
     n_windows = len(valid)
     if metric.aggregation == "lifecycle":
         try:
@@ -265,13 +267,9 @@ def _summarize(entries, name, observations: dict[int, dict] | None = None):
         elif metric.aggregation == "max":
             value = max(values)
         elif metric.aggregation == "request_weighted":
-            weights: list[float] = []
-            for entry, _ in valid:
-                weight = number(entry["row"].get("repeat_in_window"))
-                if weight is not None and weight > 0:
-                    weights.append(weight)
-            if not missing and len(weights) == len(values):
-                value = sum(v * w for v, w in zip(values, weights, strict=True)) / sum(weights)
+            weight = sum(entry["request_weight"] for entry, _ in valid)
+            if not missing and math.isfinite(weight):
+                value = sum(v * entry["request_weight"] for entry, v in valid) / weight
         else:
             value = statistics.fmean(values)
     return {"value": number(value), "n": len(values), "missing": missing,
@@ -437,6 +435,7 @@ def load_analysis(sources) -> AnalysisModel:
             values = {name: None if type(value := row[name]) is str and value in MISSING_CSV_TEXT else number(value)
                       for name in numeric_fields}
             entry = {**identity, "config_id": config_id, "source": str(path), "source_row": line,
+                     "request_weight": window_request_weight(row.get("repeat_in_window"), values.get("repeat_in_window")),
                      "row": raw, "eligible": eligible, "values": values,
                      **evidence, **device_quality[mode]}
             groups[config_id].append(entry)

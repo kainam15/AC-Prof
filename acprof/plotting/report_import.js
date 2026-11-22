@@ -6,6 +6,15 @@ window.ACProfImport = (() => {
     (/^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(String(value).trim()) && Number.isFinite(Number(value)) ? Number(value) : null);
   const resourceAxes = ["cpu_cores", "mem_cap_gb", "input_scale"];
   const {decimalCoordinate, repeatSequence} = ACProfCoordinates;
+  function requestWeight(raw) {
+    const value = Number(raw);
+    if (!Number.isInteger(value) || value <= 0) return null;
+    if (Number.isSafeInteger(value) && String(value) === raw) return value;
+    const exact = decimalCoordinate(raw);
+    if (!exact?.integer) return null;
+    // BigInt(number) gives the stored binary64 integer, even when String(number) rounds its decimal spelling.
+    return Number.isSafeInteger(value) || exact.key === decimalCoordinate(String(BigInt(value))).key ? value : null;
+  }
   const text = value => value == null || ["", "none", "null", "nan"].includes(String(value).trim().toLowerCase()) ? "unknown" : String(value).trim();
   function runId(value) {
     const id = text(value);
@@ -20,7 +29,7 @@ window.ACProfImport = (() => {
   const sampledGroups = new Set(["gpu_power", "cpu_energy", "dram_energy", "cpu_instructions", "cgroup"]);
   const {stableJson, usableQuality, observationContract, observationSignature} = ACProfViews;
   function accumulator(registry) {
-    return Object.fromEntries(Object.keys(registry).map(name => [name, {n:0, sum:0, correction:0, max:null, weight:0, weighted:0, badWeight:false, startups:new Map(), conflict:false}]));
+    return Object.fromEntries(Object.keys(registry).map(name => [name, {n:0, sum:0, correction:0, max:null, weight:0, weighted:0, startups:new Map(), conflict:false}]));
   }
   function collectorDiagnostic(state, field, name, present) {
     if (!Object.hasOwn(state, field)) return null;
@@ -199,9 +208,9 @@ window.ACProfImport = (() => {
       const group = groups.get(key);
       const energyFields = device === "GPU" ? ["cpu_energy_total_j", "gpu_energy_total_j"] : ["cpu_energy_total_j"];
       const observations = metricObservations(raw, registry, energyFields);
-      const weight = number(raw.repeat_in_window), cpu = number(raw.cpu_energy_total_j), gpu = number(raw.gpu_energy_total_j);
+      const weight = requestWeight(raw.repeat_in_window), cpu = number(raw.cpu_energy_total_j), gpu = number(raw.gpu_energy_total_j);
       const energy = cpu !== null && cpu >= 0 && (device === "CPU" || gpu !== null && gpu >= 0) ? cpu + (device === "GPU" ? gpu : 0) : null;
-      const derived = {observed_energy_per_request_j:energy, observed_energy_j:energy !== null && weight > 0 ? energy * weight : null};
+      const derived = {observed_energy_per_request_j:energy, observed_energy_j:energy !== null && weight !== null ? energy * weight : null};
       const evidence = energyObservation(energyFields, observations, text(raw.gpu_energy_source));
       for (const [name, value] of Object.entries(derived)) {
         observations[name] = !finite(value) && evidence.quality === "complete" ?
@@ -226,6 +235,11 @@ window.ACProfImport = (() => {
         const value = Object.hasOwn(derived, name) ? derived[name] : number(raw[name]);
         if (!finite(value)) continue;
         const acc = group.metrics[name];
+        if (metric.aggregation === "request_weighted") {
+          if (weight === null) continue;
+          acc.weight += weight;
+          acc.weighted += value * weight;
+        }
         if (observations[name] && !acc.mixedContract) {
           const signature = observationSignature(observations[name]);
           acc.signature ??= signature;
@@ -235,7 +249,6 @@ window.ACProfImport = (() => {
         const total = acc.sum + value;
         acc.correction += Math.abs(acc.sum) >= Math.abs(value) ? (acc.sum - total) + value : (value - total) + acc.sum;
         acc.sum = total; acc.max = acc.max === null ? value : Math.max(acc.max, value);
-        if (weight > 0) { acc.weight += weight; acc.weighted += value * weight; } else acc.badWeight = true;
         if (metric.aggregation === "lifecycle") {
           const id = ["", "none", "null", "nan", "nat", "n/a", "unknown", "<na>"].includes((raw.cold_start_started_at || "").toLowerCase()) ? null : raw.cold_start_started_at;
           if (acc.startups.size && (id === null) !== acc.startups.has(null)) acc.conflict = true;
@@ -292,7 +305,7 @@ window.ACProfImport = (() => {
         } else if (n) {
           if (aggregation === "sum") value = missing ? null : acc.sum;
           else if (aggregation === "max") value = acc.max;
-          else if (aggregation === "request_weighted") value = !missing && !acc.badWeight ? acc.weighted / acc.weight : null;
+          else if (aggregation === "request_weighted") value = !missing && finite(acc.weight) ? acc.weighted / acc.weight : null;
           else value = (acc.sum + acc.correction) / n;
         }
         return [name, {value:finite(value) && !acc.mixedContract ? value : null, n, missing:acc.conflict ? 0 : missing, aggregation}];
