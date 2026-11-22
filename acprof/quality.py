@@ -119,52 +119,84 @@ def combine_quality(summaries: list[dict]) -> dict:
     return result
 
 
+def _invalid_quality_check(path: Path, error: Exception, *, device: str | None = None) -> dict:
+    evidence = {"source": str(path), "artifact": str(path)}
+    if device is not None:
+        evidence["device"] = device
+    return QualityCheck("quality_evidence_invalid", "warning", str(error),
+        "schema v1 checks", "Quality evidence could not be verified", evidence).to_dict()
+
+
+def _quality_from_checks(checks: object, path: Path, *, device: str | None = None,
+                         recorded_device: str | None = None, cancelled: Callable[[], bool] | None) -> dict:
+    if not isinstance(checks, list):
+        raise ValueError("quality checks must be an explicit list")
+    result = []
+    for index, check in enumerate(cancellable(checks, cancelled)):
+        if (not isinstance(check, dict) or not isinstance(check.get("code"), str)
+                or not check["code"] or check.get("severity") not in ("info", "warning", "error")
+                or not isinstance(check.get("detail"), str) or not isinstance(check.get("evidence"), dict)):
+            result.append(_invalid_quality_check(path, ValueError(f"invalid quality check at index {index}"),
+                                                 device=recorded_device))
+            continue
+        evidence = {"source": str(path), **check["evidence"]}
+        if recorded_device is not None:
+            evidence["device"] = recorded_device
+        evidence["artifact"] = str(path)
+        target = evidence.get("device")
+        if target is not None and (not isinstance(target, str) or not target.strip()):
+            result.append(_invalid_quality_check(path, ValueError(f"invalid device in quality check at index {index}")))
+        if device is None or target in (None, device):
+            result.append({**check, "evidence": evidence})
+    return summarize_quality(result)
+
+
+def _validation_quality(validation: object, path: Path, device: str | None,
+                        cancelled: Callable[[], bool] | None) -> dict:
+    if not isinstance(validation, dict) or not isinstance(validation.get("devices", {}), dict):
+        raise ValueError("invalid runtime-validation device records")
+    summaries = []
+    for mode, record in cancellable(validation.get("devices", {}).items(), cancelled):
+        if device is not None and mode != device:
+            continue
+        try:
+            if not isinstance(record, dict):
+                raise ValueError("runtime-validation device must be an object")
+            if "quality_checks" in record:
+                summary = _quality_from_checks(record["quality_checks"], path, recorded_device=mode, cancelled=cancelled)
+            else:
+                summary = summarize_quality(None)
+            summaries.append(summary)
+        except ValueError as error:
+            summaries.append(summarize_quality([_invalid_quality_check(path, error, device=mode)]))
+    return combine_quality(summaries)
+
+
 def read_quality(source: str | Path, *, device: str | None = None,
                  metadata_snapshot: ResultMetadataSnapshot | None = None,
                  cancelled: Callable[[], bool] | None = None) -> dict:
-    """Read canonical checks, or explicit runtime-validation checks in older runs."""
+    """Use explicit quality checks, then standalone or embedded probe evidence in that order."""
     from acprof.results.metadata import ResultMetadataSnapshot
     check_cancelled(cancelled)
     metadata_snapshot = metadata_snapshot or ResultMetadataSnapshot(source, cancelled=cancelled)
     metadata_snapshot.validate_source(source, cancelled=cancelled)
-    name = "quality_checks.json" if metadata_snapshot.exists("quality_checks.json") else "runtime_validation.json"
-    path = metadata_snapshot.layout.path(name)
-    if not metadata_snapshot.exists(name):
-        return summarize_quality(None)
-    try:
-        payload = metadata_snapshot.read(name, label="quality evidence", cancelled=cancelled).payload
-        if name == "quality_checks.json":
-            if type(payload.get("schema_version")) is not int or payload["schema_version"] != 1:
-                raise ValueError("unsupported quality evidence schema")
-            checks = payload.get("checks")
-        else:
-            devices = payload.get("devices", {})
-            if not isinstance(devices, dict):
-                raise ValueError("invalid runtime-validation devices")
-            relevant = [(name, item) for name, item in devices.items() if device is None or name == device]
-            if not relevant or any(not isinstance(item, dict) or "quality_checks" not in item for _, item in relevant):
-                return summarize_quality(None)
-            checks = []
-            for name, item in relevant:
-                if not isinstance(item["quality_checks"], list):
-                    raise ValueError("invalid runtime-validation quality checks")
-                for check in cancellable(item["quality_checks"], cancelled):
-                    if not isinstance(check, dict) or not isinstance(check.get("evidence"), dict):
-                        raise ValueError("invalid runtime-validation quality check")
-                    checks.append({**check, "evidence": {**check["evidence"], "device": name}})
-        if not isinstance(checks, list):
-            raise ValueError("quality checks must be an explicit list")
-        result = []
-        for check in cancellable(checks, cancelled):
-            if (not isinstance(check, dict) or not isinstance(check.get("code"), str)
-                    or not check["code"] or check.get("severity") not in {"info", "warning", "error"}
-                    or not isinstance(check.get("detail"), str) or not isinstance(check.get("evidence"), dict)):
-                raise ValueError("invalid quality check")
-            evidence = check["evidence"]
-            if device is not None and evidence.get("device") not in {None, device}:
+    for name in ("quality_checks.json", "runtime_validation.json", "static_meta.json"):
+        try:
+            if not metadata_snapshot.exists(name):
                 continue
-            result.append({**check, "evidence": {"source": str(path), **evidence, "artifact": str(path)}})
-        return summarize_quality(result)
-    except (OSError, ValueError, TypeError) as error:
-        return summarize_quality([QualityCheck("quality_evidence_invalid", "warning", str(error),
-            "schema v1 checks", "Quality evidence could not be verified", {"source": str(path)}).to_dict()])
+            path = metadata_snapshot.layout.path(name)
+            payload = metadata_snapshot.read(name, label="quality evidence", cancelled=cancelled).payload
+            if name == "quality_checks.json":
+                if type(payload.get("schema_version")) is not int or payload["schema_version"] != 1:
+                    raise ValueError("unsupported quality evidence schema")
+                return _quality_from_checks(payload.get("checks"), path, device=device, cancelled=cancelled)
+            validation = payload.get("runtime_validation", {}) if name == "static_meta.json" else payload
+            return _validation_quality(validation, path, device, cancelled)
+        except (OSError, ValueError, TypeError) as error:
+            try:
+                path = metadata_snapshot.layout.path(name)
+            except (ValueError, OSError):
+                # The layout rejected this path; only its containing experiment is known safe.
+                path = metadata_snapshot.layout.root
+            return summarize_quality([_invalid_quality_check(path, error)])
+    return summarize_quality(None)

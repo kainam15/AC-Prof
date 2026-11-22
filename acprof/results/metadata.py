@@ -5,7 +5,7 @@ import hashlib
 from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
 
-from acprof.artifacts import JsonObjectSnapshot, read_json_object_snapshot
+from acprof.artifacts import JsonObjectSnapshot, read_json_object_snapshot, recorded_artifact_present
 from acprof.cancellation import cancellable, check_cancelled
 from acprof.hardware_conditions import decode_hardware_conditions
 from acprof.results.layout import ArtifactLayout, resolve_result_file
@@ -67,12 +67,9 @@ class ResultMetadataSnapshot:
 
     def _observe_presence(self, name: str) -> bool | OSError | ValueError:
         try:
-            self.layout.path(name).stat()
-        except (FileNotFoundError, NotADirectoryError):
-            return False
+            return recorded_artifact_present(self.layout.path(name))
         except (OSError, ValueError) as error:
             return error
-        return True
 
     def exists(self, name: str) -> bool:
         if name not in self._presence:

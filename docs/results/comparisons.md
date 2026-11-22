@@ -232,7 +232,10 @@ passed 不是模型准确率合格证明；warning 保留 detail、observed、th
 `quality_checks` 保存全部原证据；`quality_reasons` 解释 `auto_selection_eligible` 的决定。
 blocked/unknown 暂停默认自动优选，但数值观测和描述统计仍保留；独立比较保留每个实验、每侧和每个 run 的证据，
 顶层 `quality.left/right` 提供聚合质量状态。读到部分历史缺证据时整组继续 unknown，不能由其他成功 run 覆盖。
-`quality_checks.json`、回退来源 `runtime_validation.json`，以及审计读取的
+质量检查优先读取 `quality_checks.json`，缺失时采用 `runtime_validation.json`，两者均缺失时读取
+`static_meta.json` 内嵌的 Runtime 验证。显式空检查列表表示该范围已检查，设备没有检查字段则保留未知。
+已记录的阻断项仍会阻止自动优选，即使同时存在缺失设备或损坏条目；详情指向实际提供检查的文件。
+这些质量来源以及审计读取的
 `model_resolution.json`、`runtime_failures.json` 均纳入 `source_sha256`；缺失文件记录为 `null`，
 读取前与统计结束后的存在状态或内容不同便拒绝报告。
 独立比较的 `experiments.left/right[].source` 记录选中的结果文件。目录和指向同一文件的别名

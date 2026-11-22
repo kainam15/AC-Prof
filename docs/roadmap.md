@@ -37,6 +37,8 @@ P1 · cgroup I/O 预检：已将宿主进程 cgroup 能力与目标 Docker / Pro
 
 [兼容性报告](usage/cli-discovery.md)已补齐 Docker／Process 验证清理诊断。归档结果同时呈现运行主因和清理失败的实际操作，支持历史内嵌报告。独立证据优先，空对象和读取失败均不会复用旧快照；内嵌错误指向实际保存它的文件。
 
+[质量审计与实验对照](results/comparisons.md)保留各设备已记录的检查；其他设备缺证时，已知错误仍会阻止自动优选，并可追溯到独立或内嵌的验证记录。
+
 ## 工程维护优先序
 
 [主机诊断](getting_started/installation.md)在项目环境读取失败时仍输出 JSON，并检查输出路径上的失效链接与非目录组件。
