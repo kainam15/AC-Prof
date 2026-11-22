@@ -175,7 +175,9 @@ def modelscope_info(model_id: str, revision: str | None = None):
                                         blob_id=None, lfs={"sha256": sha256}))
     tags = repo.tags or []
     library = "diffusers" if "library:diffusers" in tags else "transformers"
-    info = SimpleNamespace(sha=commit, siblings=siblings, pipeline_tag=(repo.tasks[0] if len(repo.tasks or []) == 1 else None),
+    # get_repo describes the current repository even when given a revision.
+    # Its tasks cannot identify the execution interface of this commit.
+    info = SimpleNamespace(sha=commit, siblings=siblings, pipeline_tag=None,
         library_name=library, tags=tags, config={}, card_data={"license": repo.license},
         safetensors=None, transformers_info=None, source="modelscope")
     if inventory is not None:

@@ -348,7 +348,9 @@ def cached_model_info(model_id: str, revision: str | None, *, source: str):
             raise ModelFilesError("cached repository inventory omits selected model files")
         return SimpleNamespace(sha=plan["model_revision"],
             siblings=[SimpleNamespace(rfilename=name) for name in files],
-            **{key: metadata[key] for key in ("pipeline_tag", "library_name", "config",
+            # Older ModelScope plans sealed a repository-wide task as the pinned tag.
+            pipeline_tag=None if source == "modelscope" else metadata["pipeline_tag"],
+            **{key: metadata[key] for key in ("library_name", "config",
                                             "transformers_info", "card_data", "tags", "safetensors")})
     return None
 

@@ -54,6 +54,50 @@ def cached_entry(tmp_path, monkeypatch):
     return _write_verified_entry(tmp_path, ENTRY_ID, payloads, context)
 
 
+@pytest.mark.parametrize(("architecture", "declares_task", "status", "selected"), [
+    ("BertForMaskedLM", False, "candidate", "fill-mask"),
+    ("CustomEncoderModel", False, "needs_configuration", None),
+    ("CustomEncoderModel", True, "candidate", "tabular-classification"),
+])
+def test_old_modelscope_context_uses_only_pinned_task_evidence(
+    tmp_path, monkeypatch, architecture, declares_task, status, selected,
+):
+    from acprof.cli.inspect import main
+
+    monkeypatch.setenv("ACPROF_MODEL_STORE", str(tmp_path))
+    config = json.dumps({"model_type": "bert", "architectures": [architecture]}).encode()
+    payloads = {"config.json": config, "model.safetensors": b"x"}
+    if declares_task:
+        payloads["iris.onnx"] = b"fixture"
+        payloads["acprof_model.json"] = json.dumps({"schema_version": 1, "format": "onnxruntime",
+            "task": "tabular-classification", "model_file": "iris.onnx", "feature_dim": 4}).encode()
+    context = {"schema_version": 1, "repository_files": list(payloads), "pipeline_tag": "text-classification",
+               "library_name": "transformers", "config": {}, "transformers_info": {}, "tags": [],
+               "card_data": {}, "safetensors": None}
+    entry = _write_verified_entry(tmp_path, ENTRY_ID, payloads, context)
+    entry.plan.update(source="modelscope", endpoint="https://modelscope.cn")
+    manifest = entry.entry / PLAN_FILENAME
+    original = json.dumps(seal_plan(entry.plan)).encode()
+    manifest.write_bytes(original)
+
+    args = [MODEL_ID, "--model-source", "modelscope", "--revision", REVISION]
+    with patch("acprof.hub.repository.modelscope_api") as api:
+        output = tmp_path / "inspection"
+        code = main([*args, "--output-dir", str(output)])
+        report = json.loads((output / "model_resolution.json").read_text())
+        assert (code, report["status"]) == (0 if selected else 2, status)
+        if selected:
+            assert report["task"] == selected
+        raw = report["provenance"]["raw_evidence"]
+        assert raw["metadata"]["config.json"] == json.loads(config)
+        assert raw["hub"]["pipeline_tag"] is None
+        assert report["model_revision"] == REVISION
+        if not selected:
+            assert main([*args, "--task", "fill-mask"]) == 0
+        api.assert_not_called()
+    assert manifest.read_bytes() == original
+
+
 def _count_payload_stats(monkeypatch, paths):
     calls = Counter()
     original = Path.stat
