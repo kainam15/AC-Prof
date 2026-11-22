@@ -12,6 +12,7 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 
 from acprof.analysis.inputs import resource_coordinate
+from acprof.analysis.window_frames import mask_incompatible_windows, window_evidence_frame
 from acprof.plotting.config import (
     COLD_START_PHASE_SPECS,
     FEASIBILITY_STATE_INDEX,
@@ -308,16 +309,31 @@ def _pareto_frontier_mask(latencies: np.ndarray, energies: np.ndarray) -> np.nda
     return frontier
 
 
-def _pareto_latency_column(df: pd.DataFrame) -> tuple[str, str] | None:
+def _pareto_windows(df: pd.DataFrame, group_cols: list[str], energy: str) -> tuple[pd.DataFrame, str, str] | None:
     candidates = (
         ("latency_app_p95_s", "Application P95 latency (s)"),
         ("latency_p95_s", "Packet P95 latency (s)"),
         ("latency_app_s", "Application mean latency (s)"),
         ("latency_s", "Packet mean latency (s)"),
     )
-    for column, label in candidates:
-        if column in df.columns and (df[column] > 0.0).any():
-            return column, label
+    if energy not in df:
+        return None
+    for latency, label in candidates:
+        if latency not in df:
+            continue
+        fields = [latency, energy]
+        valid_latency = np.isfinite(df[latency]) & (df[latency] > 0)
+        if not valid_latency.any():
+            continue
+        paired = valid_latency & np.isfinite(df[energy]) & (df[energy] > 0)
+        if not paired.any():
+            # A recorded latency without any matching energy is still an unavailable trade-off.
+            return None
+        window = window_evidence_frame(df, [*group_cols, *fields]).loc[paired]
+        mask_incompatible_windows(window, group_cols, (latency, energy))
+        window = window.dropna(subset=fields)
+        if not window.empty:
+            return window.groupby(group_cols, as_index=False)[fields].median(), latency, label
     return None
 
 
@@ -329,24 +345,12 @@ def plot_latency_energy_pareto(
     show_plots: bool = False,
 ) -> bool:
     energy_column = "container_attributed_energy_eff_j"
-    latency_spec = _pareto_latency_column(df)
-    if energy_column not in df.columns or latency_spec is None:
-        print("[skip] Latency/attributed-energy columns unavailable for Pareto plot")
-        return False
-    latency_column, latency_label = latency_spec
     group_cols = ["cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale"]
-    pareto_df = df[group_cols + [latency_column, energy_column]].copy()
-    pareto_df = pareto_df.dropna(subset=[latency_column, energy_column])
-    pareto_df = pareto_df[
-        (pareto_df[latency_column] > 0.0)
-        & (pareto_df[energy_column] > 0.0)
-    ]
-    if pareto_df.empty:
-        print("[skip] Latency/attributed-energy pairs all invalid")
+    prepared = _pareto_windows(df, group_cols, energy_column)
+    if prepared is None:
+        print("[skip] No usable latency/attributed-energy pairs for Pareto plot")
         return False
-    pareto_df = pareto_df.groupby(group_cols, as_index=False)[
-        [latency_column, energy_column]
-    ].median()
+    pareto_df, latency_column, latency_label = prepared
     pareto_df["gpu_on"] = pareto_df["gpu_mode"].map(is_gpu_on)
 
     scale_values = sorted(float(value) for value in pareto_df["input_scale"].unique())

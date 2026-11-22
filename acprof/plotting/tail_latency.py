@@ -6,6 +6,7 @@ import pandas as pd
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 
+from acprof.analysis.window_frames import mask_incompatible_windows, window_evidence_frame
 from acprof.plotting.data import (
     is_gpu_on,
     make_config_labels,
@@ -43,8 +44,17 @@ def _aggregate_tail_latency(df: pd.DataFrame) -> pd.DataFrame:
     if not present:
         return pd.DataFrame()
     group_cols = ["cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale"]
-    usable = df[[*group_cols, *present]].reindex(columns=[*group_cols, *metric_columns])
+    usable = window_evidence_frame(df, [*group_cols, *present])
+    for column in metric_columns:
+        if column not in usable:
+            usable[column] = np.nan
     available = _mask_invalid_percentiles(usable)
+    if "resource_metric_quality" in usable:
+        for _, p50, p90, p95 in _FAMILIES:
+            if p50 in present and p95 in present:
+                mask_incompatible_windows(usable, group_cols, (p50, p95), optional=(p90,))
+        available = usable[[family[1] for family in _FAMILIES]].notna().any(axis=1)
+    usable = usable[[*group_cols, *metric_columns]]
     usable = representative_max_memory_rows(usable, available=available)
     if usable.empty:
         return usable

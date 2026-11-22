@@ -7,6 +7,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from acprof.analysis.window_frames import mask_incompatible_windows, window_evidence_frame
 from acprof.gpu_mode import normalize_gpu_mode
 
 LATENCY_MODEL_FEATURES = {
@@ -620,7 +621,7 @@ def latency_model_frame(df: pd.DataFrame) -> pd.DataFrame:
     if missing:
         raise ValueError(f"CSV missing required modeling columns: {sorted(missing)}")
 
-    model_df = df[list(required)].copy()
+    model_df = window_evidence_frame(df, list(required))
     for col in ("cpu_cores", "mem_cap_gb", "input_scale", "latency_s"):
         model_df[col] = pd.to_numeric(model_df[col], errors="coerce")
     model_df = model_df[
@@ -635,8 +636,11 @@ def latency_model_frame(df: pd.DataFrame) -> pd.DataFrame:
     ].copy()
     model_df["source_row"] = model_df.index
     model_df["hardware_model"] = model_df["gpu_mode"].map(_hardware_model_name)
+    case = ["hardware_model", "cpu_cores", "mem_cap_gb", "input_scale"]
+    mask_incompatible_windows(model_df, case, ("latency_s",))
+    model_df = model_df.loc[model_df["latency_s"].notna(), [*required, "source_row", "hardware_model"]]
     return model_df.sort_values(
-        ["hardware_model", "cpu_cores", "mem_cap_gb", "input_scale", "source_row"]
+        [*case, "source_row"]
     ).reset_index(drop=True)
 
 
