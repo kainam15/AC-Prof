@@ -5,8 +5,9 @@ import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from rich.text import Text
 from textual.suggester import SuggestFromList
-from textual.widgets import Static
+from textual.widgets import Select, Static
 
 from acprof.experiments.configuration import RunConfigError
 from acprof.models.evidence import pinned_revision
@@ -26,6 +27,7 @@ class ModelController:
     def __init__(self, app: AcprofTui) -> None:
         self.app = app
         self.preview_arguments: tuple[str, ...] = ()
+        self.gguf_revision = ""
         self.preview_pending = False
         self.preview_edited = False
         self.preview_worker: asyncio.Task[None] | None = None
@@ -41,7 +43,26 @@ class ModelController:
                 arguments.extend((f"--{select}", value))
         return tuple(arguments)
 
-    def _show_preview(self, text: str) -> None:
+    def choose_gguf_file(self, value) -> None:
+        if (self.gguf_revision and self.current_arguments() == self.preview_arguments
+                and self.app.operation_state().allows("check")):
+            form = self.app.configuration
+            form.select_model_candidate(form.input("model"), form.select("model-source"),
+                                        self.gguf_revision, "" if value is Select.NULL else str(value))
+
+    def _show_preview(self, text: str, summary: dict | None = None) -> None:
+        summary = summary or {}
+        self.gguf_revision = ""
+        selector = self.app.query_one("#gguf-file", Select)
+        paths = [item["path"] for item in summary.get("gguf_candidates", []) if item["selectable"]]
+        selector.display = bool(paths and pinned_revision(summary.get("revision") or ""))
+        if selector.display:
+            self.gguf_revision = summary["revision"]
+            with selector.prevent(Select.Changed):
+                selector.set_options([(Text(path), path) for path in paths])
+                explicit = self.app.configuration.input("model-variant")
+                selector.value = explicit if explicit in paths else Select.NULL
+
         widget = self.app.query_one("#model-preview", Static)
         self.app.localization.set_text(widget, text)
         widget.display = bool(text)
@@ -83,6 +104,7 @@ class ModelController:
 
     async def _read_preview(self, arguments: tuple[str, ...]) -> None:
         from acprof.host.run_state import RunStateError, offline_analysis_lock
+        summary = None
         try:
             with offline_analysis_lock():
                 summary = await inspect_summary(arguments, self.app.python_executable, self.app.project_dir)
@@ -92,7 +114,7 @@ class ModelController:
         except (OSError, RunStateError, ValueError) as exc:
             text = message_id("models.preview.failure", str(exc))
         if self.app.form_ready and not self.app.ui_closing and arguments == self.current_arguments():
-            self._show_preview(text)
+            self._show_preview(text, summary)
 
     def _preview_finished(self, worker: asyncio.Task[None]) -> None:
         self.preview_worker = None

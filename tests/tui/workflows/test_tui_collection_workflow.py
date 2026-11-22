@@ -531,6 +531,8 @@ async def test_blocked_model_returns_to_editing_after_child_exit(tmp_path, langu
             app.query_one("#ui-language", Select).value = language
             await pilot.pause()
             before = app.configuration.collect_config()
+            await wait_for_condition(pilot, lambda: not app.query_one("#start-run", Button).disabled,
+                                     description="current form preflight enables collection", timeout=10)
             assert await pilot.click("#start-run")
             await wait_for_condition(pilot, lambda: app.preflight.preparation_request is not None,
                                      description="blocked model request", timeout=15)

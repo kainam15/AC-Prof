@@ -269,16 +269,19 @@ class PreparationWorkflow:
             task = initial if initial is not None else detect(args.revision, variant)
             if initial is not None and variant and getattr(task, "model_variant", "") != variant:
                 raise ValueError("selected checkpoint variant differs from the prepared task")
-            if (self.interactive and not variant and not getattr(task, "model_variant", "")
+            if (self.interactive and not variant
+                    and (not getattr(task, "model_variant", "") or task.model_resolution.get("gguf_candidates"))
                     and not getattr(task, "inference_configuration", {}) and not getattr(args, "resume", False)):
                 from acprof.host.preparation.task_selection import review_checkpoint_variant
                 choice = review_checkpoint_variant(task, self)
-                if choice:
+                if choice and choice != getattr(task, "model_variant", ""):
                     selected = detect(task.model_revision, choice)
                     selected.requested_revision = task.requested_revision
                     task = selected
             if getattr(task, "model_variant", ""):
                 args.model_variant = task.model_variant
+            if task.model_resolution.get("status") == "blocked" and task.model_resolution.get("failure"):
+                require_task_support(task, batch_size=args.batch_size, devices=args.gpus.split(","))
             self._explicit(task, args)
             from acprof.host.preparation.task_selection import select_tasks
             task = select_tasks(task, args, self)

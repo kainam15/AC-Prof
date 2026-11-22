@@ -13,6 +13,7 @@ from acprof.installation import cli_command
 from acprof.messages import join_messages
 from acprof.system.redaction import redact_text
 from acprof.tui.i18n import message_id
+from acprof.tui.logging.records import brief_error
 
 MODEL_OPTIONS = ("revision", "model-variant", "task", "tasks", "backend", "model-spec", "model-store", "batch-size")
 
@@ -38,9 +39,8 @@ async def inspect_summary(arguments: tuple[str, ...], python: Path, cwd: Path) -
             summary = json.loads(stdout)
             if isinstance(summary, dict):
                 return summary
-    from acprof.tui.run.preparation import _brief_error
     diagnostic = stderr.decode("utf-8", "replace")
-    detail = next((line for line in diagnostic.splitlines() if ": error: " in line), "") or _brief_error(diagnostic)
+    detail = next((line for line in diagnostic.splitlines() if ": error: " in line), "") or brief_error(diagnostic)
     raise ValueError(redact_text(detail, limit=360) if detail else f"acprof inspect exited {process.returncode}")
 
 
@@ -56,16 +56,30 @@ def preview_text(summary: dict) -> str:
     backend = summary.get("backend")
     if platform and backend and summary.get("compatibility") == "supported":
         platform = f"{platform} / {backend}"
-    lines = [message_id(
+    status = (summary.get("status") if summary.get("reason") else summary.get("compatibility")) or summary.get("status")
+    if summary.get("gguf_candidates") and status == "supported":
+        status = message_id("models.checkpoint.gguf_static")
+    lines: list[str] = [message_id(
         "models.preview.facts", summary.get("source") or unknown, summary.get("revision") or unknown,
         summary.get("architecture") or unknown, ", ".join(summary.get("formats") or []) or unknown,
         platform or backend or unknown,
-        (summary.get("status") if summary.get("reason") else summary.get("compatibility")) or summary.get("status") or unknown,
+        status or unknown,
     )]
     if summary.get("reason"):
-        lines.append(summary["reason"])
+        lines.append(brief_error(summary["reason"]))
     if summary.get("next_action"):
         lines.append(summary["next_action"])
-    if variants := summary.get("variants"):
+    if candidates := summary.get("gguf_candidates"):
+        if repository_task := summary.get("repository_task"):
+            lines.append(message_id("models.checkpoint.repo_task", repository_task))
+        selected = next((item for item in candidates if item["path"] == summary.get("model_variant")), None)
+        if selected:
+            lines.append(message_id(
+                "models.checkpoint.gguf_selected", selected["path"], selected.get("family") or unknown,
+                selected.get("task") or unknown, selected.get("quantization") or unknown,
+            ))
+        lines.append(message_id("models.checkpoint.gguf_count", len(candidates),
+                                sum(1 for item in candidates if item["selectable"])))
+    elif variants := summary.get("variants"):
         lines.append(message_id("models.preview.variants", ", ".join(variants[:8])))
     return join_messages("\n", lines)

@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 from textual.app import ComposeResult
 from textual.containers import Grid, Horizontal, Vertical, VerticalScroll
-from textual.widgets import Button, Collapsible, ContentSwitcher, Label, Static, TabPane
+from textual.widgets import Button, Collapsible, ContentSwitcher, Label, Select, Static, TabPane
 
 from acprof.config import docker_resource_limits
 from acprof.tui.i18n import message_id
@@ -91,6 +91,9 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                 model_preview = Static("", id="model-preview", markup=False)
                 model_preview.display = False
                 yield model_preview
+                gguf_file: Select[str] = Select([], id="gguf-file", prompt=message_id("models.checkpoint.gguf_auto"))
+                gguf_file.display = False
+                yield app.localization.localized_widget(gguf_file)
 
                 with app.localization.localized_widget(Collapsible(
                     title=message_id("settings.resources.matrix"),

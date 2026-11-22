@@ -15,6 +15,18 @@ BUILD = re.compile(r"^#\d+\s+(.*)")
 DETAIL = re.compile(r"(?:/[\w.~-]+){2,}|\b[0-9a-f]{32,64}\b", re.I)
 
 
+def brief_error(detail: str) -> str:
+    """Summarize a possibly multiline error for display; preserve the original log."""
+    lines = [line for line in detail.splitlines() if line.strip()]
+    if any(line.lstrip().startswith("Traceback") for line in lines):
+        # Older preparation messages lack the exception summary. Prefer a
+        # recognizable exception line over trailing notes or stack frames.
+        lines = [line for line in lines if line.partition(":")[0].endswith(("Error", "Exception", "Exit"))][-1:]
+    if not lines:
+        return ""
+    return lines[0][:240] + ("…" if len(lines[0]) > 240 else "")
+
+
 @dataclass(frozen=True)
 class LogRecord:
     sequence: int

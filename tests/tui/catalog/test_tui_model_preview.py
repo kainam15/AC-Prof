@@ -149,3 +149,95 @@ async def test_static_preview_obeys_project_offline_policy_before_any_network(tm
     assert "离线模式" in text
     assert "本地缓存" in text
     assert "Traceback" not in text
+
+
+async def test_gguf_file_picker_pins_revision_and_rechecks_selected_file(tmp_path, monkeypatch):
+    repo = "audio-cpp/audio.cpp-gguf"
+    commit = "a" * 40
+    first, second = "ASR/tiny-q8_0.gguf", "ASR/small-f16.gguf"
+    unsupported = "TTS/unsupported.gguf"
+    calls = []
+
+    async def inspect(arguments, _python, _cwd):
+        calls.append(arguments)
+        variant = arguments[arguments.index("--model-variant") + 1] if "--model-variant" in arguments else first
+        return {
+            "revision": commit, "source": "huggingface", "repository_task": "text-to-speech",
+            "backend": "audio_cpp", "platform": "CPU", "formats": ["GGUF"], "compatibility": "supported",
+            "model_variant": variant, "gguf_candidates": [
+                {"path": path, "family": "whisper", "task": "automatic-speech-recognition",
+                 "quantization": quant, "selectable": True} for path, quant in ((first, "Q8_0"), (second, "F16"))
+            ] + [{"path": unsupported, "selectable": False}],
+        }
+
+    monkeypatch.setattr("acprof.tui.models.controller.inspect_summary", inspect)
+    app = AcprofTui(RunConfig.smoke(repo), settings_path=tmp_path / "settings.json")
+    async with app.run_test(size=(80, 24)) as pilot:
+        app.query_one("#model", Input).focus()
+        await pilot.press("enter")
+        picker = app.query_one("#gguf-file", Select)
+        summary = app.query_one("#model-preview", Static)
+        await wait_for_condition(pilot, lambda: picker.display, description="GGUF candidates available", timeout=5)
+        text = str(summary.content)
+        assert all(value in text for value in (first, "audio_cpp", "text-to-speech", "automatic-speech-recognition",
+                                               "Q8_0", "3", "2"))
+        assert second not in text
+        assert unsupported not in text
+        picker.scroll_visible(immediate=True, animate=False)
+        await pilot.pause()
+        assert await pilot.click("#gguf-file SelectCurrent")
+        await pilot.press("end", "enter")
+        await wait_for_condition(pilot, lambda: second in str(summary.content),
+                                 description="selected file is inspected at the reviewed revision", timeout=5)
+        assert calls[-1][calls[-1].index("--revision") + 1] == commit
+        config = app.configuration.collect_config()
+        assert (config.model, config.model_variant, config.revision) == (repo, second, commit)
+        assert "F16" in str(summary.content)
+        app.query_one("#model", Input).value = "new/model"
+        await pilot.pause()
+        assert not picker.display
+        assert not app.configuration.input("model-variant")
+        assert not app.configuration.input("revision")
+
+
+async def test_preparation_gguf_review_offers_auto_choice_and_validates_reply(tmp_path):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    from acprof.events.preparation import encode_event, parse_event
+    from acprof.host.preparation.task_selection import review_checkpoint_variant
+    from acprof.tui.run.preparation import PreparationScreen
+
+    paths = ["a/asr-small-q8_0.gguf", "b/asr-tiny-f16.gguf"]
+    task = SimpleNamespace(
+        model_id="audio-cpp/audio.cpp-gguf", model_revision="b" * 40, model_variant=paths[0],
+        metadata_errors=[], model_spec={}, model_resolution={
+            "checkpoint_variants": paths, "gguf_candidates": [
+                {"path": path, "selectable": True} for path in paths
+            ] + [{"path": "c/tts.gguf", "selectable": False}],
+        },
+    )
+    workflow = Mock()
+    workflow.ask.return_value = {"answers": {"model_variant": "c/tts.gguf"}}
+    with pytest.raises(ValueError, match="supported GGUF file"):
+        review_checkpoint_variant(task, workflow)
+    stage, kind = workflow.ask.call_args.args
+    request = {"id": 3, "kind": kind, **workflow.ask.call_args.kwargs}
+    event = parse_event(encode_event(stage, "waiting", request=request))
+    replies = []
+    app = AcprofTui(RunConfig.smoke(task.model_id), settings_path=tmp_path / "settings.json")
+    async with app.run_test(size=(80, 24)) as pilot:
+        screen = PreparationScreen(event, respond=replies.append)
+        await app.push_screen(screen)
+        await pilot.pause()
+        selector = screen.query_one("#preparation-answer-0", Select)
+        assert selector.value == paths[0]
+        selector.scroll_visible(immediate=True, animate=False)
+        await pilot.pause()
+        assert await pilot.click("#preparation-answer-0 SelectCurrent")
+        await pilot.press("end", "enter")
+        assert selector.value == paths[1]
+        assert await pilot.click("#preparation-apply")
+        assert replies == [{"action": "answer", "answers": {"model_variant": paths[1]}}]
+        workflow.ask.return_value = replies[0]
+        assert review_checkpoint_variant(task, workflow) == paths[1]

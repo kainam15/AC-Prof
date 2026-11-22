@@ -1,6 +1,8 @@
 """Decision modal for model review/errors; passive preparation stays in Monitor."""
 from __future__ import annotations
 
+import json
+
 from rich.text import Text
 from textual import on
 from textual.containers import Horizontal, Vertical, VerticalScroll
@@ -11,6 +13,7 @@ from acprof.events.preparation import encode_reply
 from acprof.host.preparation.model_errors import ModelLookupError
 from acprof.messages import join_messages, message
 from acprof.tui.i18n import message_id
+from acprof.tui.logging.records import brief_error
 from acprof.tui.logging.widget import SelectableLog
 from acprof.tui.models.inference_inputs import ParameterRequestInput, update_parameter_dependencies
 from acprof.tui.models.review_inputs import review_answers, review_input
@@ -132,17 +135,6 @@ def _docker_failure_views(error: dict) -> tuple[StatusSummary, CalloutContent]:
     )
 
 
-def _brief_error(detail: str) -> str:
-    lines = [line for line in detail.splitlines() if line.strip()]
-    if any(line.lstrip().startswith("Traceback") for line in lines):
-        # Older preparation messages lack the exception summary. Prefer a
-        # recognizable exception line over trailing notes or stack frames.
-        lines = [line for line in lines if line.partition(":")[0].endswith(("Error", "Exception", "Exit"))][-1:]
-    if not lines:
-        return ""
-    return lines[0][:240] + ("…" if len(lines[0]) > 240 else "")
-
-
 def failure_views(request: dict, stage: str) -> tuple[StatusSummary, CalloutContent]:
     """Return structured banner summary and problem/impact/next callout for a failed preparation event."""
     if error := request.get("docker_error"):
@@ -178,7 +170,7 @@ def failure_views(request: dict, stage: str) -> tuple[StatusSummary, CalloutCont
         category = _FAILURE_CATEGORIES[code]
         problem: list[str] = [message_id("run.failure.type", failure.get("exception_type") or code),
                    message_id("run.failure." + category)]
-        detail = _brief_error(str(failure.get("detail") or ""))
+        detail = brief_error(str(failure.get("detail") or ""))
         if detail:
             problem.append(detail)
         hints = [message_id("run.failure.hint." + category)]
@@ -187,7 +179,7 @@ def failure_views(request: dict, stage: str) -> tuple[StatusSummary, CalloutCont
         if error := failure.get("evidence", {}).get("log_capture_error"):
             hints.append(message_id("run.failure.log_incomplete", error))
         reason, hint = join_messages("\n", problem), join_messages("\n", hints)
-    elif detail := _brief_error(str(request.get("error_summary") or request.get("detail") or "")):
+    elif detail := brief_error(str(request.get("error_summary") or request.get("detail") or "")):
         reason = detail
     return summary, CalloutContent(
         level="error",
@@ -309,7 +301,9 @@ class PreparationScreen(ModalScreen):
         parameter_review = request.get("purpose") == "workload_parameters"
         inference_review = request.get("purpose") == "inference_configuration"
         inference_confirmation = request.get("purpose") == "inference_confirmation"
-        title = (message_id("models.inference.title") if inference_review else
+        file_review = request.get("purpose") == "gguf_file"
+        title = (message_id("models.checkpoint.gguf_file") if file_review else
+                 message_id("models.inference.title") if inference_review else
                  message_id("models.inference.confirmation_title") if inference_confirmation else
                  message_id("models.parameters.title") if parameter_review else
                  "模型确认" if review else "模型无法正常运行" if failed else "正在检测模型")
@@ -349,7 +343,7 @@ class PreparationScreen(ModalScreen):
                         yield Static(tr("仅在准备阶段下载，正式测量离线。"), id="preparation-download-note", markup=False)
                     elif not task_selection:
                         yield FactGrid(
-                            review_fields_section(values, verified=not (inference_review or inference_confirmation)),
+                            review_fields_section(values, verified=not (inference_review or inference_confirmation or file_review)),
                             id="preparation-fields", collapsible=False,
                         )
                     if inference_review:
@@ -388,9 +382,15 @@ class PreparationScreen(ModalScreen):
                     else:
                         for index, question in enumerate(request.get("questions", [])):
                             if question.get("kind") != "multi":
-                                name = (f"{tr(question['task_name'])} · {tr(question['caption'])}"
-                                        if parameter_review else tr(message_id("models.checkpoint.variant"))
-                                        if question["path"] == "model_variant" else tr(question["path"]))
+                                if parameter_review:
+                                    name = f"{tr(question['task_name'])} · {tr(question['caption'])}"
+                                elif file_review:
+                                    name = tr(message_id("models.checkpoint.gguf_count", question["gguf_total"],
+                                                         len(question["options"])))
+                                elif question["path"] == "model_variant":
+                                    name = tr(message_id("models.checkpoint.variant"))
+                                else:
+                                    name = tr(question["path"])
                                 yield Label(name)
                                 if question.get("reason"):
                                     yield Static(tr(question["reason"]), markup=False)
@@ -429,14 +429,22 @@ class PreparationScreen(ModalScreen):
                         for key, label in fact_labels if (value := evidence.get(key)) and value != "unknown"
                     )
                     if directories := evidence.get("variant_directories"):
-                        rows += (FactRow(message_id("models.checkpoint.directories", evidence["variant_count"]),
-                                         ", ".join(directories), copyable=True),)
+                        sample = " · ".join(directories[:2])
+                        if evidence["variant_count"] > 2:
+                            sample += " …"
+                        rows += (FactRow(message_id("models.checkpoint.directories", evidence["variant_count"]), sample),)
                     if rows:
                         yield FactGrid(ViewSection("", rows), id="preparation-fields", collapsible=False)
                     problem = reason_presentation(failure["reason_code"]).problem
-                    if fmt := evidence.get("artifact_format"):
+                    fmt = evidence.get("artifact_format")
+                    if fmt == "GGUF" and failure.get("detail"):
+                        problem = brief_error(failure["detail"])
+                    elif fmt:
                         problem = message_id("models.failure.incompatible_files", "Core ML" if fmt == "CoreML" else fmt)
                     yield Static(tr(problem), id="preparation-problem", markup=False)
+                    yield Static(tr(message_id("run.preparation.not_measuring_impact")), markup=False)
+                    if hint := evidence.get("next_action"):
+                        yield Static(tr(hint), markup=False)
                 elif failed:
                     banner, callout = failure_views(request, self.event["stage"])
                     yield StatusBanner(banner, id="preparation-banner", include_actions=False)
@@ -444,7 +452,6 @@ class PreparationScreen(ModalScreen):
                     with Collapsible(title=tr("详细信息"), id="preparation-diagnostics", collapsed=True):
                         detail = request.get("detail", "")
                         if failure := download_failure(request):
-                            import json
                             detail = json.dumps(failure, ensure_ascii=False, indent=2) + "\n\n" + detail
                         log = SelectableLog(id="preparation-traceback", max_lines=max(1, len(detail.splitlines())))
                         log.write(detail)
@@ -462,7 +469,7 @@ class PreparationScreen(ModalScreen):
                     yield Button(tr(message_id("models.action.view_diagnostics")), id="preparation-view-diagnostics")
                     return
                 cancel_label = (tr(message_id("common.action.cancel")) if task_selection else
-                                tr("返回配置" if failed or parameter_review or inference_review
+                                tr("返回配置" if failed or parameter_review or inference_review or file_review
                                    or inference_confirmation else "终止任务"))
                 yield Button(cancel_label, id="preparation-cancel",
                              tooltip=tr(message_id("run.preparation.stop_hint")) if failed else None)
@@ -499,8 +506,6 @@ class PreparationScreen(ModalScreen):
                                      tooltip=tr(message_id("models.source.switch_modelscope_hint")))
 
     def inference_questions(self, questions: list[dict], *, prefix: str, translate):
-        import json
-
         previous_group = None
         for index, question in enumerate(questions):
             scope = question.get("scope", question.get("parameter_spec", {}).get("scope", "inference"))
@@ -652,8 +657,7 @@ class PreparationScreen(ModalScreen):
         request = self.event["request"]
         failure = request["failure"]
         evidence = failure.get("evidence", {})
-        paths = "\n".join(evidence.get("artifact_paths", ()))
-        sections = (failure["reason_code"], failure.get("detail"), paths, evidence.get("next_action"),
+        sections = (failure["reason_code"], failure.get("detail"), json.dumps(evidence, ensure_ascii=False, indent=2),
                     request.get("detail"))
         row = FactRow(message_id("common.diagnostics.title"), "\n\n".join(filter(None, sections)), copyable=True)
         self.app.push_screen(FactDetailScreen(row))
@@ -664,7 +668,7 @@ class PreparationScreen(ModalScreen):
             self.send({"action": "select-model"})
             return
         request = self.event.get("request", {})
-        if (request.get("purpose") in {"workload_parameters", "inference_configuration", "inference_confirmation"}
+        if (request.get("purpose") in {"gguf_file", "workload_parameters", "inference_configuration", "inference_confirmation"}
                 or any(item.get("kind") == "multi" for item in request.get("questions", []))):
             self.send({"action": "cancel"})
             return

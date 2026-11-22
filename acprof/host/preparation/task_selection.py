@@ -26,6 +26,23 @@ def review_checkpoint_variant(task, workflow) -> str:
 
     if task.metadata_errors or task.model_spec or not task.model_resolution.get("checkpoint_variants"):
         return ""
+    if candidates := task.model_resolution.get("gguf_candidates"):
+        if task.model_resolution.get("status") == "blocked":
+            return ""
+        selectable = [item for item in candidates if item["selectable"]]
+        if len(selectable) < 2:
+            return ""
+        paths = [item["path"] for item in selectable]
+        reply = workflow.ask(
+            "resolution", "review", resolved=False, purpose="gguf_file",
+            fields={"Model": task.model_id, "Revision": task.model_revision},
+            questions=[{"path": "model_variant", "options": paths, "value": task.model_variant,
+                        "gguf_total": len(candidates)}],
+        )
+        selected = reply.get("answers", {}).get("model_variant")
+        if selected not in paths:
+            raise ValueError("select a supported GGUF file at the reviewed revision")
+        return selected
     names = set(task.repository_files)
     variants = task.model_resolution.get("checkpoint_variants", [])
     native = (task.runtime_backend in {"transformers_model", "transformers_pipeline"}

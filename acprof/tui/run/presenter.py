@@ -267,7 +267,7 @@ class RunPresenter:
                 from uuid import uuid4
                 config = self.app.execution.session.config or self.app.configuration.initial_config
                 self.app.configuration.apply_config(replace(config, model=change["model_id"], revision=change["revision"],
-                    model_source="modelscope", download_mode="auto", task="", tasks="", task_family="", backend="",
+                    model_source="modelscope", model_variant="", download_mode="auto", task="", tasks="", task_family="", backend="",
                     model_spec="", resume=False, rebuild_image=False,
                     output_dir=str(Path(config.output_dir) / ("modelscope-" + uuid4().hex[:8]))))
         if completion.current_csv:

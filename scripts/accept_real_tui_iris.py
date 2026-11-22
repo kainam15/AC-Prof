@@ -23,6 +23,8 @@ from pathlib import Path
 from textual.screen import ModalScreen
 from textual.widgets import Button, Static, TabbedContent
 
+from acprof.events.download import DownloadProgress
+from acprof.events.image import ImageProgress
 from acprof.experiments.configuration import RunConfig, build_run_command
 from acprof.results.layers import read_result_layers
 from acprof.tui.app import AcprofTui
@@ -102,8 +104,10 @@ class ObservingApp(AcprofTui):
         super().__init__(config, settings_path=settings_path)
         actual = self.preflight.download_progress
 
-        def observe(progress) -> None:
+        def observe(progress: DownloadProgress | ImageProgress) -> None:
             actual(progress)
+            if isinstance(progress, ImageProgress):
+                return  # Image transfer is separate from the required model weight transfer.
             # Append an in-memory event only; do not issue I/O in measurement.
             self.download_events.append(
                 {

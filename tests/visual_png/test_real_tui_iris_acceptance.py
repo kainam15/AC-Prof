@@ -103,3 +103,27 @@ async def test_invalid_scenario_is_rejected_before_external_work(tmp_path):
     with pytest.raises(ValueError, match="unknown acceptance scenario"):
         await execute(tmp_path / "evidence", scenario="unknown")
     assert not (tmp_path / "evidence").exists()
+
+
+def test_image_transfer_does_not_count_as_an_observed_model_download(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from acprof.events.download import DownloadProgress
+    from acprof.events.image import ImageProgress
+    from acprof.experiments.configuration import RunConfig
+    from acprof.tui.run.preflight_controller import PreflightController
+    from scripts.accept_real_tui_iris import ObservingApp
+
+    received = []
+    monkeypatch.setattr(PreflightController, "download_progress", lambda _self, progress: received.append(progress))
+    app = ObservingApp(RunConfig.smoke("demo/model"), settings_path=tmp_path / "settings.json")
+    monkeypatch.setattr(app, "query_one", lambda *_: SimpleNamespace(display=True))
+    image = ImageProgress(component="service", phase="pulling", image="example/acprof:latest", transferred_bytes=42)
+    model = DownloadProgress("demo/model", "huggingface", "downloading", 20, 0, 12, 12, None, 0, 1)
+    app.preflight.download_progress(image)
+    assert app.events.empty()
+    assert app.download_events == []
+    app.preflight.download_progress(model)
+    assert received == [image, model]
+    assert app.events.get_nowait() == ("download", model)
+    assert [entry["transferred_bytes"] for entry in app.download_events] == [12]

@@ -50,6 +50,19 @@ MESSAGES: dict[str, Entry] = {
     "models.candidates.validation_status": Entry(zh="验证状态", en="Validation status"),
     "models.checkpoint.default": Entry(zh="默认权重", en="Default checkpoint"),
     "models.checkpoint.directories": Entry(zh="变体目录（共 {0} 个）", en="Variant directories ({0} total)"),
+    "models.checkpoint.gguf_auto": Entry(zh="自动选择 GGUF 文件", en="Select GGUF file automatically"),
+    "models.checkpoint.gguf_count": Entry(
+        zh="GGUF 文件共 {0} 个，可选 {1} 个", en="{0} GGUF files, {1} selectable",
+    ),
+    "models.checkpoint.gguf_file": Entry(zh="GGUF 权重文件", en="GGUF weight file"),
+    "models.checkpoint.gguf_selected": Entry(
+        zh="文件 {0} · 模型系列 {1} · 任务 {2} · 量化 {3}",
+        en="File {0} · Family {1} · Task {2} · Quantization {3}",
+    ),
+    "models.checkpoint.gguf_static": Entry(
+        zh="静态检查通过；推理与采集待验证。", en="Static check passed. Inference and collection are pending.",
+    ),
+    "models.checkpoint.repo_task": Entry(zh="仓库任务标签 {0}", en="Repository task tag {0}"),
     "models.checkpoint.variant": Entry(zh="权重变体", en="Checkpoint variant"),
     "models.detection.auto": Entry(zh="自动识别", en="Auto-detect"),
     "models.detection.blank_hint": Entry(zh="留空自动识别", en="Blank: auto-detect"),

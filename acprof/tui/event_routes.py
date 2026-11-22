@@ -66,6 +66,10 @@ class AppEventRoutes(BarCursorApp):
         self.configuration.sync_model_fields()
         self.models.model_edited()
 
+    @on(Select.Changed, "#gguf-file")
+    def on_gguf_file_changed(self, event: Select.Changed) -> None:
+        self.models.choose_gguf_file(event.value)
+
     @on(Select.Changed, "#model-source, #task-family, #gpus")
     def on_model_preview_selection_changed(self) -> None:
         self.configuration.sync_model_fields()
