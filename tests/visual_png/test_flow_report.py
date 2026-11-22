@@ -10,7 +10,14 @@ import pytest
 from textual.widgets import Button
 
 from scripts.render_tui_png_report import render_report
-from scripts.tui_flow_catalog import CATALOG, ROOT, load_catalog, png_inventory, svg_inventory
+from scripts.tui_flow_catalog import (
+    CATALOG,
+    ROOT,
+    check_visual_coverage,
+    load_catalog,
+    png_inventory,
+    svg_inventory,
+)
 from tests.support.tui_fixtures import AcprofTui
 
 
@@ -47,19 +54,36 @@ def test_catalog_checks_icon_tab_label_separately_from_page_title(tmp_path, labe
 def test_flow_catalog_references_existing_public_fixtures_and_pages() -> None:
     catalog = load_catalog()
     steps = catalog["checkpoints"]
-    assert {item["id"] for item in steps} >= {
-        "configure",
-        "prepare",
-        "download",
-        "measurement",
-        "finish",
-        "results",
-        "profiler",
-        "recover",
+    by_id = {item["id"]: item for item in steps}
+    assert by_id.keys() >= {
+        "configure", "launch-review", "prepare", "task-selection", "model-review", "download",
+        "validation", "measurement", "finish", "results", "profiler", "recover", "preflight-error",
+        "docker-repair", "stop-confirm", "cleanup-incomplete", "images", "settings", "version-management",
     }
+    assert set(by_id["validation"]["pilot"]) >= {"validation-running", "validation-passed", "validation-failed"}
+    assert set(by_id["finish"]["pilot"]) >= {"finished", "finish-partial", "finish-failed"}
+    for checkpoint in ("launch-review", "recover"):
+        assert "launch-review" in by_id[checkpoint]["pilot"]
+    assert "tests/visual/__snapshots__/test_settings/test_settings_page.svg" in by_id["settings"]["svg"]
     assert {name for item in steps for name in item["png"]} == set(png_inventory())
     assert {name for item in steps for name in item["svg"]} == set(svg_inventory())
     assert all(item["tests"] for item in steps)
+
+
+def test_coverage_gate_requires_the_missing_branch_even_with_a_success_screenshot():
+    catalog = {"checkpoints": [
+        {"id": "finish", "png": [], "svg": [], "pilot": ["finished", "finish-failed"]},
+        {"id": "configure", "png": ["form"], "svg": []},
+    ]}
+    steps = [{"id": "finished"}]
+    manifest = {"scenarios": [{"steps": steps}]}
+    with pytest.raises(ValueError, match="finish: finish-failed"):
+        check_visual_coverage(catalog, manifest)
+    steps.append({"id": "finish-failed"})
+    check_visual_coverage(catalog, manifest)
+    catalog["checkpoints"][0].pop("pilot")
+    with pytest.raises(ValueError, match="finish: 未登记视觉证据"):
+        check_visual_coverage(catalog, manifest)
 
 
 @pytest.mark.parametrize(
@@ -70,6 +94,8 @@ def test_flow_catalog_references_existing_public_fixtures_and_pages() -> None:
         ("tests", "docs/GOAL.md"),
         ("tests", "tests/tui/../visual/test_snapshots.py"),
         ("png", "nonexistent"),
+        ("pilot", "unknown-step"),
+        ("pilot", "finish-failed"),
     ],
 )
 def test_catalog_rejects_missing_or_unsafe_sources(tmp_path: Path, field: str, unsafe: str) -> None:
@@ -120,6 +146,14 @@ def test_missing_png_comparison_does_not_infer_success(tmp_path: Path) -> None:
     assert "测试文件索引不代表本次执行通过" in page
     assert "SVG CI" in page
     assert "data:image/svg+xml;base64," in page
+
+
+def test_report_shows_unavailable_svg_without_embedding_an_unreviewed_copy(tmp_path, monkeypatch):
+    monkeypatch.setattr("scripts.tui_flow_report.svg_inventory", lambda **kwargs: [])
+    report = render_report(actual=tmp_path).read_text(encoding="utf-8")
+    assert "缺少已审阅的 SVG 基准" in report
+    assert "data:image/svg+xml;base64," not in report
+    assert "缺少本次 Pilot 测试 JUnit 结果" in report
 
 
 def test_flow_report_never_collects_generated_run_data(tmp_path: Path) -> None:

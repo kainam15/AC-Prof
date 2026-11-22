@@ -11,7 +11,14 @@ import html
 from pathlib import Path
 from typing import Any
 
-from scripts.tui_flow_catalog import ROOT, load_catalog, svg_inventory
+from scripts.tui_ci_status import pilot_junit_results
+from scripts.tui_flow_catalog import (
+    ROOT,
+    load_catalog,
+    missing_visual_evidence,
+    png_inventory,
+    svg_inventory,
+)
 from scripts.tui_journey_report import JOURNEY_STYLE, render_journey
 from scripts.tui_svg_preview_png import load_preview_index
 
@@ -130,11 +137,19 @@ def _checkpoint_card(
     baselines: Path,
     png_status: dict[str, str],
     previews: dict[str, Path],
+    captures: dict[str, list[str]],
+    reviewed_svg: set[str],
 ) -> str:
     svg = item["svg"]
     png = item["png"]
     tests = item["tests"]
-    svg_preview = _svg_evidence(svg[0], root=root, previews=previews) if svg else ""
+    svg_preview = ""
+    if svg:
+        svg_preview = (
+            _svg_evidence(svg[0], root=root, previews=previews)
+            if svg[0] in reviewed_svg
+            else '<p class="flow-note">缺少已审阅的 SVG 基准</p>'
+        )
     if png:
         first = png[0]
         live = actual / f"{first}.png"
@@ -153,14 +168,23 @@ def _checkpoint_card(
         "exception": "异常分支",
         "support": "独立页面",
     }[item["group"]]
-    gap = '<span class="flow-chip missing">无固定截图</span>' if not png and not svg else ""
+    pilot_links = []
+    for step in item.get("pilot", []):
+        scenarios = captures.get(step, [])
+        if scenarios:
+            pilot_links.append(
+                f'<a href="#pilot-step-{_safe(scenarios[0])}-{_safe(step)}">{_safe(step)}</a>'
+            )
+        else:
+            pilot_links.append(f"{_safe(step)}（未取得）")
+    pilot = '<p>合成 Pilot 诊断图 · ' + ' / '.join(pilot_links) + '</p>' if pilot_links else ""
     return (
         f'<article class="flow-card" id="flow-{_safe(item["id"])}">'
         f"<h3>{_safe(item['title'])}</h3>"
-        f'<div class="flow-evidence"><span class="flow-chip">{_safe(page_name)} · {kind_label}</span>{gap}</div>'
+        f'<div class="flow-evidence"><span class="flow-chip">{_safe(page_name)} · {kind_label}</span></div>'
         f'<p><span class="field">触发：</span>{_safe(item["trigger"])}</p>'
         f'<p><span class="field">预期：</span>{_safe(item["expected"])}</p>'
-        f"{preview}<details><summary>证据索引（{len(png) + len(svg) + len(tests)} 项）</summary>"
+        f"{preview}{pilot}<details><summary>证据索引（{len(png) + len(svg) + len(tests)} 项）</summary>"
         f"<ul>{sources}</ul>{svg_preview if png else ''}</details></article>"
     )
 
@@ -169,12 +193,15 @@ def render_flow_report(
     *, actual: Path, baselines: Path, png_results: list[dict[str, Any]] | None, root: Path = ROOT
 ) -> tuple[str, str, str]:
     """Return workflow, coverage and SVG gallery sections, using only fixture paths."""
-    catalog = load_catalog(root=root)
+    catalog = load_catalog(root=root, require_baselines=False)
     pages = catalog["pages"]
     page_names = {page["id"]: page["title"] for page in pages}
     checkpoints = catalog["checkpoints"]
+    svg_all = svg_inventory(root=root)
+    reviewed_svg = set(svg_all)
+    reviewed_png = set(png_inventory(root=root))
     status = {row["scene"]: row["status"] for row in png_results or ()}
-    journey_html, pilot_counts = render_journey(actual)
+    journey_html, captures = render_journey(actual)
     previews = load_preview_index(root=root, output=actual / "svg-preview")
     grouped = [
         (
@@ -196,6 +223,8 @@ def render_flow_report(
                 baselines=baselines,
                 png_status=status,
                 previews=previews,
+                captures=captures,
+                reviewed_svg=reviewed_svg,
             )
             for item in checkpoints
             if included(item)
@@ -204,15 +233,19 @@ def render_flow_report(
             f'<section class="flow-section"><h3>{_safe(title)}</h3>'
             f'<div class="flow-list">{cards}</div></section>'
         )
-    svg_all = svg_inventory(root=root)
     mapped = {image for step in checkpoints for image in step["svg"]}
-    missing_visual = [step for step in checkpoints if not step["png"] and not step["svg"]]
+    gaps = {
+        step["id"]: missing_visual_evidence(
+            step, captured=captures, svg=reviewed_svg, png=reviewed_png
+        )
+        for step in checkpoints
+    }
     counts = (
         f'<div class="flow-counts">'
         f'<div class="flow-count">主页面：<strong>{len(pages)}</strong></div>'
         f'<div class="flow-count">流程检查点：<strong>{len(checkpoints)}</strong></div>'
         f'<div class="flow-count">SVG 基准：<strong>{len(svg_all)}</strong></div>'
-        f'<div class="flow-count">无固定图片基准：<strong>{len(missing_visual)}</strong></div></div>'
+        f'<div class="flow-count">视觉证据缺口：<strong>{sum(bool(gap) for gap in gaps.values())}</strong></div></div>'
     )
     workflow = (
         "<h2>采集流程与界面证据</h2>"
@@ -225,35 +258,40 @@ def render_flow_report(
     page_rows = []
     for page in pages:
         steps = [s for s in checkpoints if s["page"] == page["id"]]
-        num_png = sum(len(s["png"]) for s in steps)
-        num_svg = sum(len(s["svg"]) for s in steps)
-        gaps = sum(not s["png"] and not s["svg"] for s in steps)
+        num_png = sum(len(reviewed_png.intersection(s["png"])) for s in steps)
+        num_svg = sum(len(reviewed_svg.intersection(s["svg"])) for s in steps)
+        page_gaps = sum(bool(gaps[s["id"]]) for s in steps)
         page_rows.append(
             f'<tr><td><strong>{_safe(page["title"])}</strong><br><span class="muted">{_safe(page["purpose"])}</span></td>'
-            f"<td>{len(steps)}</td><td>{num_png}</td><td>{num_svg}</td><td>{gaps}</td></tr>"
+            f"<td>{len(steps)}</td><td>{num_png}</td><td>{num_svg}</td><td>{page_gaps}</td></tr>"
         )
     step_rows = []
     for item in checkpoints:
-        screenshots = len(item["png"]) + len(item["svg"])
-        missing = "待补视觉证据" if not screenshots else "已有固定截图"
+        frames = sum(len(captures.get(step, [])) for step in item.get("pilot", []))
+        evidence = "已有固定基准" if item["png"] or item["svg"] else "已有合成 Pilot 诊断图"
+        if missing := gaps[item["id"]]:
+            evidence = "缺少证据 · " + ", ".join(missing)
         step_rows.append(
             f"<tr><td>{_safe(item['title'])}</td><td>{_safe(item['page'])}</td>"
-            f"<td>{len(item['png'])}</td><td>{len(item['svg'])}</td>"
-            f"<td>{pilot_counts.get(item['id'], 0)}</td>"
-            f"<td>{len(item['tests'])}</td><td>{missing}</td></tr>"
+            f"<td>{len(reviewed_png.intersection(item['png']))}</td><td>{len(reviewed_svg.intersection(item['svg']))}</td>"
+            f"<td>{frames}</td>"
+            f"<td>{len(item['tests'])}</td><td>{_safe(evidence)}</td></tr>"
         )
+    _, junit_detail = pilot_junit_results(actual, root)
     coverage = (
         "<h2>覆盖矩阵</h2>"
         '<p class="flow-note">下表统计已登记的截图和测试源码，不是本次通过率。'
         "PNG 测试通过与否只以“视觉对比”页的 report.json 为准；SVG 通过情况应查看独立 SVG CI。"
-        "连续 Pilot 图像由测试夹具生成，不能证明真实采集。</p>"
+        "连续 Pilot 图像由测试夹具生成，共用的图可归入多个检查点。"
+        "Pilot 交互断言和执行数量见本次 CI 的 JUnit 记录。真实模型采集另行验收。</p>"
+        f'<p class="flow-note">当前输出目录的定向 pytest 记录（pilot-tests.xml） · {_safe(junit_detail)}</p>'
         + counts
         + '<h3>主页面</h3><div class="coverage-wrap"><table class="coverage-table">'
-        "<thead><tr><th>页面</th><th>检查点</th><th>PNG</th><th>SVG</th><th>无截图</th></tr></thead><tbody>"
+        "<thead><tr><th>页面</th><th>检查点</th><th>PNG</th><th>SVG</th><th>视觉证据缺口</th></tr></thead><tbody>"
         + "".join(page_rows)
         + "</tbody></table></div>"
         '<h3>流程检查点</h3><div class="coverage-wrap"><table class="coverage-table">'
-        "<thead><tr><th>检查点</th><th>所在页面</th><th>PNG</th><th>SVG</th><th>Pilot 帧</th><th>测试文件</th><th>固定截图</th></tr></thead><tbody>"
+        "<thead><tr><th>检查点</th><th>所在页面</th><th>PNG</th><th>SVG</th><th>Pilot 帧</th><th>测试文件</th><th>视觉证据</th></tr></thead><tbody>"
         + "".join(step_rows)
         + "</tbody></table></div>"
         + (

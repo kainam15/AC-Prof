@@ -17,12 +17,14 @@
         "tests/visual/__snapshots__/test_snapshots/test_fixed_scenes[en-size1-form].svg",
         "tests/visual/__snapshots__/test_snapshots/test_fixed_scenes[zh-size2-form].svg"
       ],
+      "pilot": ["configuration"],
       "tests": ["tests/tui/widgets/test_tui_page_chrome.py", "tests/tui/workflows/test_tui_config_errors.py", "tests/tui/workflows/test_tui_visual_journey.py"]
     },
     {
       "id": "launch-review", "title": "已有目录的启动检查", "page": "run-tab", "group": "main",
       "trigger": "点击开始采集且输出目录已有实验或其他文件；全新目录不显示恢复弹窗", "expected": "先明确恢复、重试准备或新建实验；选择新建后进入监控页",
       "png": [], "svg": [],
+      "pilot": ["launch-review"],
       "tests": ["tests/tui/widgets/test_tui_page_chrome.py", "tests/tui/workflows/test_tui_recovery_flow.py", "tests/tui/workflows/test_tui_visual_journey.py"]
     },
     {
@@ -33,6 +35,7 @@
         "tests/visual/__snapshots__/test_snapshots/test_fixed_scenes[zh-size7-wsl-preparation].svg",
         "tests/visual/__snapshots__/test_snapshots/test_fixed_scenes[en-size8-wsl-preparation].svg"
       ],
+      "pilot": ["monitor-started"],
       "tests": ["tests/tui/workflows/test_tui_onboarding.py", "tests/tui/logging/test_tui_monitor_phases.py", "tests/tui/workflows/test_tui_visual_journey.py"]
     },
     {
@@ -65,25 +68,29 @@
       "id": "download", "title": "下载确认与进度", "page": "monitor-tab", "group": "optional",
       "trigger": "准备阶段需要下载模型或镜像", "expected": "预算、来源、缓存、大小和下载状态按阶段展示",
       "png": ["docker-frontend", "docker-frontend-small", "docker-frontend-en", "docker-frontend-en-small"], "svg": [],
+      "pilot": ["download-review", "download-progress"],
       "tests": ["tests/tui/logging/test_tui_download_layout.py", "tests/tui/workflows/test_tui_auto_download.py", "tests/tui/workflows/test_tui_visual_journey.py"]
     },
     {
       "id": "validation", "title": "模型运行验证", "page": "monitor-tab", "group": "main",
       "trigger": "接口解析与准备完成", "expected": "显示运行验证结果；隐藏已经结束的下载信息",
       "png": [], "svg": [],
-      "tests": ["tests/tui/logging/test_tui_monitor_phases.py", "tests/tui/workflows/test_tui_collection_workflow.py"]
+      "pilot": ["validation-running", "validation-passed", "validation-failed"],
+      "tests": ["tests/tui/logging/test_tui_monitor_phases.py", "tests/tui/workflows/test_tui_collection_workflow.py", "tests/tui/workflows/test_tui_visual_journey.py"]
     },
     {
       "id": "measurement", "title": "正式测量", "page": "monitor-tab", "group": "main",
       "trigger": "进入资源矩阵测量窗口", "expected": "Case、资源、状态和耗时可读；常规日志不干扰正式窗口",
       "png": ["measuring"],
       "svg": ["tests/visual/__snapshots__/test_snapshots/test_fixed_scenes[zh-size5-measuring].svg"],
+      "pilot": ["measurement", "measurement-config"],
       "tests": ["tests/tui/logging/test_tui_monitor_phases.py", "tests/tui/logging/test_tui_deferred_diagnostics.py", "tests/tui/workflows/test_tui_visual_journey.py"]
     },
     {
       "id": "finish", "title": "结束采集与核验", "page": "monitor-tab", "group": "main",
       "trigger": "子进程退出、结果进行归属核验", "expected": "成功、部分完成和失败状态与本次结果证据一致",
       "png": [], "svg": [],
+      "pilot": ["finished", "finish-partial", "finish-failed"],
       "tests": ["tests/tui/workflows/test_tui_process_completion.py", "tests/tui/workflows/test_tui_collection_workflow.py", "tests/tui/workflows/test_tui_visual_journey.py"]
     },
     {
@@ -95,6 +102,7 @@
         "tests/visual/__snapshots__/test_snapshots/test_fixed_scenes[zh-size15-statistics].svg",
         "tests/visual/__snapshots__/test_snapshots/test_fixed_scenes[en-size16-statistics].svg"
       ],
+      "pilot": ["result-overview", "results-small"],
       "tests": ["tests/tui/results/test_tui_result_tools.py", "tests/tui/results/test_tui_reports.py", "tests/tui/workflows/test_tui_html_statistics.py", "tests/tui/workflows/test_tui_visual_journey.py"]
     },
     {
@@ -113,7 +121,8 @@
       "id": "recover", "title": "恢复 / 新建实验", "page": "run-tab", "group": "optional",
       "trigger": "输出目录存在旧实验，或从历史选择器申请恢复", "expected": "核验可恢复性，明确继续、重试准备和新建实验的区别",
       "png": [], "svg": [],
-      "tests": ["tests/tui/workflows/test_tui_recovery_flow.py", "tests/tui/workflows/test_tui_resume.py", "tests/tui/workflows/test_tui_visual_journey.py"]
+      "pilot": ["launch-review"],
+      "tests": ["tests/tui/workflows/test_tui_recovery_flow.py", "tests/tui/workflows/test_tui_measurement_resume.py", "tests/tui/workflows/test_tui_resume.py", "tests/tui/workflows/test_tui_visual_journey.py"]
     },
     {
       "id": "preflight-error", "title": "环境检查异常", "page": "run-tab", "group": "exception",
@@ -189,8 +198,8 @@
     {
       "id": "settings", "title": "应用设置", "page": "settings-tab", "group": "support",
       "trigger": "切换到应用设置页", "expected": "语言、主题、日志、权限配置及保存行为明确",
-      "png": [], "svg": [],
-      "tests": ["tests/tui/widgets/test_tui_settings.py", "tests/tui/widgets/test_tui_layout_settings.py"]
+      "png": [], "svg": ["tests/visual/__snapshots__/test_settings/test_settings_page.svg"],
+      "tests": ["tests/tui/widgets/test_tui_settings.py", "tests/tui/widgets/test_tui_layout_settings.py", "tests/tui/widgets/test_tui_i18n.py", "tests/tui/catalog/test_tui_environment.py"]
     },
     {
       "id": "version-management", "title": "版本管理与降级确认", "page": "settings-tab", "group": "support",
