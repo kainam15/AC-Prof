@@ -186,6 +186,10 @@ def write_compatibility_report(root: Path, rows: list[dict], *, recorded_results
     if recorded_results:
         fields += ("run_status", "run_outcome", "runtime_status")
     headings = ["Source", "Model", "Revision", "Status", "reason_code", "Detail"]
+    include_task_selection = any(row.get("requested_task_id") for row in rows)
+    if include_task_selection:
+        fields += ("requested_task_id", "selected_task_id", "task_selection_source")
+        headings.extend(("Requested task", "Selected profile"))
     include_cleanup = any(row.get("cleanup_status") == "incomplete" or row.get("cleanup_errors") for row in rows)
     if include_cleanup:
         fields += ("cleanup_status", "cleanup_errors")
@@ -212,6 +216,8 @@ def write_compatibility_report(root: Path, rows: list[dict], *, recorded_results
             return str(value).replace("|", "\\|").replace("\n", " ")
         detail = failure.get("detail", "") or row.get("detail", "") or ", ".join(check["code"] for check in checks)
         cells = [row["source"], row["model_id"], values["revision"], values["status"], values["reason_code"], detail]
+        if include_task_selection:
+            cells.extend((row.get("requested_task_id") or "", row.get("selected_task_id") or ""))
         if include_cleanup:
             cleanup_status = row.get("cleanup_status") or ""
             cleanup_errors = [_public_cleanup_error(error) for error in row.get("cleanup_errors", [])]
