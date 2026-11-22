@@ -20,7 +20,7 @@
 
 | 优先级 | 事项 | 完成条件／仍缺证据 |
 | --- | --- | --- |
-| P0 | **同提交 CI 与发布门禁** | 服务暂存源码可独立导入。本地 Python 3.12 和 3.13 已逐项复验[服务依赖与测试夹具回归](https://github.com/kainam15/AC-Prof/actions/runs/44981173369)，并覆盖[绘图缓存、负载重放与 TUI 回归](https://github.com/kainam15/AC-Prof/actions/runs/44989161951)。[Codex 编辑反馈](development/quality.md#codex-编辑反馈)按文件触发静态检查、CI 测试清单校验，以及 TUI 夹具、服务暂存导入、权限探测和 Decimal 上下文等离线回归。仍需核实**当前源码提交**的远端完整 CI、独立 checkout / 虚拟环境硬件作业及发行门禁。见 [CI 与发布验收](development/ci.md)。 |
+| P0 | **同提交 CI 与发布门禁** | 服务暂存源码可独立导入。本地 Python 3.12 和 3.13 已逐项复验[服务依赖与测试夹具回归](https://github.com/kainam15/AC-Prof/actions/runs/44981173369)，并覆盖[绘图缓存、负载重放与 TUI 回归](https://github.com/kainam15/AC-Prof/actions/runs/44989161951)。ModelScope 缓存检查现已隔离 CLI 环境，后续离线测试可独立选择模型来源。[Codex 编辑反馈](development/quality.md#codex-编辑反馈)按文件触发静态检查、CI 测试清单校验，以及 TUI 夹具、服务暂存导入、权限探测和 Decimal 上下文等离线回归。仍需核实**当前源码提交**的远端完整 CI、独立 checkout / 虚拟环境硬件作业及发行门禁。见 [CI 与发布验收](development/ci.md)。 |
 | P1 | **Docker / Process 实机配对** | 在相同模型、CPU / 内存精确配额和输入尺度下核对两种 Runtime 的窗口数据、质量与开销；验证 Native Linux cgroup 委派和强制配额、RAPL / DRAM、PMU 事件运行比例及 I/O `io.stat`，再补 WSL2 场景。Process 的 inherited 资源不能当作 Docker 数值限额。见 [运行时覆盖](results/runtime-coverage.md) 与 [Linux Runtime](platforms/linux-runtimes.md)。 |
 | P1 | **Profiler、能耗与重复性** | 完成 BERT CPU 两档 Massif（目前 **0/2**），验证正式窗口中断／续跑后的补采；以足量独立样本检查空闲基线、负残差、能耗与性能的稳定性。不得以少量 `ok` 行直接排名。见 [Profiler](profiling/profilers.md) 与 [测量协议](profiling/measurement.md)。 |
 | P1 | **模型识别与真实适配** | Hugging Face 分层快照已覆盖跨页筛选、去重及下载量缺失。仍需冻结并核对 Hugging Face / ModelScope Top 100 原始名单、revision 和判定证据，按模型／设备／后端补齐真实 checkpoint、GPU 与 Process 验收。Kokoro 原生路线目前只有静态、Fixture / Mock 证据，不能宣称真实音频或 Docker 通过。见 [识别与覆盖](usage/cli-discovery.md) 和 [模型适配](models/adaptation.md)。 |
