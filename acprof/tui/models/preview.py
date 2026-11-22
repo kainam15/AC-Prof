@@ -13,6 +13,7 @@ from acprof.installation import cli_command
 from acprof.messages import join_messages
 from acprof.system.redaction import redact_text
 from acprof.tui.i18n import message_id
+from acprof.tui.ui.view_models import brief_error
 
 MODEL_OPTIONS = ("revision", "model-variant", "task", "tasks", "backend", "model-spec", "model-store", "batch-size")
 
@@ -38,9 +39,8 @@ async def inspect_summary(arguments: tuple[str, ...], python: Path, cwd: Path) -
             summary = json.loads(stdout)
             if isinstance(summary, dict):
                 return summary
-    from acprof.tui.run.preparation import _brief_error
     diagnostic = stderr.decode("utf-8", "replace")
-    detail = next((line for line in diagnostic.splitlines() if ": error: " in line), "") or _brief_error(diagnostic)
+    detail = next((line for line in diagnostic.splitlines() if ": error: " in line), "") or brief_error(diagnostic)
     raise ValueError(redact_text(detail, limit=360) if detail else f"acprof inspect exited {process.returncode}")
 
 

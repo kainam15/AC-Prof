@@ -141,6 +141,18 @@ def format_value(value: object) -> str:
     return value if isinstance(value, str) else str(value)
 
 
+def brief_error(detail: str) -> str:
+    """Summarize a diagnostic or traceback for a compact TUI view."""
+    lines = [line for line in detail.splitlines() if line.strip()]
+    if any(line.lstrip().startswith("Traceback") for line in lines):
+        # Older preparation messages lack the exception summary. Prefer a
+        # recognizable exception line over trailing notes or stack frames.
+        lines = [line for line in lines if line.partition(":")[0].endswith(("Error", "Exception", "Exit"))][-1:]
+    if not lines:
+        return ""
+    return lines[0][:240] + ("…" if len(lines[0]) > 240 else "")
+
+
 def format_local_timestamp(raw: object, tz: tzinfo | None = None) -> str:
     """Match experiment-picker local time, at seconds precision.
 
