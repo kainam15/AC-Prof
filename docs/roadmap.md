@@ -11,16 +11,16 @@
 | M0 · 能力盘点 | 已完成 | [逐字段覆盖矩阵](results/runtime-coverage.md)区分声明、实现、运行条件与硬件证据；新增能力沿用相同口径。 |
 | M1 · 采集闭环 | 已完成既有范围 | Docker / Process 从预检、准备、测量到审计已贯通；既有 Process CPU/GPU basic、符合条件的 Native Docker full 有实测。新实验统一 Best-effort，额外硬件覆盖仍需独立验收。 |
 | M2 · 通用适配 | 已完成既有范围 | 六类真实 checkpoint 的 CPU/GPU full、Structured CPU full 已验收；其他模型、任务和后端须分别提供兼容与运行证据。 |
-| M3 · Runtime / Profiler | 进行中 | [统一画像语义](results/runtime-profile.md)、Process 条件性 cgroup / RAPL / DRAM / NVML / PMU / PCAP 和生命周期诊断已接入；Torch、NCU、Nsys 的代表性后处理已验证，Massif、配对开销及真实资源限制仍待验收。 |
-| M4 · TUI 体验 | 进行中 | 四阶段界面、状态中心、自动预检、配置折叠、结果工作台（含报告导入取消）、运行环境修复引导及版本管理已通过定向离线／视觉检查；真实终端操作与安装更新流程待验收。 |
-| M5 · 科研结果 | 进行中 | 窗口身份和冻结输入、结果恢复、逐指标质量审计、统计、精确坐标比较、离线 HTML 与流式 P0 已贯通；能耗稳定性、重复性、真实服务画像仍需补证。 |
+| M3 · Runtime / Profiler | 进行中 | [统一画像语义](results/runtime-profile.md)、Process 条件性 cgroup / RAPL / DRAM / NVML / PMU / PCAP 和生命周期诊断已接入。同一委派单元内选择资源组及复核继承配额已有模拟 cgroup 验证。Torch、NCU、Nsys 的代表性后处理已验证，Massif、配对开销及真实资源限制仍待验收。 |
+| M4 · TUI 体验 | 进行中 | 四阶段界面、状态中心、自动预检、配置折叠、结果工作台（含报告导入取消）、运行环境修复引导及版本管理已通过定向离线／视觉检查。Linux `uv tool` 的 wheel 筛选、实际升级与版本不匹配回滚已有本地索引验证。用户终端和线上更新仍待验收。 |
+| M5 · 科研结果 | 进行中 | 窗口身份和冻结输入、结果恢复、逐指标质量审计、统计、精确坐标比较、离线 HTML 与流式 P0 已贯通。安装包绘图已在两个受支持的 Pandas 版本验证历史空标记和文本运行身份。能耗稳定性、重复性、真实服务画像仍需补证。 |
 | M6 · 交付使用 | 既有交付完成 | wheel、uv tool、standalone 及安装后 smoke 已验收，双语入口已对齐；预览版发布不等同于当前提交的完整 CI、硬件或正式版验收。 |
 
 ## 下一步（按优先级）
 
 | 优先级 | 事项 | 完成条件／仍缺证据 |
 | --- | --- | --- |
-| P0 | **同提交 CI 与发布门禁** | 既往 CI 失败及 TUI / PNG 等旧断言已有本地定向修复。[Codex 编辑反馈](development/quality.md#codex-编辑反馈)已接入静态检查、代表性离线回归和 CI 测试清单校验。仍需核实**当前源码提交**的远端完整 CI、独立 checkout / 虚拟环境硬件作业及发行门禁。见 [CI 与发布验收](development/ci.md)。 |
+| P0 | **同提交 CI 与发布门禁** | 服务暂存源码可独立导入。本地 Python 3.12 和 3.13 已逐项复验[远端 host 分片的失败用例](https://github.com/kainam15/AC-Prof/actions/runs/44981173369)。[Codex 编辑反馈](development/quality.md#codex-编辑反馈)已接入静态检查、代表性离线回归和 CI 测试清单校验。仍需核实**当前源码提交**的远端完整 CI、独立 checkout / 虚拟环境硬件作业及发行门禁。见 [CI 与发布验收](development/ci.md)。 |
 | P1 | **Docker / Process 实机配对** | 在相同模型、CPU / 内存精确配额和输入尺度下核对两种 Runtime 的窗口数据、质量与开销；验证 Native Linux cgroup 委派和强制配额、RAPL / DRAM、PMU 事件运行比例及 I/O `io.stat`，再补 WSL2 场景。Process 的 inherited 资源不能当作 Docker 数值限额。见 [运行时覆盖](results/runtime-coverage.md) 与 [Linux Runtime](platforms/linux-runtimes.md)。 |
 | P1 | **Profiler、能耗与重复性** | 完成 BERT CPU 两档 Massif（目前 **0/2**），验证正式窗口中断／续跑后的补采；以足量独立样本检查空闲基线、负残差、能耗与性能的稳定性。不得以少量 `ok` 行直接排名。见 [Profiler](profiling/profilers.md) 与 [测量协议](profiling/measurement.md)。 |
 | P1 | **模型识别与真实适配** | 冻结 Hugging Face / ModelScope Top 100 原始名单、revision 和判定证据；按模型／设备／后端补齐真实 checkpoint、GPU 与 Process 验收。Kokoro 原生路线目前只有静态、Fixture / Mock 证据，不能宣称真实音频或 Docker 通过。见 [识别与覆盖](usage/cli-discovery.md) 和 [模型适配](models/adaptation.md)。 |
