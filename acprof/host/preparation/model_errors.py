@@ -172,4 +172,5 @@ def metadata_read_diagnostic(model_id: str, revision: str, filename: str, exc: E
         "reason_code": code, "lookup_reason": reason, "file": filename, "revision": revision,
         "detail": lookup.detail, "exception_type": type(exc).__name__,
         "retryability": "transient" if lookup.retryable else "after_configuration",
+        **({"next_action": lookup.hint} if lookup.rate_limited else {}),
     }

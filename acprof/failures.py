@@ -22,6 +22,7 @@ REASON_CODES = frozenset({
     "backend_unsupported", "metadata_invalid", "metadata_unavailable", "artifact_incomplete", "artifact_layout_unknown",
     "inference_configuration_mismatch", "inference_configuration_unverified",
 })
+RETRYABILITY_VALUES = frozenset({"not_retryable", "after_configuration", "higher_budget", "transient"})
 FAILURE_PREFIX = "ACPROF_FAILURE="
 
 
@@ -39,7 +40,7 @@ class Failure:
     def __post_init__(self):
         if self.reason_code not in REASON_CODES:
             raise ValueError(f"unregistered failure reason: {self.reason_code}")
-        if self.retryability not in {"not_retryable", "after_configuration", "higher_budget", "transient"}:
+        if self.retryability not in RETRYABILITY_VALUES:
             raise ValueError(f"invalid retryability: {self.retryability}")
 
     def to_dict(self) -> dict:

@@ -185,17 +185,42 @@ class TestCoverageResume:
             self.run_batch(probe="full", resume=True, retry_reasons=["resource_limit"])
         assert (len(list((self.root / "attempts").iterdir()))) == (1)
 
+    def test_retryability_uses_only_explicit_evidence_and_preserves_attempts(self):
+        failures = [RuntimeFailure(Failure("resolution", "metadata_unavailable", "recorded cause", retryability=kind))
+                    for kind in ("transient", "not_retryable", "after_configuration")]
+        with patch("acprof.host.detect.detect_task", side_effect=failures):
+            run_sample(self.sample, self.root)
+        first_path = self.root / "attempts/attempt-000001/attempt.json"
+        historical = json.loads(first_path.read_bytes())
+        del historical["rows"][2]["failure"]["retryability"]
+        first_path.write_text(json.dumps(historical))
+        original = first_path.read_bytes()
+        after = self.run_batch(resume=True, retryabilities=["transient", "not_retryable"])
+        assert after["attempts"][-1]["model_indices"] == [0, 1]
+        assert after["attempts"][-1]["retryabilities"] == ["transient", "not_retryable"]
+        assert after["rows"][2]["attempt_id"] == 1
+        assert first_path.read_bytes() == original
+
+    def test_retryability_requires_resume_and_valid_class_before_output(self):
+        with pytest.raises(ValueError, match="resume"):
+            self.run_batch(retryabilities=["transient"])
+        with pytest.raises(ValueError, match="retryability"):
+            self.run_batch(retryabilities=["permanent"], resume=True)
+        assert not self.root.exists()
+
     def test_cli_resume_and_retry_flags_reach_shared_runner(self):
         source = Path(str(self.temporary)) / "sample.json"
         source.write_text(json.dumps(self.sample))
         with patch("acprof.host.env_utils.bootstrap_project_env"), patch(
                 "acprof.host.preparation.model_coverage.run_sample", return_value={"summary": {}}) as run, contextlib.redirect_stdout(io.StringIO()):
             assert (main(["run", str(source), "--output-dir", str(self.root), "--resume", "--validate-runtime",
-                                   "--retry-stage", "predict", "--retry-reason", "request_timeout"])) == (0)
+                                   "--retry-stage", "predict", "--retry-reason", "request_timeout",
+                                   "--retryability", "transient", "--retryability", "higher_budget"])) == (0)
         assert (run.call_args.kwargs["resume"])
         assert run.call_args.kwargs["probe"] == "full"
         assert (run.call_args.kwargs["retry_stages"]) == (["predict"])
         assert (run.call_args.kwargs["retry_reasons"]) == (["request_timeout"])
+        assert run.call_args.kwargs["retryabilities"] == ["transient", "higher_budget"]
 
     @pytest.mark.parametrize("case", ["nonfinite", "oversized"])
     def test_cli_rejects_invalid_manifest_before_runner(self, case):
@@ -339,10 +364,11 @@ class TestCoverageResume:
         ("error", "inference_failed", "failed"),
         ("inconclusive", "request_timeout", "inconclusive"),
     ])
-    def test_recovered_validation_selects_the_terminal_device_failure(self, status, code, expected):
+    @pytest.mark.parametrize("retryabilities", [[], ["higher_budget"]], ids=["stage-reason", "with-retryability"])
+    def test_recovered_validation_selects_the_terminal_device_failure(self, status, code, expected, retryabilities):
         self.sample["models"] = self.sample["models"][:1]
-        cpu = Failure("runtime_validation", "resource_limit", "CPU memory limit", device="off").to_dict()
-        gpu = Failure("predict", code, "GPU request stopped", device="on")
+        cpu = Failure("runtime_validation", "resource_limit", "CPU memory limit", device="off", retryability="higher_budget").to_dict()
+        gpu = Failure("predict", code, "GPU request stopped", device="on", retryability="transient")
 
         def failed_probe(task, output, **kwargs):
             probe = {"status": status, "devices": {
@@ -362,9 +388,13 @@ class TestCoverageResume:
         assert report["summary"]["runtime_counts"] == {expected: 1}
         assert report["summary"]["weighted_resource_limited_rate"] == 1
 
+        for selector in ({"retry_reasons": ["resource_limit"], "retryabilities": ["transient"]},
+                         {"retry_stages": ["predict"], "retryabilities": ["higher_budget"]}):
+            with pytest.raises(ValueError, match="no matching"):
+                self.run_batch(probe="full", resume=True, **selector)
         with patch("acprof.host.preparation.model_inspection.validate_model_runtime", return_value={"status": "ok"}) as probe:
             retried = self.run_batch(probe="full", resume=True, retry_stages=["runtime_validation"],
-                                     retry_reasons=["resource_limit"])
+                                     retry_reasons=["resource_limit"], retryabilities=retryabilities)
         probe.assert_called_once()
         assert retried["summary"]["runtime_counts"] == {"ok": 1}
         assert retried["summary"]["weighted_resource_limited_rate"] == 0
@@ -396,10 +426,12 @@ class TestCoverageResume:
         with patch("acprof.host.preparation.model_inspection.validate_model_runtime") as probe:
             with pytest.raises(ValueError, match="cleanup"):
                 self.run_batch(probe="full", resume=True)
+            with pytest.raises(ValueError, match="no matching|cleanup"):
+                self.run_batch(probe="full", resume=True, retryabilities=["transient"])
         probe.assert_not_called()
         with patch("acprof.host.preparation.model_inspection.validate_model_runtime", return_value={"status": "ok"}) as probe, patch(
                 "acprof.host.coverage_state.confirm_previous_cleanup", return_value={"status": "complete", "verified_container_ids": ["c" * 64]}) as confirm:
-            retried = self.run_batch(probe="full", resume=True, retry_stages=["cleanup"])
+            retried = self.run_batch(probe="full", resume=True, retry_stages=["cleanup"], retryabilities=["higher_budget"])
         confirm.assert_called_once()
         assert (probe.call_count) == (1)
         assert (len(retried["rows"])) == (1)

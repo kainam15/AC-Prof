@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from acprof.artifacts import atomic_write_json
-from acprof.failures import coverage_row_failures, ordered_validation_failures
+from acprof.failures import RETRYABILITY_VALUES, coverage_row_failures, ordered_validation_failures
 from acprof.host.coverage_recovery import (
     cleanup_proof_issue,
     read_runtime_validation,
@@ -305,7 +305,7 @@ def run_sample(sample: dict, root: Path, *, probe: str = "none", cpus: int = 2, 
                gpu: bool = False, timeout_seconds: float = 300,
                max_parameters: int | None = None, max_download_bytes: int | None = None,
                resume: bool = False, retry_failed: bool = False,
-               retry_stages=(), retry_reasons=()) -> dict:
+               retry_stages=(), retry_reasons=(), retryabilities=()) -> dict:
     from contextlib import ExitStack
 
     from acprof.host.coverage_state import (
@@ -328,7 +328,10 @@ def run_sample(sample: dict, root: Path, *, probe: str = "none", cpus: int = 2, 
     retry_stages, retry_reasons = tuple(retry_stages or ()), tuple(retry_reasons or ())
     if any(not isinstance(value, str) or not value for value in (*retry_stages, *retry_reasons)):
         raise ValueError("retry selectors must be nonempty stage or reason codes")
-    if (retry_failed or retry_stages or retry_reasons) and not resume:
+    retryabilities = tuple(retryabilities or ())
+    if any(not isinstance(value, str) or value not in RETRYABILITY_VALUES for value in retryabilities):
+        raise ValueError("invalid failure retryability selector")
+    if (retry_failed or retry_stages or retry_reasons or retryabilities) and not resume:
         raise ValueError("failed-model retry requires --resume")
     root = Path(root)
     if resume and not root.is_dir():
@@ -361,7 +364,7 @@ def run_sample(sample: dict, root: Path, *, probe: str = "none", cpus: int = 2, 
             root.mkdir(parents=True, exist_ok=False)
             batch.enter_context(ResultDirectoryLock(root))
         state = CoverageState(root, sample, configuration, resume=resume, retry_failed=retry_failed,
-                              retry_stages=retry_stages, retry_reasons=retry_reasons)
+                              retry_stages=retry_stages, retry_reasons=retry_reasons, retryabilities=retryabilities)
         sample_weight = sum(item["weight"] for item in sample["models"])
 
         def save():

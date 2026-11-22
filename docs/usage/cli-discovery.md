@@ -56,8 +56,9 @@ Process 可选指标缺失不会使必要检查失败，JSON 中的 `required` �
 `minimum_size_bytes`。可改选该文件满足上限的 revision。预检返回的大小无法验证时使用 `metadata_size_unknown`，
 可在取得可信大小后重试。预检拒绝的文件没有内容摘要，其 JSON 有效性仍未知。
 
-归档报告将 `metadata_unavailable` 显示为 `inconclusive`。连接恢复后可用
-`acprof coverage run SAMPLE --output-dir DIR --resume --retry-reason metadata_unavailable` 重试相应样本。
+归档报告将 `metadata_unavailable` 显示为 `inconclusive`。连接恢复或限流解除后，可运行
+`acprof coverage run SAMPLE --output-dir DIR --resume --retry-reason metadata_unavailable --retryability transient`
+重试临时故障。同一固定 revision 已证实的大小超限保留在原 attempt 中。
 
 Hub 暂时不可用时，`inspect` 可以从指定 revision 的缓存配置识别任务。若固定快照的 `config.json` 可读，但架构未能确定任务，`inspect` 会保留 revision、配置来源与摘要，提示选择 `--task` 或 `--model-spec`；显式选择仍须通过相应后端与运行时的静态检查。Diffusers 使用根目录的 `model_index.json`。例如，Hugging Face 缓存中只有 Stable Diffusion v1.5 的流水线索引时，可离线查看任务及其来源。
 
@@ -255,7 +256,11 @@ timeout 展示为 `inconclusive`，与 `inference_failed` 分开；详细定义�
 
 `--retry-failed` 重试所有未验证成功的已记录模型；`--retry-stage STAGE` 和
 `--retry-reason REASON` 可分别重复指定，同类选择取并集、阶段与原因之间取交集。
-这些选项都要求 `--resume`，没有匹配项时明确报错；已经验证成功的模型始终跳过。
+`--retryability CLASS` 可按失败记录中明确写入的 `transient`、`after_configuration`、`higher_budget` 或
+`not_retryable` 筛选。多次指定可匹配任一分类。指定该选项时，阶段、原因和 retryability 须匹配同一条失败记录；
+多设备模型可以匹配主失败或其他设备的失败。模型级的 `cleanup` 条件和既有清理保护仍适用。
+缺少 retryability 的历史记录仍可按阶段或原因重试。所有重试选项都要求 `--resume`，没有匹配项时明确报错；
+已经验证成功的模型始终跳过。
 显式重试允许调整资源、设备、时间和下载预算等配置，但不允许替换冻结样本或切换静态/full 模式。
 配置变化逐项保存在 `configuration_changes`，不同条件的结果同时存在时标记
 `mixed_configurations=true`；汇总只描述各模型最后一次观测，不代表同一配置下的统一验证。

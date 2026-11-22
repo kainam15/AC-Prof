@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from acprof.artifacts import read_json_object
+from acprof.failures import RETRYABILITY_VALUES
 from acprof.gpu_mode import normalize_gpu_mode
 
 
@@ -24,6 +25,8 @@ def main(argv=None) -> int:
     run.add_argument("--retry-failed", action="store_true", help="With --resume, retry failed models in new attempts")
     run.add_argument("--retry-stage", action="append", default=[], help="With --resume, retry matching failure stages")
     run.add_argument("--retry-reason", action="append", default=[], help="With --resume, retry matching reason codes")
+    run.add_argument("--retryability", action="append", choices=sorted(RETRYABILITY_VALUES), default=[],
+                     help="With --resume, retry failures with a recorded retryability class (repeatable)")
     run.add_argument("--validate-runtime", action="store_true", help="Validate one end-to-end request per model")
     run.add_argument("--cpus", type=int, default=2)
     run.add_argument("--mems", type=int, default=4)
@@ -63,7 +66,7 @@ def main(argv=None) -> int:
                                  cpus=args.cpus, memory_gb=args.mems, gpu=args.gpus == "on", timeout_seconds=args.timeout_seconds,
                                  max_parameters=args.max_parameters, max_download_bytes=args.max_download_bytes,
                                  resume=args.resume, retry_failed=args.retry_failed,
-                                 retry_stages=args.retry_stage, retry_reasons=args.retry_reason)
+                                 retry_stages=args.retry_stage, retry_reasons=args.retry_reason, retryabilities=args.retryability)
             print(json.dumps(coverage_report["summary"], ensure_ascii=False, indent=2))
     except (ValueError, OSError, KeyError, TypeError, RunStateError, CoverageCleanupError) as exc:
         print(f"[coverage][ERROR] {exc}", file=sys.stderr)

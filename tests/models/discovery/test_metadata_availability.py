@@ -13,7 +13,12 @@ from huggingface_hub.errors import (
     LocalEntryNotFoundError,
     RemoteEntryNotFoundError,
 )
-from modelscope_hub.errors import NotExistError, PermissionDeniedError, RequestTimeoutError
+from modelscope_hub.errors import (
+    NotExistError,
+    PermissionDeniedError,
+    RateLimitError,
+    RequestTimeoutError,
+)
 
 from acprof.cli.main import main
 from acprof.host import detect
@@ -58,6 +63,7 @@ def inspect(case, output):
 @pytest.mark.parametrize(("case_id", "value", "code", "retry", "lookup"), [
     (HF, LocalEntryNotFoundError("uncached entry"), "metadata_unavailable", "after_configuration", "local_cache_miss"),
     (MS, RequestTimeoutError("timed out: https://modelscope.cn/config?token=redaction-canary"), "metadata_unavailable", "transient", "network_error"),
+    (MS, RateLimitError("slow down"), "metadata_unavailable", "transient", "hub_unavailable"),
     (MS, NotExistError("not found or private"), "metadata_unavailable", "after_configuration", "repository_unavailable"),
     (MS, PermissionDeniedError("forbidden"), "access_denied", "after_configuration", "access_denied"),
     (HF, RemoteEntryNotFoundError("entry missing", response=httpx.Response(404, request=REQUEST)),
@@ -65,7 +71,7 @@ def inspect(case, output):
     (HF, BadRequestError("bad request", response=httpx.Response(400, request=REQUEST)),
      "metadata_unavailable", "after_configuration", "lookup_failed"),
     (HF, b"{bad", "metadata_invalid", "not_retryable", None),
-], ids=["hf-cache-miss", "ms-timeout", "ms-ambiguous-404", "ms-denied", "hf-remote-missing", "bad-request", "invalid-json"])
+], ids=["hf-cache-miss", "ms-timeout", "ms-rate-limit", "ms-ambiguous-404", "ms-denied", "hf-remote-missing", "bad-request", "invalid-json"])
 def test_inspect_distinguishes_pinned_metadata_failures(tmp_path, case_id, value, code, retry, lookup):
     from acprof.tui.run.preparation import failure_views
     from acprof.tui.ui.view_models import reason_presentation
@@ -80,6 +86,9 @@ def test_inspect_distinguishes_pinned_metadata_failures(tmp_path, case_id, value
     assert (failure["reason_code"], failure["retryability"]) == (code, retry)
     diagnostic, = failure["evidence"]["diagnostics"]
     assert diagnostic["file"] == FILENAME
+    if isinstance(value, RateLimitError):
+        from acprof.host.preparation.model_errors import model_lookup_error
+        assert failure["evidence"]["next_action"] == model_lookup_error(case["model_id"], value).hint
     if lookup:
         assert diagnostic["lookup_reason"] == lookup
         assert "raw_sha256" not in diagnostic

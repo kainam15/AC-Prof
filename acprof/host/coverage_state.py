@@ -110,18 +110,40 @@ def verified(row: dict, probe: str) -> bool:
     return row.get("runtime_status") == "ok" if probe == "full" else row.get("supported") is True
 
 
+def _matches_retry(row: dict, stages: tuple[str, ...], reasons: tuple[str, ...], retryabilities: tuple[str, ...]) -> bool:
+    failures = coverage_row_failures(row)
+    row_stages = set(str(row.get("failed_stage", "")).split(","))
+    if retryabilities and len(failures) > 1:
+        # Multi-device rows pool stages; each typed failure has its own stage.
+        row_stages.clear()
+    if row.get("cleanup_status") == "incomplete":
+        row_stages.add("cleanup")
+    stage_matches_row = not stages or not row_stages.isdisjoint(stages)
+    if retryabilities:
+        return any(failure.get("retryability") in retryabilities
+                   and (not reasons or failure.get("reason_code") in reasons)
+                   and (stage_matches_row or failure.get("stage") in stages)
+                   for failure in failures)
+
+    # Historical stage/reason selectors are intersections at the model level.
+    recorded_reasons = {failure.get("reason_code", row.get("reason_code")) for failure in failures or [{}]}
+    return ((stage_matches_row or any(failure.get("stage") in stages for failure in failures))
+            and (not reasons or not recorded_reasons.isdisjoint(reasons)))
+
+
 class CoverageState:
     """Called under ResultDirectoryLock; no attempt from an earlier invocation is overwritten."""
 
     def __init__(self, root: Path, sample: dict, configuration: dict, *, resume: bool,
-                 retry_failed: bool, retry_stages: tuple[str, ...], retry_reasons: tuple[str, ...]):
+                 retry_failed: bool, retry_stages: tuple[str, ...], retry_reasons: tuple[str, ...],
+                 retryabilities: tuple[str, ...] = ()):
         self.root, self.sample = root, sample
         self.sample_hash = content_digest(sample)
         self.attempt: dict[str, Any] | None = None
         self.rows: dict[int, dict] = {}
         self.interrupted_cleanup: dict[int, dict] = {}
         self.confirmed_cleanup: dict[int, dict] = {}
-        retry = retry_failed or bool(retry_stages or retry_reasons)
+        retry = retry_failed or bool(retry_stages or retry_reasons or retryabilities)
         if resume:
             self.report = read_json_object(root / "coverage.json", label="coverage report")
             if not isinstance(self.report, dict) or self.report.get("schema_version") != 2:
@@ -170,21 +192,10 @@ class CoverageState:
             raise ValueError("coverage configuration changed; use explicit failed-model retry or a new directory")
         known = {index: self.previous(index) for index in self.rows.keys() | self.interrupted_cleanup.keys()}
         if retry:
-            indices = []
-            for index, row in sorted(known.items()):
-                if verified(row, self.report["probe"]):
-                    continue
-                failures = coverage_row_failures(row)
-                stages = set(str(row.get("failed_stage", "")).split(","))
-                stages.update(failure.get("stage", "") for failure in failures)
-                if row.get("cleanup_status") == "incomplete":
-                    stages.add("cleanup")
-                reasons = {failure.get("reason_code", row.get("reason_code")) for failure in failures or [{}]}
-                if retry_stages and not stages.intersection(retry_stages):
-                    continue
-                if retry_reasons and not reasons.intersection(retry_reasons):
-                    continue
-                indices.append(index)
+            indices = [
+                index for index, row in sorted(known.items())
+                if not verified(row, self.report["probe"]) and _matches_retry(row, retry_stages, retry_reasons, retryabilities)
+            ]
             if not indices:
                 raise ValueError("no matching failed models to retry")
         else:
@@ -213,6 +224,7 @@ class CoverageState:
                         "configuration_changes": configuration_changes(previous, configuration),
                         "mode": "retry" if retry else "resume" if resume else "run",
                         "retry_stages": list(retry_stages), "retry_reasons": list(retry_reasons),
+                        **({"retryabilities": list(retryabilities)} if retryabilities else {}),
                         "model_indices": indices, "started_at": utc_now(), "status": "running", "rows": []}
         self.attempts.append(self.attempt)
         self.persist_attempt()
