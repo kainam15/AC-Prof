@@ -6,6 +6,7 @@ Lifecycle/profiler observations and medians deliberately keep their own semantic
 """
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Sequence
 
 import numpy as np
@@ -31,7 +32,9 @@ class WindowStatistics:
 
     def summarize(self, rows: list[dict], metric: str) -> dict | None:
         fields = (*_WINDOW_FIELDS, metric)
-        key = (metric, tuple(tuple(str(row[name]) if name in row else None for name in fields) for row in rows))
+        observations = (tuple(str(row[name]) if name in row else None for name in fields) for row in rows)
+        # Reordering does not change a group; duplicate measurements must still reach validation.
+        key = (metric, frozenset(Counter(observations).items()))
         if key not in self.groups:
             groups = summarize_windows(rows, [metric])["groups"]
             if len(groups) > 1:

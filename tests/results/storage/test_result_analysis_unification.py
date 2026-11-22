@@ -83,6 +83,8 @@ def test_plot_cache_keys_include_changed_values_and_reuses_identical_groups():
         changed = aggregate_plot_metric(pd.DataFrame(rows), "latency_app_s", statistics=cache)
         assert calculate.call_count == 2
         assert changed.iloc[0]["latency_app_s"] == pytest.approx(.03)
+        with pytest.raises(ValueError, match="duplicate measurement"):
+            aggregate_plot_metric(pd.DataFrame([*rows, rows[0]]), "latency_app_s", statistics=cache)
 
 
 def test_plot_filter_and_cache_keep_observation_provenance():
