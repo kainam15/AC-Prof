@@ -88,7 +88,16 @@ def test_compares_bound_task_not_requested_model_alias_or_ref(tmp_path, model, c
         state.bind_runtime(task, ImageInfo("sha256:" + "b" * 64), PlannedInputScales([1.0], "fixture"), "", "")
     finally:
         state.close()
-    state.layout.path("static_meta.json").write_text(json.dumps(saved_metadata()))
+    metadata = saved_metadata()
+    if expected == "interrupted":
+        # The frozen task is the sole source of a resolved commit in this historical directory.
+        metadata["model_revision"] = "main"
+        resolution = metadata["model_resolution"]
+        resolution["model_revision"] = "release-v1"
+        resolution["provenance"]["revision"] = "main"
+        resolution["provenance"]["sources"]["repository_snapshot"]["revision"] = "main"
+        resolution["interface_validation"]["revision"] = "main"
+    state.layout.path("static_meta.json").write_text(json.dumps(metadata))
 
     row, = report_results([source], tmp_path / "report")["rows"]
 
@@ -98,6 +107,8 @@ def test_compares_bound_task_not_requested_model_alias_or_ref(tmp_path, model, c
     else:
         assert row["failure"] is None
         assert row["revision"] == REVISION
+        from acprof.tui.experiments.catalog import read_experiment_record
+        assert read_experiment_record(source).revision == REVISION
 
 
 def test_symbolic_refs_dependencies_and_task_overrides_are_not_conflicting_primary_snapshots(tmp_path):
@@ -165,3 +176,54 @@ def test_catalog_preserves_model_and_commit_conflicts_and_prevents_reuse(tmp_pat
     assert all(artifact_name in issue for issue in record.issues)
     assert "model_id" in record.issues[0]
     assert "revision" in record.issues[1]
+
+
+@pytest.mark.parametrize(("pin_location", "expected"), [
+    ("snapshot", REVISION), ("provenance", REVISION), ("resolution", REVISION),
+    ("interface", REVISION), ("none", "main"), ("conflict", "unknown"),
+])
+def test_report_and_picker_use_the_unique_resolved_primary_commit(tmp_path, pin_location, expected):
+    from unittest.mock import Mock
+
+    from acprof.tui.experiments.catalog import read_experiment_record
+    from acprof.tui.models.candidates import (
+        candidate_from_record,
+        coverage_candidates,
+        model_choice,
+    )
+    from acprof.tui.models.controller import ModelController
+
+    metadata = saved_metadata()
+    metadata["model_revision"] = "main"
+    resolution = metadata["model_resolution"]
+    resolution["model_revision"] = REVISION if pin_location == "resolution" else "release-v1"
+    provenance = resolution["provenance"]
+    provenance["revision"] = REVISION if pin_location in {"provenance", "conflict"} else "main"
+    snapshot = provenance["sources"]["repository_snapshot"]
+    snapshot["revision"] = REVISION if pin_location == "snapshot" else "main"
+    if pin_location == "conflict":
+        snapshot["revision"] = OTHER_REVISION
+    interface = resolution.pop("interface_validation")
+    interface["revision"] = REVISION if pin_location == "interface" else "release-v2"
+    resolution["dependencies"] = [{"model_id": "submodel/dependency", "revision": OTHER_REVISION}]
+    source = tmp_path / "saved"
+    layout = write_metadata(source, metadata)
+    layout.path("interface_validation.json").write_text(json.dumps(interface))
+    output = tmp_path / "report"
+    row, = report_results([source], output)["rows"]
+    assert row["revision"] == expected
+
+    local = candidate_from_record(read_experiment_record(source), {})
+    archived, = coverage_candidates(output / "coverage.json")
+    for candidate in (local, archived):
+        # The standalone interface artifact is read only by the report importer.
+        shown = "main" if candidate is local and pin_location == "interface" else expected
+        assert candidate.revision == shown
+        if pin_location == "conflict":
+            assert model_choice(candidate).actions == {"view"}
+            continue
+        app = Mock()
+        ModelController(app).model_candidate_selected(("use", candidate), {MODEL})
+        app.configuration.select_model_candidate.assert_called_once_with(
+            MODEL, "modelscope", REVISION if shown == REVISION else "",
+        )

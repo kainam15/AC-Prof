@@ -14,7 +14,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
 
-from acprof.analysis.compatibility import RecordedSourceError, recorded_model_source
+from acprof.analysis.compatibility import (
+    RecordedModelIdentity,
+    RecordedSourceError,
+    recorded_model_identity,
+)
 from acprof.artifacts import read_json_object, recorded_artifact_present
 from acprof.cancellation import check_cancelled
 from acprof.experiments.arguments import flatten_run_options
@@ -218,23 +222,23 @@ def _record(layout: ArtifactLayout, warnings: list[str], *,
         'cpu ' + str(metadata.get('cpu_model', 'unknown')) if options.get('gpus') == 'off' else options.get('gpus', 'unknown')))
     run_id = state.get('run_id')
     try:
-        source = "unknown" if issues else recorded_model_source(
+        identity = RecordedModelIdentity() if issues else recorded_model_identity(
             metadata, resolution, state, resolution_name=resolution_name,
         )
     except RecordedSourceError as exc:
-        source = "unknown"
+        identity = RecordedModelIdentity()
         issues.extend(f"{artifact}: {detail}" for artifact, detail in exc.problems)
     if state and state.get('schema_version') != 1:
         issues.append('unsupported_run_state')
     recorded_runtime_env = metadata.get('runtime_environment')
     runtime_env = recorded_runtime_env if isinstance(recorded_runtime_env, dict) else {}
     return ExperimentRecord(directory, (directory,), run_id if isinstance(run_id, str) and run_id else None,
-        str(metadata.get('model_name') or metadata.get('model_id') or task.get('model_id') or resolution.get('model_id') or options.get('model') or 'unknown'),
-        str(metadata.get('model_revision') or task.get('model_revision') or resolution.get('model_revision') or 'unknown'),
+        str(identity.model_id or metadata.get('model_name') or metadata.get('model_id') or task.get('model_id') or resolution.get('model_id') or options.get('model') or 'unknown'),
+        identity.revision(metadata.get('model_revision'), task.get('model_revision'), resolution.get('model_revision')),
         str(metadata.get('runtime_profile_id') or runtime_env.get('profile_id') or task.get('runtime_profile_id') or resolution.get('runtime_profile') or 'unknown'),
         str(state.get('created_at') or metadata.get('created_at') or 'unknown'),
         str(state.get('status') or ('failed' if failures else 'unknown')), device,
-        options, state, metadata, validation, tuple(failures), source, tuple(issues))
+        options, state, metadata, validation, tuple(failures), identity.source, tuple(issues))
 
 
 def read_experiment_record(directory: Path | ArtifactLayout, *,

@@ -7,7 +7,7 @@ import io
 import json
 import math
 from pathlib import Path
-from typing import TextIO
+from typing import NamedTuple, TextIO
 
 from acprof.artifacts import atomic_write, recorded_artifact_present
 from acprof.failures import Failure, compatibility_status, ordered_validation_failures
@@ -57,7 +57,18 @@ class RecordedSourceError(ValueError):
         self.problems = ((artifact, detail), *additional)
 
 
-def _check_primary_model_identity(records: tuple[tuple[str, str, object, object], ...]) -> None:
+class RecordedModelIdentity(NamedTuple):
+    source: str = "unknown"
+    model_id: str | None = None
+    commit: str | None = None
+
+    def revision(self, *historical: object) -> str:
+        if self.source == "unknown":
+            return "unknown"
+        return self.commit or next((ref for ref in historical if isinstance(ref, str) and ref), "unknown")
+
+
+def _primary_model_coordinates(records: tuple[tuple[str, str, object, object], ...]) -> tuple[str | None, str | None]:
     known: dict[str, tuple[str, str]] = {}
     conflicts: dict[tuple[str, str], str] = {}
     for artifact, location, model, revision in records:
@@ -77,12 +88,15 @@ def _check_primary_model_identity(records: tuple[tuple[str, str, object, object]
     if conflicts:
         first, *others = [(name, detail) for (name, _field), detail in conflicts.items()]
         raise RecordedSourceError(*first, additional=tuple(others))
+    model = known.get("model_id")
+    revision = known.get("revision")
+    return model[0] if model else None, revision[0] if revision else None
 
 
-def recorded_model_source(metadata: dict, resolution: dict, state: dict, *,
+def recorded_model_identity(metadata: dict, resolution: dict, state: dict, *,
                           resolution_name: str = "model_resolution.json", interface: dict | None = None,
-                          interface_name: str = "interface_validation.json") -> str:
-    """Resolve the source of consistent primary-model evidence, including preparation-only runs."""
+                          interface_name: str = "interface_validation.json") -> RecordedModelIdentity:
+    """Resolve the source and immutable coordinates of the recorded primary model."""
     provenance = resolution.get("provenance", {})
     if not isinstance(provenance, dict):
         raise RecordedSourceError(resolution_name, "model provenance must be an object")
@@ -95,7 +109,7 @@ def recorded_model_source(metadata: dict, resolution: dict, state: dict, *,
     task = _dict_or_empty(_dict_or_empty(state.get("runtime")).get("task"))
     options = _dict_or_empty(state.get("options"))
     iface = interface or {}
-    _check_primary_model_identity((
+    model, commit = _primary_model_coordinates((
         ("static_meta.json", "static metadata", metadata.get("model_id"), metadata.get("model_revision")),
         ("static_meta.json", "model_name", metadata.get("model_name"), None),
         (resolution_name, "model resolution", resolution.get("model_id"), resolution.get("model_revision")),
@@ -120,7 +134,16 @@ def recorded_model_source(metadata: dict, resolution: dict, state: dict, *,
         if source is not None and value != source:
             raise RecordedSourceError(artifact, f"conflicting recorded model sources: {source} and {value}")
         source = value
-    return source if source is not None else "huggingface"
+    return RecordedModelIdentity(source if source is not None else "huggingface", model, commit)
+
+
+def recorded_model_source(metadata: dict, resolution: dict, state: dict, *,
+                          resolution_name: str = "model_resolution.json", interface: dict | None = None,
+                          interface_name: str = "interface_validation.json") -> str:
+    """Resolve the repository source, including from preparation-only runs."""
+    return recorded_model_identity(
+        metadata, resolution, state, resolution_name=resolution_name, interface=interface, interface_name=interface_name,
+    ).source
 
 
 def _validate_run_outcome(status: object, outcome: object) -> None:
@@ -407,7 +430,7 @@ def _check_identity_consistency(
     layout, metadata: dict, resolution: dict, state: dict, invalid: list[dict], *,
     resolution_name: str = "model_resolution.json", interface: dict | None = None,
     interface_name: str = "interface_validation.json",
-) -> tuple[object, object, object, object, str]:
+) -> tuple[object, object, object, object, RecordedModelIdentity]:
     provenance = _dict_or_empty(resolution.get("provenance"))
     sources_map = _dict_or_empty(provenance.get("sources"))
     snapshot = _dict_or_empty(sources_map.get("repository_snapshot"))
@@ -421,15 +444,15 @@ def _check_identity_consistency(
     )
     try:
         # Corrupt identity evidence is not a historical document with missing fields.
-        model_source = "unknown" if invalid_identity else recorded_model_source(
+        identity = RecordedModelIdentity() if invalid_identity else recorded_model_identity(
             metadata, resolution, state, resolution_name=resolution_name,
             interface=interface, interface_name=interface_name,
         )
     except RecordedSourceError as error:
         for name, detail in error.problems:
             _invalid_compatibility_shape(layout, name, detail, invalid)
-        model_source = "unknown"
-    return meta_model, res_model, meta_rev, res_rev, model_source
+        identity = RecordedModelIdentity()
+    return meta_model, res_model, meta_rev, res_rev, identity
 
 
 def _collect_compatibility_failures(
@@ -522,7 +545,7 @@ def _report_single_source(source: Path, pre_invalid: list[dict]) -> dict:
     if not any((*evidence.values(), invalid)):
         raise ValueError(f"No recorded compatibility evidence: {source}")
 
-    meta_model, res_model, meta_rev, res_rev, model_source = _check_identity_consistency(
+    meta_model, res_model, meta_rev, res_rev, identity = _check_identity_consistency(
         layout, metadata, resolution, state, invalid, resolution_name=origins["resolution"],
         interface=interface, interface_name=origins["interface"],
     )
@@ -535,12 +558,11 @@ def _report_single_source(source: Path, pre_invalid: list[dict]) -> dict:
     state_options = _dict_or_empty(state.get("options"))
     runtime_env = _dict_or_empty(metadata.get("runtime_environment"))
     model_id = (
-        meta_model or res_model or interface.get("model_id")
+        identity.model_id or meta_model or res_model or interface.get("model_id")
         or state_task.get("model_id") or state_options.get("model") or source.name
     )
-    revision = (
-        meta_rev or res_rev or interface.get("revision")
-        or state_task.get("model_revision") or state_options.get("revision") or "unknown"
+    revision = identity.revision(
+        meta_rev, res_rev, interface.get("revision"), state_task.get("model_revision"), state_options.get("revision"),
     )
     runtime_profile = (
         metadata.get("runtime_profile_id") or runtime_env.get("profile_id")
@@ -559,7 +581,7 @@ def _report_single_source(source: Path, pre_invalid: list[dict]) -> dict:
                      "detail": _cleanup_summary(cleanup["cleanup_errors"])}
     quality = read_quality(source)
     row = {
-        "source": model_source,
+        "source": identity.source,
         "model_id": model_id,
         "revision": revision,
         "runtime_profile": runtime_profile,
