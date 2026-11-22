@@ -10,6 +10,17 @@ from typing import Any
 from acprof.tasks.workloads import generation_length_resets
 
 
+def validate_chat_replies(output: Any, batch_size: int, sequences: int) -> None:
+    """HF returns one list of completions per chat, omitting the outer list for a single chat."""
+    groups = [output] if batch_size == 1 else output
+    if (not isinstance(groups, list) or len(groups) != batch_size
+            or any(not isinstance(group, list) or len(group) != sequences for group in groups)):
+        raise ValueError("chat output does not match the requested batch and sequence counts")
+    if any(not isinstance(record, Mapping) or not isinstance(record.get("generated_text"), str)
+           for group in groups for record in group):
+        raise ValueError("chat output must contain generated_text strings for the new replies")
+
+
 def text_output_metrics(tokenizer: Any, raw_output: Any) -> dict[str, int | None]:
     """Summarize all returned texts, independently of generated token IDs."""
     metrics: dict[str, int | None] = {"output_length": None, "output_token_count": None}

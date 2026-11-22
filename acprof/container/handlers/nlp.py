@@ -15,18 +15,20 @@ from acprof.container.handlers import (
     transformers_pipeline_load_kwargs,
 )
 from acprof.container.handlers.generation_evidence import count_input_tokens, generation_evidence
-from acprof.container.handlers.text_generation import text_output_metrics
+from acprof.container.handlers.text_generation import text_output_metrics, validate_chat_replies
 from acprof.container.handlers.text_inputs import (
+    chat_messages,
     get_model_max_length,
     max_effective_qa_context_length,
     max_effective_single_text_length,
+    prepare_chat_prompt,
     string_list,
     truncate_qa_context,
     truncate_single_text,
 )
 from acprof.container.load_policy import load_policy
 from acprof.input_budget import check_nlp_input, positive_integer
-from acprof.models.spec import pipeline_task
+from acprof.models.spec import resolve_pipeline_task
 from acprof.tasks.workloads import generation_length_resets
 
 # Tasks that generate text output
@@ -39,10 +41,11 @@ _GENERATIVE_TASKS = {
 class NLPHandler(BaseHandler):
 
     @staticmethod
-    def _generation_input_limits(pipe: Any, task_type: str, params: dict[str, Any]) -> tuple[int, int | None]:
+    def _generation_input_limits(model_ctx: dict, params: dict[str, Any]) -> tuple[int, int | None]:
         """Return the output reservation and any explicit prompt-plus-completion limit."""
-        config = getattr(getattr(pipe, "model", None), "config", None)
-        if task_type != "text-generation" or getattr(config, "is_encoder_decoder", False) is True:
+        config = getattr(getattr(model_ctx["pipeline"], "model", None), "config", None)
+        if ((model_ctx["task_type"] != "text-generation" and not model_ctx.get("native_chat"))
+                or getattr(config, "is_encoder_decoder", False) is True):
             return 0, None
         if "max_length" in params and "max_new_tokens" not in params:
             total = positive_integer(params["max_length"], "max_length", allow_integral_float=False)
@@ -75,6 +78,7 @@ class NLPHandler(BaseHandler):
         policy = load_policy(model_source, task_type, backend, device, load_options, adapter=adapter)
         torch_dtype = policy["dtype"]
         pipeline_options = transformers_pipeline_load_kwargs(load_options)
+        native_chat = False
         if backend == "transformers_model" and task_type in {"text2text-generation", "summarization", "translation"}:
             from acprof.container.handlers.text_generation import load_seq2seq
             pipe = load_seq2seq(model_source, model_revision, device=device, dtype=torch_dtype,
@@ -103,8 +107,9 @@ class NLPHandler(BaseHandler):
             pipe = SimpleNamespace(model=model, tokenizer=tokenizer)
         else:
             from transformers import pipeline as hf_pipeline
+            name, native_chat = resolve_pipeline_task(model_source, task_type, backend=backend, adapter=adapter)
             pipe = hf_pipeline(
-                task=pipeline_task(model_source, task_type),
+                task=name,
                 model=model_source,
                 **model_revision_kwargs(model_source, model_revision),
                 **pipeline_options,
@@ -115,7 +120,14 @@ class NLPHandler(BaseHandler):
             if task_type in _GENERATIVE_TASKS:
                 from transformers import set_seed
                 set_seed(0)
-            if task_type == "text-generation":
+            if native_chat:
+                if getattr(getattr(pipe.model, "config", None), "is_encoder_decoder", False) is True:
+                    raise ValueError("native conversational requires a causal language model")
+                get_template = getattr(getattr(pipe, "tokenizer", None), "get_chat_template", None)
+                template = get_template() if callable(get_template) else None
+                if not isinstance(template, str) or not template.strip():
+                    raise ValueError("native conversational requires a tokenizer chat template")
+            if task_type == "text-generation" or native_chat:
                 tokenizer = getattr(pipe, "tokenizer", None)
                 if tokenizer is not None:
                     tokenizer.padding_side = "left"
@@ -131,6 +143,8 @@ class NLPHandler(BaseHandler):
             "load_options": dict(load_options or {}),
             "runtime_profile": policy["runtime_profile"],
         }
+        if native_chat:
+            context["native_chat"] = True
         self._observe_generation(context)
         return context
 
@@ -172,6 +186,7 @@ class NLPHandler(BaseHandler):
         counts: list[int] = []
         reasons: list[str] = []
         complete = len(state.get("outputs", [])) == state.get("batch_size")
+        expected_sequences = params.get("num_return_sequences", getattr(config, "num_return_sequences", 1))
         for output in state.get("outputs", []):
             prompt = output.get("input_ids")
             if not encoder_decoder and prompt is None:
@@ -184,9 +199,10 @@ class NLPHandler(BaseHandler):
                 budget = params["max_length"] - (1 if encoder_decoder else prompt_length)
             evidence = generation_evidence(generated, config, prompt_length=prompt_length,
                                            encoder_decoder=encoder_decoder, max_new_tokens=budget)
-            if evidence["actual_output_tokens_per_sequence"] is None:
+            sequences = evidence["actual_output_tokens_per_sequence"]
+            if sequences is None or (model_ctx.get("native_chat") and len(sequences) != expected_sequences):
                 complete = False
-            counts.extend(evidence["actual_output_tokens_per_sequence"] or [])
+            counts.extend(sequences or [])
             reasons.extend(evidence["stop_reason_per_sequence"] or [])
         if not complete:
             counts, reasons = [], []
@@ -255,7 +271,8 @@ class NLPHandler(BaseHandler):
         if not isinstance(params, dict):
             raise ValueError("params must be an object")
         budget = check_nlp_input(raw_input, task_type)
-        common = {"params": params, "batch_size": self._batch_size(raw_input),
+        batch_size = self._batch_size(raw_input)
+        common = {"params": params, "batch_size": batch_size,
                   "input_budget": budget.as_dict()}
         if (task_type == "feature-extraction"
                 and set(params) & {"prompt", "prompt_name", "normalize_embeddings"}):
@@ -293,7 +310,9 @@ class NLPHandler(BaseHandler):
                 "_probe_reason": reason,
             }
 
-        reserve, total = self._generation_input_limits(pipe, task_type, params)
+        reserve, total = self._generation_input_limits(model_ctx, params)
+        if model_ctx.get("native_chat"):
+            return {**common, **prepare_chat_prompt(pipe, text, batch_size, budget, reserve, total)}
         text, effective_input_scale, truncated_by_limit, reason = truncate_single_text(
             pipe, text, task_type, reserved_tokens=reserve, max_total_tokens=total,
         )
@@ -332,8 +351,11 @@ class NLPHandler(BaseHandler):
                 "reason": reason,
             }
 
-        reserve, total = self._generation_input_limits(pipe, task_type, raw_input.get("params", {}))
-        available, reason = max_effective_single_text_length(pipe, reserved_tokens=reserve, max_total_tokens=total)
+        reserve, total = self._generation_input_limits(model_ctx, raw_input.get("params", {}))
+        available, reason = max_effective_single_text_length(
+            pipe, reserved_tokens=reserve, max_total_tokens=total,
+            prompt_includes_special_tokens=model_ctx.get("native_chat", False),
+        )
         return {
             "input_scale_type": "seq_length",
             "max_effective_input_scale": available,
@@ -387,8 +409,10 @@ class NLPHandler(BaseHandler):
                 question=processed_input["question"],
                 context=processed_input["context"],
             )
+        native_chat = model_ctx.get("native_chat", False)
         text = processed_input["text"]
-        request_inputs = [text] * batch_size if batch_size > 1 else text
+        prompt = chat_messages(text) if native_chat else text
+        request_inputs = [prompt] * batch_size if batch_size > 1 else prompt
         batch_kwargs = {"batch_size": batch_size} if batch_size > 1 else {}
         if task_type == "zero-shot-classification":
             return pipe(request_inputs, candidate_labels=processed_input["candidate_labels"],
@@ -403,13 +427,15 @@ class NLPHandler(BaseHandler):
             state = model_ctx.get("_generation_observation")
             if state is not None:
                 state.update(inputs=[], outputs=[], params=generation_params, batch_size=batch_size)
-            return pipe(
-                request_inputs,
-                **generation_params,
-                **generation_length_resets(generation_params),
-                truncation=True,
-                **batch_kwargs,
-            )
+            if native_chat:
+                batch_kwargs["return_full_text"] = False
+            replies = pipe(request_inputs, **generation_params, **generation_length_resets(generation_params),
+                           truncation=not native_chat, **batch_kwargs)
+            if native_chat:
+                configured_returns = getattr(pipe.generation_config, "num_return_sequences", 1)
+                validate_chat_replies(replies, batch_size, generation_params.get("num_return_sequences",
+                                                                                 configured_returns))
+            return replies
         elif task_type in self._TRUNCATION_VIA_KWARGS_TASKS:
             return pipe(request_inputs, tokenizer_kwargs={"truncation": True}, **batch_kwargs)
         elif task_type == "token-classification":
@@ -433,9 +459,10 @@ class NLPHandler(BaseHandler):
                     "n_results": shape[0]}
 
         if isinstance(raw_output, list):
-            n_results = len(raw_output)
-        elif isinstance(raw_output, dict):
-            n_results = 1
+            if model_ctx.get("native_chat") and raw_output and isinstance(raw_output[0], list):
+                n_results = sum(len(replies) for replies in raw_output)
+            else:
+                n_results = len(raw_output)
         else:
             n_results = 1
 

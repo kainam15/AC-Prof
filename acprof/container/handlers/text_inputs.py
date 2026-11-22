@@ -3,6 +3,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from acprof.container.handlers import InputLimitError
+from acprof.input_budget import InputBudget
+
 # Host workloads use one model-independent mask placeholder.
 _FILL_MASK_PLACEHOLDER = "[MASK]"
 
@@ -173,8 +176,37 @@ def truncate_qa_context(
     return context, len(context_ids), truncated_by_limit, reason
 
 
+def chat_messages(text: str) -> list[dict[str, str]]:
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError("conversational requires nonempty text for a single user turn")
+    return [{"role": "user", "content": text}]
+
+
+def prepare_chat_prompt(pipe: Any, text: str, batch: int, budget: InputBudget,
+                        reserved_tokens: int, max_total_tokens: int | None) -> dict:
+    # Match TextGenerationPipeline's final user message, including the assistant generation prompt.
+    tokenizer = pipe.tokenizer
+    rendered = tokenizer.apply_chat_template(chat_messages(text), tokenize=False, add_generation_prompt=True)
+    if not isinstance(rendered, str) or not rendered.strip():
+        raise ValueError("chat template produced no text for the user turn")
+    budget.text(len(rendered) * batch, batch_items=batch)
+    # apply_chat_template tokenizes its rendering without adding a second layer of special tokens.
+    length = len(tokenizer.encode(rendered, add_special_tokens=False))
+    if not length:
+        raise ValueError("chat template produced no input tokens")
+    available, reason = max_effective_single_text_length(
+        pipe, reserved_tokens, max_total_tokens=max_total_tokens, prompt_includes_special_tokens=True,
+    )
+    if available is not None and length > available:
+        raise InputLimitError(f"chat prompt requires {length} tokens, available={available} after output reservation",
+                              effective_input_scale=length)
+    return {"text": text, "_effective_input_scale": length, "_truncated_by_limit": False,
+            "_input_token_scope": "templated_prompt_per_sample_including_special_tokens", "_probe_reason": reason}
+
+
 def max_effective_single_text_length(
     pipe: Any, reserved_tokens: int = 0, *, max_total_tokens: int | None = None,
+    prompt_includes_special_tokens: bool = False,
 ) -> tuple[int | None, str]:
     tokenizer = getattr(pipe, "tokenizer", None)
     if not tokenizer:
@@ -182,9 +214,13 @@ def max_effective_single_text_length(
 
     max_len = get_model_max_length(pipe)
     if max_len is None:
+        if prompt_includes_special_tokens and max_total_tokens is not None:
+            available, _ = _single_text_budget(max_total_tokens, 0, reserved_tokens, max_total_tokens)
+            return available, (f"model context limit unknown; generation max_length={max_total_tokens},"
+                               f"reserved_output_tokens={reserved_tokens},available={available}")
         return None, "max_length_unknown"
 
-    special_tokens = tokenizer.num_special_tokens_to_add(pair=False)
+    special_tokens = 0 if prompt_includes_special_tokens else tokenizer.num_special_tokens_to_add(pair=False)
     available, detail = _single_text_budget(max_len, int(special_tokens), reserved_tokens, max_total_tokens)
     reason = f"max_effective_single_text_length({detail})"
     if reserved_tokens:
