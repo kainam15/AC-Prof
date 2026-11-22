@@ -51,6 +51,11 @@ Process 可选指标缺失不会使必要检查失败，JSON 中的 `required` �
 仓库明确确认固定文件缺失时记为 `artifact_incomplete`。已读原始字节无法解析则记为
 `metadata_invalid`，保留文件摘要与解析位置。普通的 ModelScope 404 也可能指向私有资源，此时文件是否缺失仍未知。
 快照清单中某个元数据文件读取失败时，后端候选会保留未知兼容性。缺少加载器必需分片的诊断由制品检查单独记录。
+主模型静态检查对每个 JSON 元数据文件采用 1 MiB 上限。已知大小超过上限时，`metadata_unavailable` 的
+`lookup_reason` 为 `metadata_size_limit`，诊断记录 `limit_bytes` 和 `size_bytes`；若文件在读取中增长，只记录已确认的
+`minimum_size_bytes`。可改选该文件满足上限的 revision。预检返回的大小无法验证时使用 `metadata_size_unknown`，
+可在取得可信大小后重试。预检拒绝的文件没有内容摘要，其 JSON 有效性仍未知。
+
 归档报告将 `metadata_unavailable` 显示为 `inconclusive`。连接恢复后可用
 `acprof coverage run SAMPLE --output-dir DIR --resume --retry-reason metadata_unavailable` 重试相应样本。
 

@@ -40,7 +40,7 @@ from acprof.host.model_store.views import (
 from acprof.hub.huggingface.download import try_hf_endpoints
 from acprof.hub.huggingface.endpoints import hf_endpoints
 from acprof.hub.huggingface.transport import configure_hf_transport
-from acprof.hub.repository import MetadataFile, read_metadata_file
+from acprof.hub.repository import MetadataFile, check_metadata_size, read_metadata_file
 from acprof.models.download_plan import (
     PLAN_FILENAME,
     DependencyPlan,
@@ -308,14 +308,13 @@ def _cached_payload_complete(plan: Mapping[str, Any], snapshot: Path) -> bool:
 
 def cached_metadata(model_id: str, name: str, revision: str | None, *, source: str,
                     max_bytes: int = ENTRY_METADATA_MAX_BYTES) -> MetadataFile | None:
-    from acprof.models.files import ModelFilesError, safe_path
+    from acprof.models.files import safe_path
     name = safe_path(name)
     for plan, snapshot in _matching_repository_plans(model_id, revision, source):
         record = next((item for item in plan["files"] if item["path"] == name), None)
         if record is None or not _cached_payload_complete(plan, snapshot):
             continue
-        if record["size"] > max_bytes:
-            raise ModelFilesError(f"cached metadata exceeds {max_bytes} bytes: {name}")
+        check_metadata_size(name, record["size"], max_bytes)
         try:
             return read_metadata_file(snapshot / name, max_bytes=max_bytes,
                                       expected_size=record["size"], expected_sha256=record["sha256"])

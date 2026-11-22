@@ -121,6 +121,22 @@ def metadata_read_diagnostic(model_id: str, revision: str, filename: str, exc: E
     """Classify a listed file read at the provider boundary, before any JSON is parsed."""
     from huggingface_hub.errors import LocalEntryNotFoundError, RemoteEntryNotFoundError
 
+    from acprof.hub.repository import MetadataSizeError
+
+    if isinstance(exc, MetadataSizeError):
+        diagnostic = {
+            "reason_code": "metadata_unavailable", "file": filename, "revision": revision,
+            "limit_bytes": exc.limit, "detail": redact_text(str(exc)), "exception_type": type(exc).__name__,
+        }
+        if exc.size is None:
+            diagnostic.update(lookup_reason="metadata_size_unknown", retryability="after_configuration",
+                              next_action=f"Retry with a repository endpoint or verified cache that reports file size (limit {exc.limit} bytes).")
+        else:
+            diagnostic["minimum_size_bytes" if exc.minimum else "size_bytes"] = exc.size
+            diagnostic.update(lookup_reason="metadata_size_limit", retryability="not_retryable",
+                              next_action=f"Select a revision whose {filename} fits the {exc.limit}-byte inspection limit.")
+        return diagnostic
+
     lookup = model_lookup_error(model_id, exc, revision=revision)
     reason = lookup.reason_code
     code = "metadata_unavailable"

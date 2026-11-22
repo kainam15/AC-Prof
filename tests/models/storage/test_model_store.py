@@ -438,12 +438,14 @@ class TestModelStore:
                                               source="huggingface").content == self.content
 
     def test_cached_metadata_rechecks_hash_and_enforces_read_limit(self):
+        from acprof.hub.repository import MetadataSizeError
         from acprof.models.files import ModelFilesError
         record = self.prepare()
         with patch("acprof.host.model_store.store.store_root", return_value=self.root):
-            with pytest.raises(ModelFilesError, match="exceeds"):
+            with pytest.raises(MetadataSizeError, match="exceeds") as exc:
                 model_store.cached_metadata(self.task.model_id, "config.json", self.task.model_revision,
                                             source="huggingface", max_bytes=1)
+            assert (exc.value.size, exc.value.limit) == (len(self.content), 1)
             path = self.root / "entries" / record["entry_id"] / "hf/models--example--test/snapshots"
             (path / self.task.model_revision / "config.json").write_bytes(b"[]")
             with pytest.raises(ModelFilesError, match="SHA256"):

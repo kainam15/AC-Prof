@@ -35,6 +35,28 @@ class MetadataFile:
     content: bytes
 
 
+class MetadataSizeError(ModelFilesError):
+    """The byte limit prevented inspection of a complete metadata file."""
+
+    def __init__(self, filename: str, limit: int, size: int | None, *, minimum: bool = False):
+        self.limit = limit
+        self.size = size
+        self.minimum = minimum
+        if size is None:
+            detail = f"{filename}: verified metadata size is unknown (limit {limit} bytes)"
+        else:
+            detail = f"{filename}: metadata size {'of at least ' if minimum else ''}{size} bytes exceeds {limit} bytes"
+        super().__init__(detail)
+
+
+def check_metadata_size(name: str, size: object, limit: int) -> None:
+    """Reject an unverified or oversized length before requesting metadata bytes."""
+    if type(size) is not int or size < 0:
+        raise MetadataSizeError(name, limit, None)
+    if size > limit:
+        raise MetadataSizeError(name, limit, size)
+
+
 def read_metadata_file(
     path: str | Path, *, max_bytes: int,
     expected_size: int | None = None, expected_sha256: str | None = None,
@@ -43,6 +65,7 @@ def read_metadata_file(
     if type(max_bytes) is not int or max_bytes < 0:
         raise ValueError("metadata byte limit must be a non-negative integer")
     path = Path(path)
+    size_changed = f"model metadata size changed after preflight: {path.name}"
     # Snapshot symlinks are intentional. Check the opened target and avoid
     # blocking if a concurrent cache change replaces it with a FIFO.
     with open(path, "rb", opener=lambda name, flags: os.open(name, flags | os.O_NONBLOCK)) as stream:
@@ -50,12 +73,16 @@ def read_metadata_file(
         if not stat.S_ISREG(info.st_mode):
             raise ModelFilesError(f"model metadata must be a regular file: {path.name}")
         if info.st_size > max_bytes:
-            raise ModelFilesError(f"model metadata exceeds {max_bytes} bytes: {path.name}")
+            if expected_size is not None and info.st_size != expected_size:
+                raise ModelFilesError(size_changed)
+            raise MetadataSizeError(path.name, max_bytes, info.st_size)
         content = stream.read(max_bytes + 1)
     if len(content) > max_bytes:
-        raise ModelFilesError(f"model metadata exceeds {max_bytes} bytes: {path.name}")
+        if expected_size is not None and expected_size <= max_bytes:
+            raise ModelFilesError(size_changed)
+        raise MetadataSizeError(path.name, max_bytes, len(content), minimum=True)
     if expected_size is not None and len(content) != expected_size:
-        raise ModelFilesError(f"model metadata size changed after preflight: {path.name}")
+        raise ModelFilesError(size_changed)
     if expected_sha256 is not None and hashlib.sha256(content).hexdigest() != expected_sha256:
         raise ModelFilesError(f"model metadata SHA256 mismatch: {path.name}")
     return MetadataFile(path, content)
@@ -211,7 +238,8 @@ def modelscope_file(model_id: str, name: str, revision: str, root: Path, *, sha2
 def modelscope_metadata(model_id: str, name: str, revision: str | None, max_bytes: int, *, cache_root: Path) -> MetadataFile:
     info = modelscope_info(model_id, revision)
     item = next((f for f in info.siblings if f.rfilename == name), None)
-    if item is None or not 0 <= item.size <= max_bytes:
-        raise ModelFilesError(f"ModelScope metadata missing or exceeds {max_bytes} bytes: {name}")
+    if item is None:
+        raise ModelFilesError(f"ModelScope metadata missing: {name}")
+    check_metadata_size(name, item.size, max_bytes)
     path = modelscope_file(model_id, name, info.sha, cache_root, sha256=item.lfs["sha256"])
     return read_metadata_file(path, max_bytes=max_bytes, expected_size=item.size, expected_sha256=item.lfs["sha256"])

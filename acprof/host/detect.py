@@ -20,7 +20,13 @@ from acprof.host.preparation.model_errors import (
 )
 from acprof.hub.huggingface.auth import hf_token_for_url
 from acprof.hub.huggingface.download import hf_endpoint_scope
-from acprof.hub.repository import MetadataFile, modelscope_info_scope, read_metadata_file
+from acprof.hub.repository import (
+    MetadataFile,
+    MetadataSizeError,
+    check_metadata_size,
+    modelscope_info_scope,
+    read_metadata_file,
+)
 from acprof.models.diffusion_pipelines import diffusers_index_task
 from acprof.models.files import ModelFilesError
 from acprof.models.metadata_validation import (
@@ -118,10 +124,9 @@ def _download_metadata(
             metadata = hf_hub_download(repo_id=model_id, filename=name,
                                        revision=revision, endpoint=endpoint, token=hf_token_for_url(endpoint), dry_run=True)
             size = getattr(metadata, "file_size", None)
-            if type(size) is not int or not 0 <= size <= max_bytes:
-                raise ValueError(f"{name} size is unknown or exceeds {max_bytes} bytes")
             if getattr(metadata, "commit_hash", None) != revision:
                 raise ValueError("metadata preflight returned a different model revision")
+            check_metadata_size(name, size, max_bytes)
         # Mutable-ref fallback must let the SDK record its ref for offline use.
         # A dry-run followed by a SHA download would leave a fresh ref absent.
         path = hf_hub_download(repo_id=model_id, filename=name, revision=revision,
@@ -133,8 +138,7 @@ def _download_metadata(
 def _read_json_metadata(
     metadata: MetadataFile, *, max_bytes: int = METADATA_MAX_BYTES, filename: str | None = None,
 ) -> Any:
-    if len(metadata.content) > max_bytes:
-        raise ValueError(f"{metadata.path.name} exceeds {max_bytes} bytes")
+    check_metadata_size(filename or metadata.path.name, len(metadata.content), max_bytes)
     return parse_metadata_json(metadata.content, filename or metadata.path.name)
 
 
@@ -200,8 +204,10 @@ def _repository_metadata(
         except Exception as exc:
             if files:
                 errors.append(f"{name}: {_format_failure(exc)}")
-                # Size, revision and integrity guards have their own validation errors.
-                if name not in sources and not isinstance(exc, ModelFilesError) and type(exc) is not ValueError:
+                # Revision and integrity failures keep their validation diagnostics.
+                if isinstance(exc, MetadataSizeError) or (
+                    name not in sources and not isinstance(exc, ModelFilesError) and type(exc) is not ValueError
+                ):
                     diagnostics.append(metadata_read_diagnostic(model_id, revision, name, exc))
             else:
                 _record_failure(lookup_diagnostics, "model_index", _format_failure(exc))
@@ -900,9 +906,12 @@ def detect_task(
         from acprof.models.inspection.decision import record_resolution_failure
 
         primary = invalid or info.metadata_diagnostics[0]
+        evidence = {"diagnostics": list(info.metadata_diagnostics), "sources": info.metadata_sources}
+        if "next_action" in primary:
+            evidence["next_action"] = primary["next_action"]
         record_resolution_failure(info, Failure(
             "preflight" if invalid else "resolution", primary["reason_code"], "; ".join(info.metadata_errors),
-            evidence={"diagnostics": list(info.metadata_diagnostics), "sources": info.metadata_sources},
+            evidence=evidence,
             retryability=primary.get("retryability", "not_retryable"), exception_type=primary.get("exception_type", ""),
         ))
         return info

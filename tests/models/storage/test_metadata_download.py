@@ -11,7 +11,7 @@ import httpx
 import pytest
 
 from acprof.host import detect
-from acprof.hub.repository import MetadataFile, read_metadata_file
+from acprof.hub.repository import MetadataFile, MetadataSizeError, read_metadata_file
 
 SHA = "a" * 40
 METADATA_LIMIT = 1024 * 1024
@@ -103,8 +103,9 @@ def test_unknown_or_invalid_preflight_size_stops_before_download(size):
 
 
 @pytest.mark.parametrize("commit", ["main", "b" * 40, None])
-def test_preflight_cannot_change_a_requested_commit(commit):
-    info = SimpleNamespace(file_size=2, commit_hash=commit)
+@pytest.mark.parametrize("size", [2, METADATA_LIMIT + 1])
+def test_preflight_cannot_change_a_requested_commit(commit, size):
+    info = SimpleNamespace(file_size=size, commit_hash=commit)
     with patch("huggingface_hub.hf_hub_download", return_value=info) as download:
         with pytest.raises(ValueError, match="commit|revision"):
             detect._download_metadata("fixture/model", "config.json", SHA)
@@ -116,8 +117,9 @@ def test_download_rechecks_local_size_after_preflight(tmp_path):
     path.write_bytes(b" " * (METADATA_LIMIT + 1))
     info = SimpleNamespace(file_size=2, commit_hash=SHA)
     with patch("huggingface_hub.hf_hub_download", side_effect=[info, str(path)]):
-        with pytest.raises(ValueError, match="size|exceeds"):
+        with pytest.raises(ValueError, match="size changed") as exc:
             detect._download_metadata("fixture/model", "config.json", SHA)
+    assert not isinstance(exc.value, MetadataSizeError)
 
 
 def test_cached_oversized_file_is_rejected_without_network(hub_http):
@@ -131,8 +133,9 @@ def test_cached_oversized_file_is_rejected_without_network(hub_http):
     path = cache / "models--fixture--model" / "snapshots" / SHA / "config.json"
     path.parent.mkdir(parents=True)
     path.write_bytes(b" " * (METADATA_LIMIT + 1))
-    with pytest.raises(ValueError, match="size|exceeds"):
+    with pytest.raises(MetadataSizeError) as exc:
         detect._download_metadata("fixture/model", "config.json", SHA)
+    assert (exc.value.size, exc.value.limit) == (METADATA_LIMIT + 1, METADATA_LIMIT)
     assert visited == []
 
 
@@ -279,7 +282,7 @@ def test_config_fallback_keeps_snapshot_identity_checks(tmp_path, directory, com
     assert any("pinned snapshot" in error or "different model revision" in error for error in diagnostics)
 
 
-@pytest.mark.parametrize("replacement", [b" " * 9, b" "])
+@pytest.mark.parametrize("replacement", [b" " * 100, b" "])
 def test_metadata_checks_bytes_if_file_changes_after_fstat(tmp_path, replacement):
     path = tmp_path / "config.json"
     path.write_bytes(b"{}")
@@ -291,8 +294,12 @@ def test_metadata_checks_bytes_if_file_changes_after_fstat(tmp_path, replacement
         return info
 
     with patch("acprof.hub.repository.os.fstat", side_effect=change_after_stat):
-        with pytest.raises(ValueError, match="exceeds|size"):
-            read_metadata_file(path, max_bytes=8, expected_size=2)
+        with pytest.raises(ValueError, match="exceeds|size") as exc:
+            read_metadata_file(path, max_bytes=8, expected_size=None if len(replacement) > 8 else 2)
+    if len(replacement) > 8:
+        assert isinstance(exc.value, MetadataSizeError)
+        assert exc.value.minimum
+        assert exc.value.size == 9
 
 
 @pytest.mark.parametrize("content", [b"", b"{}"])

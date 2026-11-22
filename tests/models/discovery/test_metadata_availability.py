@@ -3,6 +3,7 @@ import hashlib
 import json
 from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import httpx
@@ -39,6 +40,8 @@ def frozen_metadata(case_id, changes, *, without_inventory=False):
             if name not in changes:
                 return frozen(model, name, revision)
             value = changes[name]
+            if callable(value):
+                return value(model, name, revision)
             if isinstance(value, Exception):
                 raise value
             return MetadataFile(Path(name), value)
@@ -106,8 +109,56 @@ def test_inspect_intact_snapshot_still_resolves(tmp_path, case_id):
     assert resolution["compatibility"]["status"] == "supported"
 
 
-def test_malformed_content_preserves_concurrent_read_error(tmp_path):
-    changes = {"config.json": RequestTimeoutError("timed out"), FILENAME: b"{bad"}
+@pytest.mark.parametrize(("size", "reason", "retry"), [
+    (detect.METADATA_MAX_BYTES + 1, "metadata_size_limit", "not_retryable"),
+    (None, "metadata_size_unknown", "after_configuration"),
+])
+def test_listed_metadata_size_guard_keeps_compatibility_unknown(tmp_path, size, reason, retry):
+    download = detect._download_metadata
+
+    def preflight(**kwargs):
+        assert kwargs["dry_run"] is True
+        return SimpleNamespace(file_size=size, commit_hash=kwargs["revision"])
+
+    output = tmp_path / "inspection"
+    batch = tmp_path / "batch"
+    sample = tmp_path / "sample.json"
+    with frozen_metadata(HF, {FILENAME: download}) as case, patch(
+        "huggingface_hub.hf_hub_download", side_effect=preflight,
+    ) as calls:
+        assert inspect(case, output) == 2
+        sample.write_text(json.dumps({"schema_version": 1, "sampling": "fixed", "weight_basis": "unit",
+                                      "models": [case]}))
+        assert main(["coverage", "run", str(sample), "--output-dir", str(batch)]) == 0
+    assert calls.call_count == 2
+    resolution = json.loads((output / "model_resolution.json").read_bytes())
+    batch_row, = json.loads((batch / "coverage.json").read_bytes())["rows"]
+    for failure in (resolution["failure"], batch_row["failure"]):
+        assert (failure["reason_code"], failure["retryability"]) == ("metadata_unavailable", retry)
+        evidence = failure["evidence"]
+        diagnostic, = evidence["diagnostics"]
+        assert (diagnostic["file"], diagnostic["revision"], diagnostic["lookup_reason"]) == (FILENAME, case["revision"], reason)
+        assert diagnostic["limit_bytes"] == detect.METADATA_MAX_BYTES
+        if size is None:
+            assert "size_bytes" not in diagnostic
+        else:
+            assert diagnostic["size_bytes"] == size
+        assert "raw_sha256" not in diagnostic
+        assert FILENAME not in evidence["sources"]
+        assert str(detect.METADATA_MAX_BYTES) in evidence["next_action"]
+    assert all(option["compatibility"]["status"] == "unknown"
+               for option in resolution["configuration_options"]["backend_candidates"])
+    archive = tmp_path / "archive"
+    assert main(["coverage", "report", str(output), "--output-dir", str(archive)]) == 0
+    archived, = json.loads((archive / "coverage.json").read_bytes())["rows"]
+    assert archived["status"] == "inconclusive"
+    assert archived["failure"]["reason_code"] == "metadata_unavailable"
+
+
+@pytest.mark.parametrize("other_error", ["timeout", "size_limit"])
+def test_malformed_content_preserves_concurrent_read_error(tmp_path, other_error):
+    unreadable = RequestTimeoutError("timed out") if other_error == "timeout" else b" " * (detect.METADATA_MAX_BYTES + 1)
+    changes = {"config.json": unreadable, FILENAME: b"{bad"}
     with frozen_metadata(MS, changes) as case:
         assert inspect(case, tmp_path) == 2
     failure = json.loads((tmp_path / "model_resolution.json").read_bytes())["failure"]

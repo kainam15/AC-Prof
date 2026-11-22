@@ -8,6 +8,7 @@ import pytest
 
 from acprof.hub.repository import (
     MetadataFile,
+    MetadataSizeError,
     modelscope_info,
     modelscope_metadata,
     modelscope_revision,
@@ -65,8 +66,9 @@ def test_modelscope_metadata_size_guard_prevents_weight_download(monkeypatch, tm
     info = SimpleNamespace(sha="a" * 40, siblings=[SimpleNamespace(rfilename="model.safetensors", size=10**10)])
     monkeypatch.setattr("acprof.hub.repository.modelscope_info", lambda *_: info)
     with patch("acprof.hub.repository.modelscope_file") as download:
-        with pytest.raises(ModelFilesError, match="exceeds"):
+        with pytest.raises(MetadataSizeError, match="exceeds") as exc:
             modelscope_metadata("demo/model", "model.safetensors", "a" * 40, 1024, cache_root=tmp_path)
+    assert (exc.value.size, exc.value.limit) == (10**10, 1024)
     download.assert_not_called()
 
 
