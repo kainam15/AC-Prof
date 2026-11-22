@@ -149,7 +149,9 @@ def test_unconfirmed_public_run_saves_review_without_formal_side_effects(boundar
     collection = Mock(side_effect=AssertionError("TaskCollection must wait for confirmation"))
     monkeypatch.setattr(task_runs, "TaskCollection", collection)
 
-    outcome = boundary.application.run(boundary.config)
+    from acprof.host.run_state import MeasurementLock
+    with MeasurementLock():
+        outcome = boundary.application.run(boundary.config)
 
     assert outcome.status == "review_required"
     review = outcome.inference_configuration_review
@@ -458,15 +460,15 @@ def test_confirmed_public_task_reaches_runtime_preparer_with_frozen_configuratio
                      confirm_inference=review["identity_sha256"])
     states = []
 
-    def create_state(output_dir, *args, **kwargs):
-        state = SimpleNamespace(
-            complete=False, layout=ArtifactLayout.for_new_run(output_dir), close=Mock(),
-            preparation_evidence=lambda: SimpleNamespace(capture=lambda workflow: nullcontext()),
-        )
+    def create_state(output_dir, options, *, resume, project_dir):
+        state = run_state.RunState(output_dir, options, resume=resume, project_dir=project_dir)
+        monkeypatch.setattr(state, "close", Mock(wraps=state.close))
         states.append(state)
         return state
 
     reached = Mock(side_effect=RuntimeError("runtime boundary reached without downloading"))
+    monkeypatch.setattr(run_state, "host_identity", lambda _: {"fixture": "fixed"})
+    boundary.workflow.observer = None
     boundary.application.state_factory = create_state
     boundary.application.runtime_preparer = reached
     boundary.application.terminal_start = lambda *args: None

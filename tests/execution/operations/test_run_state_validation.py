@@ -534,3 +534,26 @@ def test_planned_guard_field_names_are_validated(recovery_state):
             {"scales": [1.0], "source": "manual", 1: "non-string key"}, recovery_state.layout,
         )
     assert tree_bytes(recovery_state.directory) == before
+
+
+def test_child_run_state_borrows_only_the_active_measurement_owner(tmp_path, monkeypatch):
+    monkeypatch.setattr(run_state, "host_identity", lambda _: {"fixture": "fixed"})
+    root = tmp_path / "child"
+    create = partial(run_state.RunState, root, {}, resume=False, project_dir=".")
+    with run_state.MeasurementLock() as held:
+        with run_state.state_factory_measurement_scope(root, held):
+            with ThreadPoolExecutor(max_workers=1) as pool, pytest.raises(run_state.RunStateError, match="测量锁"):
+                pool.submit(create).result()
+            with pytest.raises(run_state.RunStateError, match="测量锁"):
+                run_state.RunState(tmp_path / "other", {}, resume=False, project_dir=".")
+            assert not root.exists()
+            assert not (tmp_path / "other").exists()
+            state = create()
+            assert state.measurement_lock is held
+            state.close()
+
+        with pytest.raises(run_state.RunStateError, match="测量锁"):
+            create()
+
+    with run_state.state_factory_measurement_scope(root, held), pytest.raises(run_state.RunStateError, match="owner"):
+        create()

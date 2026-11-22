@@ -17,7 +17,7 @@ from contextlib import AbstractContextManager, ExitStack, contextmanager, nullco
 from dataclasses import asdict, fields
 from datetime import UTC, datetime
 from pathlib import Path
-from threading import Thread, current_thread
+from threading import Thread, current_thread, local
 from typing import TYPE_CHECKING, TypeGuard
 from uuid import uuid4
 
@@ -790,16 +790,34 @@ class MeasurementLock(ResultDirectoryLock):
 
 
 @contextmanager
-def measurement_lock_scope(held: MeasurementLock | None = None) -> Iterator[None]:
+def measurement_lock_scope(held: MeasurementLock | None = None) -> Iterator[MeasurementLock]:
     """Acquire a lock or borrow one from the same synchronous call chain."""
     if held is None:
-        with MeasurementLock():
-            yield
+        with MeasurementLock() as acquired:
+            yield acquired
     else:
         if (not isinstance(held, MeasurementLock) or held._resources is None
                 or held._owner != (os.getpid(), current_thread())):
             raise RunStateError("Cannot borrow a measurement lock outside its active owner scope")
+        yield held
+
+
+class _StateFactoryContext(local):
+    binding: tuple[Path, MeasurementLock] | None = None
+
+
+_state_factory_context = _StateFactoryContext()
+
+
+@contextmanager
+def state_factory_measurement_scope(directory: str | Path, held: MeasurementLock | None) -> Iterator[None]:
+    """Lend this synchronous factory the collection lock for its requested result directory."""
+    previous = _state_factory_context.binding
+    _state_factory_context.binding = (Path(directory).resolve(), held) if held is not None else None
+    try:
         yield
+    finally:
+        _state_factory_context.binding = previous
 
 
 def offline_analysis_lock() -> AbstractContextManager:
@@ -817,9 +835,10 @@ class RunState:
         self.layout = ArtifactLayout.discover(self.directory) if resume else ArtifactLayout.for_new_run(self.directory)
         self.path = self.layout.path(RUN_STATE_NAME)
         self.lock = ResultDirectoryLock(self.directory, new=not resume)
-        self.measurement_lock = MeasurementLock()
+        binding = _state_factory_context.binding
+        held = binding[1] if binding is not None and binding[0] == self.directory else None
         with ExitStack() as locks:
-            locks.enter_context(self.measurement_lock)
+            self.measurement_lock = locks.enter_context(measurement_lock_scope(held))
             locks.enter_context(self.lock)
             attempt: AttemptState = {"attempt_id": uuid4().hex, "started_at": utc_now(),
                                      "pid": os.getpid(), "resume": resume}

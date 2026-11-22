@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import os
 import time
+from contextlib import ExitStack
 from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any
@@ -46,6 +47,7 @@ class TaskCollection:
         self.config, self.task = config, copy.deepcopy(task)
         self.root = collection_root(config)
         self.run_id = uuid4().hex
+        self._restored_manifest_digest: str | None = None
         if config.task_run_id and not config.resume:
             raise ValueError("--task-run-id identifies an existing collection; use --resume")
         self.manifest: dict[str, Any] = {
@@ -108,6 +110,7 @@ class TaskCollection:
         instance.run_id, instance.manifest = data["run_id"], data
         if instance.path.resolve() != path.resolve():
             raise ValueError("task collection path identity changed")
+        instance._restored_manifest_digest = content_digest(data)
         return instance
 
     def child_config(self, selected: dict) -> RunConfig:
@@ -146,8 +149,13 @@ class TaskCollection:
             self.manifest["status"] = "interrupted"
             atomic_write_json(self.path, self.manifest)
 
-        with (ResultDirectoryLock(self.root / "metadata" / "task_run_locks" / self.run_id),
-              cleanup_on_exit(interrupted, description="task collection interruption", on_error_only=True)):
+        with ResultDirectoryLock(self.root / "metadata" / "task_run_locks" / self.run_id), ExitStack() as publication:
+            if self._restored_manifest_digest is not None:
+                current = read_json_object(self.path, label="task collection")
+                if content_digest(current) != self._restored_manifest_digest:
+                    raise ValueError("task collection changed since it was read; retry --resume")
+            publication.enter_context(cleanup_on_exit(interrupted, description="task collection interruption",
+                                                      on_error_only=True))
             self.manifest.update(status="running", pid=os.getpid(), started_at_ns=time.time_ns())
             atomic_write_json(self.path, self.manifest)
             print(f"[tasks] collection={self.run_id}; resume with --task-run-id {self.run_id}", flush=True)

@@ -252,3 +252,62 @@ def test_two_collections_never_overwrite_previous_task_results(tmp_path):
 def test_task_run_path_cannot_escape_result_root(task_run_id):
     with pytest.raises(ValueError, match="task_run_id"):
         RunConfig(model="fixture/model", tasks="summarization", task_run_id=task_run_id).validate()
+
+
+@pytest.mark.parametrize("previous", ["new", "ok", "failed", "interrupted"])
+def test_busy_measurement_preserves_collection_before_any_child_starts(tmp_path, monkeypatch, previous):
+    from acprof.host.run_state import MeasurementLock, RunStateError
+
+    config = replace(RunConfig.smoke("fixture/model"), output_dir=str(tmp_path / "results"))
+    task = selected_model()
+    if previous != "new":
+        collection = TaskCollection(config, task)
+        if previous == "interrupted":
+            with pytest.raises(KeyboardInterrupt):
+                collection.run(Mock(side_effect=KeyboardInterrupt))
+        else:
+            collection.run(Mock(return_value=RunOutcome(previous)))
+        config = replace(config, resume=True, task_run_id=collection.run_id)
+
+    def files():
+        return {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+
+    workflow = Mock()
+    workflow.resolve.return_value = task
+    application = RunApplication(notifications=Mock(spec=RunNotifications), workflow_factory=lambda _: workflow,
+                                 environment_setup=Mock())
+    child = Mock(return_value=RunOutcome("ok"))
+    monkeypatch.setattr(application, "_execute_task_child", child)
+    monkeypatch.setattr(application, "_prepare_inference_configuration", lambda task, *_args, **_kwargs: task)
+    monkeypatch.setattr("acprof.application.run.require_collection_host", Mock())
+    monkeypatch.setattr("acprof.host.runtimes.selection.select_runtime",
+                        Mock(return_value=RuntimeSelection("auto", "docker", "fixture")))
+    before = files()
+    with MeasurementLock(), pytest.raises(RunStateError, match="测量锁"):
+        application.run(config, prepared_task=task)
+    assert files() == before
+    child.assert_not_called()
+
+    result = application.run(config, prepared_task=task)
+    assert result.status == "ok"
+    assert child.call_count == len(task.selected_tasks)
+
+
+def test_stale_resume_preserves_newer_success_and_result_index(tmp_path):
+    config = replace(RunConfig.smoke("fixture/model"), output_dir=str(tmp_path))
+    original = TaskCollection(config, selected_model())
+    original.run(Mock(side_effect=OSError("initial task failed")))
+    resume = replace(config, resume=True, task_run_id=original.run_id)
+    stale = TaskCollection.restore(resume)
+    current = TaskCollection.restore(resume)
+    current.run(lambda child, _task: RunOutcome("ok", str(child.result_csv(tmp_path))))
+
+    published = current.path.read_bytes()
+    assert current.manifest["status"] == "ok"
+    assert len(current.manifest["final_csvs"]) == len(current.task.selected_tasks)
+    execute = Mock(side_effect=OSError("stale client must not run"))
+    with pytest.raises(ValueError, match=r"changed.*--resume"):
+        stale.run(execute)
+    execute.assert_not_called()
+    assert current.path.read_bytes() == published
+    assert TaskCollection.restore(resume).manifest == current.manifest

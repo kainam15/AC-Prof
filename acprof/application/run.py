@@ -47,7 +47,14 @@ from acprof.host.preflight import (
     require_result_cgroup_compatibility,
     require_result_environment,
 )
-from acprof.host.run_state import RunState, load_run_state, run_options
+from acprof.host.run_state import (
+    MeasurementLock,
+    RunState,
+    load_run_state,
+    measurement_lock_scope,
+    run_options,
+    state_factory_measurement_scope,
+)
 from acprof.installation import resource_root
 from acprof.latency_slo import parse_latency_slo_rules, resolve_latency_slo
 from acprof.system.cleanup import cleanup_on_exit, format_exception_notes
@@ -178,18 +185,20 @@ class RunApplication:
                 ):
                     raise
 
-    def _execute_task_child(self, child_config, child_task, *, command: str) -> RunOutcome:
+    def _execute_task_child(self, child_config, child_task, *, command: str,
+                            measurement_lock: MeasurementLock | None = None) -> RunOutcome:
         status = "failed"
         with cleanup_on_exit(lambda: self._finalize(status), description="task finalization"):
             try:
-                result = self._execute(child_config, prepared_task=child_task, command=command, task_child=True)
+                result = self._execute(child_config, prepared_task=child_task, command=command, task_child=True,
+                                       measurement_lock=measurement_lock)
                 status = result.status
                 return result
             except KeyboardInterrupt:
                 status = "cancelled"
                 raise
 
-    def _run_host_preflight(self, args, *, dram_enabled: bool, workflow):
+    def _run_host_preflight(self, args, *, dram_enabled: bool, workflow, measurement_lock: MeasurementLock | None = None):
         def host_preflight():
             gpu = {}
             if args.runtime == "process":
@@ -246,8 +255,7 @@ class RunApplication:
                 measurements["cpu_instructions"] = require_mips_prerequisites()
             return version, topology, measurements
 
-        from acprof.host.run_state import MeasurementLock
-        with MeasurementLock():
+        with measurement_lock_scope(measurement_lock):
             return workflow.run("preflight", host_preflight)
 
     def _collect_matrix(self, args, *, task_info, prepared, cpu_list, mem_list, gpu_list,
@@ -351,7 +359,8 @@ class RunApplication:
 
     @gpu_device_scope()
     def _execute(self, config: RunConfig, *, prepared_task=None,
-                 preparation_artifacts=None, command: str, task_child: bool = False) -> RunOutcome:
+                 preparation_artifacts=None, command: str, task_child: bool = False,
+                 measurement_lock: MeasurementLock | None = None) -> RunOutcome:
         start_time = time.perf_counter()
         from acprof.results.layout import ArtifactLayout
         terminal_output_dir = str(config.result_dir(Path.cwd()))
@@ -453,11 +462,12 @@ class RunApplication:
         if task_info.selected_tasks and not task_child and not (saved_run and args.task_run_id):
             from acprof.application.task_runs import TaskCollection
             collection = collection or TaskCollection(config, task_info)
-            result = collection.run(
-                lambda child_config, child_task: self._execute_task_child(
-                    child_config, child_task, command=command,
+            with measurement_lock_scope() as collection_lock:
+                result = collection.run(
+                    lambda child_config, child_task: self._execute_task_child(
+                        child_config, child_task, command=command, measurement_lock=collection_lock,
+                    )
                 )
-            )
             if result.status != "ok":
                 raise CollectionFailed(f"Some tasks failed; see {collection.path}",
                                        task_collection_path=str(collection.path))
@@ -471,7 +481,7 @@ class RunApplication:
         self.notifications.notify_started()
 
         cgroup_version, rapl_topology, preflight_measurements = self._run_host_preflight(
-            args, dram_enabled=dram_enabled, workflow=workflow,
+            args, dram_enabled=dram_enabled, workflow=workflow, measurement_lock=measurement_lock,
         )
         from acprof.platform import detect_environment
         collection_environment = detect_environment()
@@ -505,8 +515,9 @@ class RunApplication:
             output_dir,
             cgroup_version=cgroup_version,
         )
-        run_state = self.state_factory(output_dir, run_options(args), resume=args.resume, project_dir=PROJECT_DIR,
-                             **({"preparation_artifacts": preparation_artifacts} if preparation_artifacts else {}))
+        with state_factory_measurement_scope(output_dir, measurement_lock):
+            run_state = self.state_factory(output_dir, run_options(args), resume=args.resume, project_dir=PROJECT_DIR,
+                                           **({"preparation_artifacts": preparation_artifacts} if preparation_artifacts else {}))
         self.run_state = run_state
         if run_state.complete:
             print(f"[resume] 实验已经完成：{run_state.layout.result_csv}")
