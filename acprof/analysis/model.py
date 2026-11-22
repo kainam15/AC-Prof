@@ -42,6 +42,8 @@ from acprof.results.profile import (
     observation_signature,
 )
 
+_DEVICE_MODES = {"CPU": "off", "GPU": "on"}
+
 DIMENSIONS = ("run_id", "model", "runtime", "device", "cpu", "memory", "gpu", "concurrency",
               "environment_class", "task", "input_case", "experiment_batch",
               "runtime_kind", "runtime_id", "resource_scope")
@@ -119,6 +121,15 @@ def _report_window_coordinates(row, *, run_id, recorded_source, complete_key):
     return None, warmup, repeat
 
 
+def _report_device(row) -> str:
+    if mode := _text(row.get("gpu_mode"), default=""):
+        return "GPU" if normalize_gpu_mode(mode) == "on" else "CPU"
+    # Historical descriptive tables can carry only a free-form device label.
+    label = _text(row.get("device"))
+    canonical = label.upper()
+    return canonical if canonical in _DEVICE_MODES else label
+
+
 def _identity(row, meta, run_id, batch, *, coordinates):
     environment = recorded_identity(meta)["environment_class"]
     recorded = _text(row.get("environment_class"))
@@ -126,9 +137,7 @@ def _identity(row, meta, run_id, batch, *, coordinates):
         recorded = "unknown"
     if environment != "unknown" and recorded not in {"unknown", environment}:
         raise ValueError("inconsistent environment_class between CSV and metadata")
-    mode = _text(row.get("gpu_mode"), default="")
-    # Historical analysis tables may contain only a device label, with no mode.
-    device = {"off": "CPU", "on": "GPU"}[normalize_gpu_mode(mode)] if mode else _text(row.get("device"))
+    device = _report_device(row)
     axes = {name: number(row.get(name)) for name in ("cpu_cores", "mem_cap_gb", "input_scale")}
     if coordinates is not None:
         for field, key in zip(KEY_FIELDS, coordinates, strict=True):
@@ -429,7 +438,8 @@ def load_analysis(sources) -> AnalysisModel:
                     raise ValueError(f"{kind} measurement for run {identity['run_id']}: {path}:{line}; first seen {previous}")
                 seen_keys[key] = (signature, f"{path}:{line}")
             eligible = is_measured_success(row) and warmup == "0"
-            mode = row.get("gpu_mode")
+            # Unclassified devices retain the source-wide quality evidence.
+            mode = _DEVICE_MODES.get(identity["device"])
             if mode not in device_quality:
                 device_quality[mode] = read_quality(path, device=mode, metadata_snapshot=metadata_snapshot)
             values = {name: None if type(value := row[name]) is str and value in MISSING_CSV_TEXT else number(value)

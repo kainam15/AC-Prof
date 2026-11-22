@@ -1,5 +1,6 @@
 """Report entry point, offline serialization and artifact protection."""
 import contextlib
+import csv
 import io
 import json
 import os
@@ -54,6 +55,48 @@ class TestReport:
         with contextlib.redirect_stderr(io.StringIO()), pytest.raises(SystemExit):
             main(["report", str(self.source), "--output", str(output)])
         assert (output.read_text()) == (content)
+
+    @pytest.mark.parametrize(("field", "devices"), [
+        ("gpu_mode", ["off", "on", "on"]),
+        ("gpu_mode", ["0.0", " Yes ", "GPU"]),
+        ("device", ["Cpu", "gpu", "GPU"]),
+    ])
+    def test_report_attributes_quality_to_the_displayed_device(self, field, devices):
+        from acprof.quality import loading_quality
+
+        gpu_check, = loading_quality({"missing_keys": ["head.weight"]}, source="fixture-loader")
+        gpu_check["evidence"]["device"] = "on"
+        shared = {"code": "model_checked", "severity": "info", "detail": "checked", "evidence": {}}
+        (self.root / "quality_checks.json").write_text(json.dumps({
+            "schema_version": 1, "checks": [shared, gpu_check],
+        }))
+        with self.source.open("w", newline="") as stream:
+            writer = csv.writer(stream)
+            writer.writerow([field, "repeat_idx", "warmup", "status", "repeat_in_window",
+                             "cpu_energy_total_j", "gpu_energy_total_j"])
+            for index, device in enumerate(devices):
+                writer.writerow([device, index, 0, "ok", 2, 3, 4])
+            if field == "device":
+                writer.writerow(["unclassified", 0, 0, "ok", 2, 3, 4])
+
+        assert main(["report", str(self.source)]) == 0
+        html = (self.root / "report.html").read_text()
+        report_data = html.split('<script id="report-data" type="application/json">', 1)[1]
+        payload = json.loads(report_data.split("</script>", 1)[0])
+        assert payload["sources"][0]["quality_status"] == "blocked"
+        configs = {
+            config["device"]: (config["valid_windows"], config["quality_status"], config["auto_selection_eligible"],
+                               [check["code"] for check in config["quality_checks"]])
+            for config in payload["configs"]
+        }
+        blocked = ["model_checked", "weights_reinitialized"]
+        expected = {"CPU": (1, "passed", True, ["model_checked"]), "GPU": (2, "blocked", False, blocked)}
+        if field == "device":
+            expected["unclassified"] = (1, "blocked", False, blocked)
+        assert configs == expected
+        energy = {config["device"]: config["metrics"]["observed_energy_per_request_j"]["value"]
+                  for config in payload["configs"]}
+        assert energy == ({"CPU": 3, "GPU": 7, "unclassified": None} if field == "device" else {"CPU": 3, "GPU": 7})
 
     def test_baseline_is_unique_and_errors_do_not_publish_a_report(self):
         from acprof.analysis.model import load_analysis

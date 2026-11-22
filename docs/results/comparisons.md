@@ -295,5 +295,9 @@ OpenAI-compatible 模式另用 `stream_load_experiment`／`stream_load_result`�
 
 HTML 默认显示全部观测；“质量范围”可筛选满足质量要求的候选，“质量状态”可单独筛选。
 配置行分开展示运行、完整性、可比性和质量状态；选中行后可展开完整原始质量证据。
+`acprof report` 按配置设备归属质量检查。`gpu_mode` 的 CPU/GPU 别名与 `off/on` 等效；
+历史表仅记录 `device` 时，CPU/GPU 标签忽略大小写，使用同一设备身份汇总窗口、计算能耗并筛选质量。
+未限定设备的检查适用于两侧。
+设备无法识别的配置沿用整份来源的质量证据，保留其中的阻断项。
 矩阵优劣配色与 Pareto frontier 排除 blocked/unknown 候选，不隐藏其原始数值。
 HTML 条件资格与严格比较一致，数值变化仍是描述性汇总；跨独立实验区间使用 `acprof compare`。
