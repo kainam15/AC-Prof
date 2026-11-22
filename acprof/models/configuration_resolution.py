@@ -99,8 +99,12 @@ def _route(task_info, backend: str, profile: str):
     from acprof.tasks.interfaces import execution_path, validate_execution_identity
 
     failure = task_info.model_resolution.get("failure", {})
-    if failure.get("reason_code") in {"metadata_invalid", "evidence_conflict", "model_contract_required"}:
-        raise ValueError(f"inference configuration is blocked: {failure['detail']}")
+    diagnostics = getattr(task_info, "metadata_diagnostics", ())
+    if diagnostics or failure.get("reason_code") in {
+        "metadata_invalid", "metadata_unavailable", "evidence_conflict", "model_contract_required",
+    }:
+        detail = failure.get("detail") or "; ".join(item["detail"] for item in diagnostics)
+        raise ValueError(f"inference configuration is blocked: {detail}")
     view = copy.deepcopy(task_info)
     if not view.selected_tasks:
         raise ValueError("select an inference task before configuring it")

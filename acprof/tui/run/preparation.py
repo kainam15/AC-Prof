@@ -158,6 +158,11 @@ def failure_views(request: dict, stage: str) -> tuple[StatusSummary, CalloutCont
     )
     failure = request.get("failure", {})
     code = failure.get("reason_code")
+    summary = StatusSummary(level="error", headline=message("{0}：{1}", "失败阶段", _FAILURE_STAGE_NAMES.get(failed, "模型运行")))
+    if code in {"metadata_invalid", "metadata_unavailable"} or (
+        code in {"access_denied", "artifact_incomplete"} and failure.get("evidence", {}).get("diagnostics")
+    ):
+        return summary, reason_presentation(code, failure.get("detail", ""))
     if code in _FAILURE_CATEGORIES:
         category = _FAILURE_CATEGORIES[code]
         problem: list[str] = [message_id("run.failure.type", failure.get("exception_type") or code),
@@ -171,7 +176,7 @@ def failure_views(request: dict, stage: str) -> tuple[StatusSummary, CalloutCont
         if error := failure.get("evidence", {}).get("log_capture_error"):
             hints.append(message_id("run.failure.log_incomplete", error))
         reason, hint = join_messages("\n", problem), join_messages("\n", hints)
-    return StatusSummary(level="error", headline=message("{0}：{1}", "失败阶段", _FAILURE_STAGE_NAMES.get(failed, "模型运行"))), CalloutContent(
+    return summary, CalloutContent(
         level="error",
         problem=reason,
         impact=message_id("run.preparation.not_measuring_impact"),

@@ -21,7 +21,7 @@ from acprof.runtime.profiles import locked_transformers_version, select_runtime_
 from acprof.tasks.interfaces import validate_execution_identity
 
 _UNKNOWN_FAILURES = {
-    "metadata_invalid", "model_contract_required", "evidence_conflict",
+    "metadata_invalid", "metadata_unavailable", "access_denied", "model_contract_required", "evidence_conflict",
     "task_selection_required", "artifact_layout_unknown", "runtime_dependency_unknown",
 }
 
@@ -76,8 +76,12 @@ def _upstream_failure(task_info: Any, *, explicit_task: bool) -> Failure | None:
 def _record_failure(candidate: dict[str, Any], task_info: Any, failure: Failure) -> None:
     failure = record_resolution_failure(task_info, failure)
     candidate.update(status=task_info.model_resolution["status"], selectable=False, failure=failure.to_dict())
+    # A file read can establish absence, but not whether this backend requires the file.
+    missing_metadata = failure.reason_code == "artifact_incomplete" and any(
+        item.get("lookup_reason") == "entry_not_found" for item in failure.evidence.get("diagnostics", ())
+    )
     candidate["compatibility"].update(
-        status="unknown" if failure.reason_code in _UNKNOWN_FAILURES else "unsupported",
+        status="unknown" if missing_metadata or failure.reason_code in _UNKNOWN_FAILURES else "unsupported",
         reason_code=failure.reason_code, detail=failure.detail,
         next_action=failure.evidence["next_action"],
     )

@@ -41,7 +41,16 @@ Process 可选指标缺失不会使必要检查失败，JSON 中的 `required` �
 
 `acprof inspect MODEL` 只进行静态解析；`--explain` 显示固定 revision、字段来源和未决项。
 `--output-dir DIR` 导出 `model_resolution.json`。任务选择、配置、元数据、制品或运行环境的静态阻断退出 2，
-保留可用的解析证据；模型访问或网络错误退出 1。分类见[共享接口解析](../models/routing.md#共享接口解析)。
+保留可用的解析证据；无法取得模型身份的仓库查询失败退出 1。分类见[共享接口解析](../models/routing.md#共享接口解析)。
+
+如果仓库清单已固定，读取清单内的元数据遇到缓存未命中、网络超时或服务暂不可用，会以
+`metadata_unavailable` 阻断准备。查看 `failure.evidence.diagnostics` 中的文件名和 `lookup_reason`，
+补齐缓存或恢复连接后可重试相同 revision。明确拒绝访问记为 `access_denied`；
+仓库明确确认固定文件缺失时记为 `artifact_incomplete`。已读原始字节无法解析则记为
+`metadata_invalid`，保留文件摘要与解析位置。普通的 ModelScope 404 也可能指向私有资源，此时文件是否缺失仍未知。
+快照清单中某个元数据文件读取失败时，后端候选会保留未知兼容性。缺少加载器必需分片的诊断由制品检查单独记录。
+归档报告将 `metadata_unavailable` 显示为 `inconclusive`。连接恢复后可用
+`acprof coverage run SAMPLE --output-dir DIR --resume --retry-reason metadata_unavailable` 重试相应样本。
 
 Hub 暂时不可用时，`inspect` 可以从指定 revision 的缓存配置识别任务。Diffusers 使用根目录的 `model_index.json`。例如，Hugging Face 缓存中只有 Stable Diffusion v1.5 的流水线索引时，可离线查看任务及其来源。
 

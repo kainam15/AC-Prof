@@ -104,6 +104,7 @@ _REASONS = {
     "task_selection_required": ("warning", "task_selection"),
     "model_contract_required": ("warning", "model_configuration"),
     "evidence_conflict": ("error", "model_conflict"),
+    "metadata_unavailable": ("warning", "metadata_unavailable"),
     "metadata_invalid": ("error", "model_metadata"),
     "runtime_unavailable": ("error", "runtime_unavailable"),
     "backend_unsupported": ("error", "backend_unsupported"),

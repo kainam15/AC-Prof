@@ -19,7 +19,7 @@ REASON_CODES = frozenset({
     "access_denied", "runtime_initialization_failed", "remote_code_disallowed",
     "compatibility_budget_exhausted", "recorded_evidence_invalid", "inference_failed",
     "input_budget_exceeded", "task_selection_required", "evidence_conflict", "runtime_unavailable",
-    "backend_unsupported", "metadata_invalid", "artifact_incomplete", "artifact_layout_unknown",
+    "backend_unsupported", "metadata_invalid", "metadata_unavailable", "artifact_incomplete", "artifact_layout_unknown",
     "inference_configuration_mismatch", "inference_configuration_unverified",
 })
 FAILURE_PREFIX = "ACPROF_FAILURE="
@@ -88,7 +88,7 @@ def compatibility_status(failure: Failure | dict) -> str:
     if code == "resource_limit":
         return "unverified"
     if code in {"request_timeout", "compatibility_budget_exhausted", "runtime_dependency_unknown",
-                "recorded_evidence_invalid"}:
+                "recorded_evidence_invalid", "metadata_unavailable"}:
         return "inconclusive"
     if code in {"model_contract_required", "input_budget_exceeded"}:
         return "needs_configuration"

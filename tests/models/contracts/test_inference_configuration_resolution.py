@@ -313,3 +313,12 @@ def test_frozen_code_evidence_keeps_existing_source_scopes_distinct():
         "process_service": "process-service-v1",
     }
     assert all(len(value["sha256"]) == 64 for value in identities.values())
+
+
+def test_draft_preserves_metadata_diagnostic_before_failure_is_formatted():
+    task = _model()
+    task.metadata_diagnostics = ({"file": "config.json", "reason_code": "metadata_unavailable",
+                                  "detail": "pinned configuration could not be read"},)
+    assert "failure" not in task.model_resolution
+    with pytest.raises(ValueError, match="pinned configuration could not be read"):
+        _draft(task)

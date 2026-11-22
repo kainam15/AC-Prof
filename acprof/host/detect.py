@@ -13,7 +13,11 @@ from pathlib import Path
 from typing import Any
 
 from acprof.extensions import CATALOG, UnsupportedExtensionError
-from acprof.host.preparation.model_errors import ModelLookupError, model_lookup_error
+from acprof.host.preparation.model_errors import (
+    ModelLookupError,
+    metadata_read_diagnostic,
+    model_lookup_error,
+)
 from acprof.hub.huggingface.auth import hf_token_for_url
 from acprof.hub.huggingface.download import hf_endpoint_scope
 from acprof.hub.repository import MetadataFile, modelscope_info_scope, read_metadata_file
@@ -183,6 +187,9 @@ def _repository_metadata(
         except Exception as exc:
             if files:
                 errors.append(f"{name}: {_format_failure(exc)}")
+                # Size, revision and integrity guards have their own validation errors.
+                if name not in sources and not isinstance(exc, ModelFilesError) and type(exc) is not ValueError:
+                    diagnostics.append(metadata_read_diagnostic(model_id, revision, name, exc))
             else:
                 _record_failure(lookup_diagnostics, "model_index", _format_failure(exc))
         # A listed file failed to load. Its error takes precedence over later alternatives.
@@ -785,22 +792,28 @@ def detect_task(
     from acprof.hub.repository import model_source
     info.model_source = model_source()
     info.requested_revision = revision
-    if info.metadata_diagnostics:
-        from acprof.failures import Failure
-        from acprof.models.inspection.decision import record_resolution_failure
-
+    invalid = next((item for item in info.metadata_diagnostics if item["reason_code"] == "metadata_invalid"), None)
+    if invalid:
+        # Invalid content must not reach candidate discovery.
         info.model_resolution.update(
             schema_version=1, model_id=model_id, model_revision=info.model_revision,
             candidates=[], runtime_validation="not_run",
         )
+    else:
+        from acprof.models.candidates import apply_model_candidate, discover_model_candidates
+        info.model_resolution = apply_model_candidate(info, discover_model_candidates(
+            info, override_tag=override_tag, override_backend=override_backend))
+    if info.metadata_diagnostics:
+        from acprof.failures import Failure
+        from acprof.models.inspection.decision import record_resolution_failure
+
+        primary = invalid or info.metadata_diagnostics[0]
         record_resolution_failure(info, Failure(
-            "preflight", "metadata_invalid", "; ".join(info.metadata_errors),
+            "preflight" if invalid else "resolution", primary["reason_code"], "; ".join(info.metadata_errors),
             evidence={"diagnostics": list(info.metadata_diagnostics), "sources": info.metadata_sources},
+            retryability=primary.get("retryability", "not_retryable"), exception_type=primary.get("exception_type", ""),
         ))
         return info
-    from acprof.models.candidates import apply_model_candidate, discover_model_candidates
-    info.model_resolution = apply_model_candidate(info, discover_model_candidates(
-        info, override_tag=override_tag, override_backend=override_backend))
     if not info.metadata_errors:
         from acprof.models.contract import apply_model_contract
         source_revision = info.model_revision

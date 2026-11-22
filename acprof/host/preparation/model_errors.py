@@ -112,3 +112,24 @@ def model_lookup_error(model_id: str, exc: BaseException, *, revision: str | Non
     detail = "\n".join(diagnostics) if diagnostics else f"{type(exc).__name__}: {exc}"
     download_error = next((cause.to_dict() for cause in exception_chain(exc) if isinstance(cause, HfDownloadError)), None)
     return ModelLookupError(model_id, reason, revision=revision or "", detail=detail, download_error=download_error)
+
+
+def metadata_read_diagnostic(model_id: str, revision: str, filename: str, exc: Exception) -> dict:
+    """Classify a listed file read at the provider boundary, before any JSON is parsed."""
+    from huggingface_hub.errors import LocalEntryNotFoundError, RemoteEntryNotFoundError
+
+    lookup = model_lookup_error(model_id, exc, revision=revision)
+    reason = lookup.reason_code
+    code = "metadata_unavailable"
+    if isinstance(exc, RemoteEntryNotFoundError):
+        reason, code = "entry_not_found", "artifact_incomplete"
+    elif reason == "access_denied":
+        code = "access_denied"
+    elif reason == "lookup_failed" and isinstance(exc, LocalEntryNotFoundError):
+        # This SDK error can also wrap a transport failure, which takes precedence above.
+        reason = "local_cache_miss"
+    return {
+        "reason_code": code, "lookup_reason": reason, "file": filename, "revision": revision,
+        "detail": lookup.detail, "exception_type": type(exc).__name__,
+        "retryability": "transient" if lookup.retryable else "after_configuration",
+    }

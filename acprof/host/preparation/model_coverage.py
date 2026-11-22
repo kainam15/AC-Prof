@@ -225,7 +225,7 @@ def _evaluate_model(item: dict, output: Path, *, probe, cpus, memory_gb, gpu,
         if probe == "full" and stage == "runtime":
             row["runtime_status"] = compatibility_status(failure)
         row.update(failed_stage=failure.stage, error_type=type(exc).__name__)
-        if stage == "access":
+        if stage == "access" or (stage in {"resolution", "support"} and failure.reason_code == "access_denied"):
             row["resolution_status"] = compatibility_status(failure)
         if stage == "runtime":
             path = output / "runtime_validation.json"

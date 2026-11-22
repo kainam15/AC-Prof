@@ -36,8 +36,8 @@ MESSAGES: dict[str, Entry] = {
         zh="实验产物格式不受支持。", en="The experiment artifact format is unsupported.",
     ),
     "structured.reason.artifact_incomplete.impact": Entry(
-        zh="当前快照缺少加载所需的权重、分片或组件。",
-        en="The snapshot is missing weights, shards or components required for loading.",
+        zh="当前快照缺少已报告的配置、权重分片或组件文件。",
+        en="The snapshot is missing the reported configuration, weight shard or component file.",
     ),
     "structured.reason.artifact_incomplete.next": Entry(
         zh="根据技术详情补齐缺失文件，或选择完整的固定 revision。",
@@ -142,6 +142,16 @@ MESSAGES: dict[str, Entry] = {
     ),
     "structured.reason.input_budget.problem": Entry(
         zh="输入超过当前预算限制。", en="The input exceeds the current budget.",
+    ),
+    "structured.reason.metadata_unavailable.impact": Entry(
+        zh="当前证据不足以确认模型接口兼容性。", en="The available evidence does not establish interface compatibility.",
+    ),
+    "structured.reason.metadata_unavailable.next": Entry(
+        zh="检查该文件的缓存和仓库连接，再用相同的固定版本重试。",
+        en="Check the cached file and repository connection, then retry the same pinned revision.",
+    ),
+    "structured.reason.metadata_unavailable.problem": Entry(
+        zh="未能读取固定版本的模型元数据。", en="The pinned model metadata could not be read.",
     ),
     "structured.reason.model_artifact_format.impact": Entry(
         zh="模型标签或配置文件不能代替兼容的权重制品。",

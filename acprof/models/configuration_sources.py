@@ -207,8 +207,12 @@ def discover_configuration_sources(
     if any(not isinstance(spec, ParameterSpec) for spec in specs) or len({spec.name for spec in specs}) != len(specs):
         raise ValueError("configuration sources require unique parameter declarations")
     diagnostics = copy.deepcopy(list(getattr(task_info, "metadata_diagnostics", ()) or ()))
+    # The reader also retains legacy "filename: detail" messages. Only surface those
+    # here when a structured diagnosis for that file is absent.
+    diagnosed = tuple(f"{item['file']}:" for item in diagnostics if item.get("file"))
     for detail in getattr(task_info, "metadata_errors", ()) or ():
-        diagnostics.append({"reason_code": "metadata_unavailable", "file": None, "json_pointer": "", "detail": detail})
+        if not detail.startswith(diagnosed):
+            diagnostics.append({"reason_code": "metadata_unavailable", "file": None, "json_pointer": "", "detail": detail})
     documents = dict(getattr(task_info, "repository_metadata", {}) or {})
     records = getattr(task_info, "metadata_sources", {}) or {}
     kinds = dict.fromkeys(documents, "repository_metadata")

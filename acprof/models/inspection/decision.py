@@ -20,6 +20,7 @@ _NEXT_ACTIONS = {
     "artifact_layout_unsupported": "Select artifacts supported by the registered loader; changing a Hub tag is insufficient.",
     "artifact_incomplete": "Provide the missing checkpoint files or select a complete pinned artifact snapshot.",
     "artifact_layout_unknown": "Obtain the pinned repository file list before claiming artifact compatibility.",
+    "metadata_unavailable": "Check the pinned file in the cache or restore repository access, then retry the same revision.",
     "metadata_invalid": "Review the source file and field diagnostics; correct the metadata or select a valid revision.",
     "runtime_dependency_missing": "Prepare the registered runtime dependencies and inspect the same model again.",
     "runtime_dependency_incompatible": "Select a registered runtime with compatible pinned dependency versions.",
