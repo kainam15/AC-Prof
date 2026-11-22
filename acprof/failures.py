@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -94,6 +95,35 @@ def compatibility_status(failure: Failure | dict) -> str:
     if code == "access_denied":
         return "access_denied"
     return "failed"
+
+
+def ordered_validation_failures(validation: Mapping, device_failures: list[tuple[dict, dict]]) -> list[dict]:
+    """Put the device that stopped the probe first, preserving the other diagnoses."""
+    status = validation.get("status")
+    if status in ("error", "inconclusive"):
+        def stopped_probe(item: tuple[dict, dict]) -> bool:
+            device, _ = item
+            cleanup = device.get("cleanup_error")
+            # A timeout remains the probe failure when cleanup sets the overall status to error.
+            return device.get("status") == status or (
+                status == "error" and validation.get("cleanup_status") == "incomplete"
+                and device.get("status") == "inconclusive" and isinstance(cleanup, dict)
+                and cleanup.get("status") == "incomplete"
+            )
+
+        device_failures = sorted(device_failures, key=stopped_probe, reverse=True)
+    return [failure for _, failure in device_failures]
+
+
+def coverage_row_failures(row: dict) -> list[dict]:
+    """Read device failures or the single primary failure in older coverage attempts."""
+    failures = row.get("failures")
+    if failures is not None:
+        if not isinstance(failures, list) or not all(isinstance(item, dict) for item in failures):
+            raise ValueError("coverage row failures must be a list of objects")
+        if failures:
+            return failures
+    return [row["failure"]] if row.get("failure") else []
 
 
 def read_runtime_failures(path: str | Path) -> list[dict[str, Any]]:

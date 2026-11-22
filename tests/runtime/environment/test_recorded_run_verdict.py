@@ -50,6 +50,42 @@ def test_file_exports_agree_without_losing_probe_and_capability_results(tmp_path
     assert f"| {verdict} |" in (output / "REPORT.md").read_text()
 
 
+@pytest.mark.parametrize(("overall", "second_status", "code", "cleanup", "verdict", "primary_device"), [
+    ("error", "error", "inference_failed", False, "failed", "on"),
+    ("inconclusive", "inconclusive", "request_timeout", False, "inconclusive", "on"),
+    ("error", "inconclusive", "request_timeout", True, "inconclusive", "on"),
+    ("error", "inconclusive", "request_timeout", False, "unverified", "off"),
+])
+def test_recorded_probe_selects_the_terminal_device_failure(tmp_path, overall, second_status, code, cleanup, verdict, primary_device):
+    source = recorded_run(tmp_path / "model", state={"status": "failed"})
+    cpu = Failure("runtime_validation", "resource_limit", "CPU memory limit", device="off").to_dict()
+    gpu = Failure("predict", code, "GPU request stopped", device="on").to_dict()
+    probe = {"status": overall, "devices": {
+        "off": {"status": "resource_limit", "failure": cpu},
+        "on": {"status": second_status, "failure": gpu},
+    }}
+    if cleanup:
+        probe["cleanup_status"] = "incomplete"
+        probe["devices"]["on"]["cleanup_error"] = {"status": "incomplete", "detail": "cleanup stopped"}
+    (source / "runtime_validation.json").write_text(json.dumps(probe))
+    output = tmp_path / "report"
+    row, = report_results([source], output)["rows"]
+    device_failures = [gpu, cpu] if primary_device == "on" else [cpu, gpu]
+    primary = device_failures[0]
+    assert row["failure"] == primary
+    assert row["failures"] == device_failures
+    assert row["runtime_status"] == overall
+    with (output / "models.csv").open(newline="") as stream:
+        exported, = csv.DictReader(stream)
+    assert (exported["status"], exported["reason_code"], exported["device"]) == (verdict, primary["reason_code"], primary_device)
+
+    formal = Failure("measurement", "request_timeout", "formal window deadline", device="off").to_dict()
+    (source / "runtime_failures.json").write_text(json.dumps({"failures": [formal]}))
+    row, = report_results([source], tmp_path / "with-formal-failure")["rows"]
+    assert row["failure"] == formal
+    assert row["failures"] == [formal, *device_failures]
+
+
 def test_typed_failure_wins_without_hiding_the_recorded_run_state(tmp_path):
     source = recorded_run(tmp_path / "model", state={"status": "failed"})
     failure = Failure("predict", "request_timeout", "request exceeded its budget").to_dict()

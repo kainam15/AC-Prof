@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import TextIO
 
 from acprof.artifacts import atomic_write
-from acprof.failures import Failure, compatibility_status
+from acprof.failures import Failure, compatibility_status, ordered_validation_failures
 from acprof.hub.repository import MODEL_SOURCES
 from acprof.quality import combine_quality, read_quality, summarize_quality
 from acprof.results.validation_cleanup import (
@@ -424,13 +424,13 @@ def _collect_compatibility_failures(
             layout, "runtime_validation.json", raw_failure, f"device {device!r} failure", invalid,
         )
         if validated is not None:
-            device_failures.append(validated)
+            device_failures.append((value, validated))
     resolution_failure = resolution.get("failure")
     if resolution_failure is not None:
         resolution_failure = _validated_compatibility_failure(
             layout, "model_resolution.json", resolution_failure, "failure", invalid,
         )
-    failures = [*recorded_failures, *device_failures]
+    failures = [*recorded_failures, *ordered_validation_failures(validation, device_failures)]
     if resolution_failure:
         failures.append(resolution_failure)
     failures.extend(invalid)

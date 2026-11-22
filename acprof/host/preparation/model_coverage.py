@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from acprof.artifacts import atomic_write_json, read_json_object
+from acprof.failures import coverage_row_failures, ordered_validation_failures
 from acprof.hub.huggingface.auth import hf_token_for_url
 from acprof.hub.repository import MODEL_SOURCES, model_source_scope
 from acprof.models.evidence import pinned_revision
@@ -101,7 +102,7 @@ def summarize(rows: list[dict], *, probe_requested: bool, sample_weight: float) 
         "weighted_abstain_rate": rate(weight(lambda row: row["resolution_status"] == "abstained")),
         "weighted_runtime_success_rate": rate(weight(lambda row: row["runtime_status"] == "ok")) if probe_requested else None,
         "weighted_resource_limited_rate": rate(weight(lambda row: row["runtime_status"] == "resource_limited" or
-            (row.get("failure") or {}).get("reason_code") == "resource_limit")) if probe_requested else None,
+            any(failure.get("reason_code") == "resource_limit" for failure in coverage_row_failures(row)))) if probe_requested else None,
         "weighted_access_denied_rate": rate(weight(lambda row: row["resolution_status"] == "access_denied")) if probe_requested else None,
         "semantic_reviewed_weight": reviewed_weight,
         "semantic_accuracy_on_reviewed_selections": rate(sum(row["weight"] for row in reviewed if row["semantic_correct"]), reviewed_weight),
@@ -169,6 +170,7 @@ def _evaluate_model(item: dict, output: Path, *, probe, cpus, memory_gb, gpu,
     stage = "resolution"
     task = None
     identity_verified = False
+    device_failures: list[dict] = []
     validation: Mapping[str, Any] | None = None
     try:
         task = detect_task(item["model_id"], revision=item["revision"])
@@ -211,9 +213,10 @@ def _evaluate_model(item: dict, output: Path, *, probe, cpus, memory_gb, gpu,
                                                 timeout_seconds=timeout_seconds, measurement_lock=measurement_lock)
             row["runtime_status"] = validation["status"]
             row["quality_checks"] = [check for value in validation.get("devices", {}).values() for check in value.get("quality_checks", [])]
-            failures = [value["failure"] for value in validation.get("devices", {}).values() if value.get("failure")]
-            if failures:
-                row["failure"] = failures[0]
+            device_failures = ordered_validation_failures(validation, [
+                (device, device["failure"])
+                for device in validation.get("devices", {}).values() if device.get("failure")
+            ])
     except (Exception, SystemExit) as exc:
         from acprof.failures import Failure, compatibility_status, failure_from_exception
         if identity_verified:
@@ -249,7 +252,7 @@ def _evaluate_model(item: dict, output: Path, *, probe, cpus, memory_gb, gpu,
                         if recorded_failure is not None:
                             if not isinstance(recorded_failure, dict):
                                 raise ValueError(f"{path}: runtime validation failure must be an object")
-                            structured.append(Failure(**recorded_failure).to_dict())
+                            structured.append((device, Failure(**recorded_failure).to_dict()))
                         failed_stage = device.get("failed_stage")
                         if failed_stage is not None:
                             if not isinstance(failed_stage, str) or not failed_stage:
@@ -265,10 +268,13 @@ def _evaluate_model(item: dict, output: Path, *, probe, cpus, memory_gb, gpu,
                     row["quality_checks"] = quality_checks
                     row["runtime_status"] = validation["status"]
                     if structured:
-                        row["failure"] = structured[0]
-                        row["reason_code"] = structured[0]["reason_code"]
-                        row["runtime_status"] = compatibility_status(structured[0])
+                        device_failures = ordered_validation_failures(validation, structured)
+                        row["runtime_status"] = compatibility_status(device_failures[0])
                     row["failed_stage"] = ",".join(failed_stages) or stage
+    if device_failures:
+        row["failure"] = device_failures[0]
+        if len(device_failures) > 1:
+            row["failures"] = device_failures
     if row.get("failure"):
         row["reason_code"] = row["failure"]["reason_code"]
         row["next_action"] = row["failure"].get("evidence", {}).get("next_action") or (

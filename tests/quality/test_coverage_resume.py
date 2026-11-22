@@ -303,6 +303,40 @@ class TestCoverageResume:
                 self.run_batch(probe="full", gpu=True, resume=True)
         probe.assert_not_called()
 
+    @pytest.mark.parametrize(("status", "code", "expected"), [
+        ("error", "inference_failed", "failed"),
+        ("inconclusive", "request_timeout", "inconclusive"),
+    ])
+    def test_recovered_validation_selects_the_terminal_device_failure(self, status, code, expected):
+        self.sample["models"] = self.sample["models"][:1]
+        cpu = Failure("runtime_validation", "resource_limit", "CPU memory limit", device="off").to_dict()
+        gpu = Failure("predict", code, "GPU request stopped", device="on")
+
+        def failed_probe(task, output, **kwargs):
+            probe = {"status": status, "devices": {
+                "off": {"status": "resource_limit", "failure": cpu},
+                "on": {"status": status, "failure": gpu.to_dict(), "failed_stage": "predict"},
+            }}
+            (output / "runtime_validation.json").write_text(json.dumps(probe))
+            raise RuntimeFailure(gpu)
+
+        with patch("acprof.host.preparation.model_inspection.validate_model_runtime", side_effect=failed_probe):
+            report = self.run_batch(probe="full")
+        row, = report["rows"]
+        assert row["failure"] == gpu.to_dict()
+        assert row["failures"] == [gpu.to_dict(), cpu]
+        assert row["failed_stage"] == "predict"
+        assert row["reason_code"] == code
+        assert report["summary"]["runtime_counts"] == {expected: 1}
+        assert report["summary"]["weighted_resource_limited_rate"] == 1
+
+        with patch("acprof.host.preparation.model_inspection.validate_model_runtime", return_value={"status": "ok"}) as probe:
+            retried = self.run_batch(probe="full", resume=True, retry_stages=["runtime_validation"],
+                                     retry_reasons=["resource_limit"])
+        probe.assert_called_once()
+        assert retried["summary"]["runtime_counts"] == {"ok": 1}
+        assert retried["summary"]["weighted_resource_limited_rate"] == 0
+
     def test_cleanup_failure_stops_batch_after_preserving_run_and_cleanup_evidence(self):
         original_failure = self.failure().failure.to_dict()
         cleanup = {"schema_version": 1, "status": "incomplete", "container_id": "c" * 64,

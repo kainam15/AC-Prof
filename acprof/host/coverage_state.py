@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from acprof.artifacts import atomic_write_json, read_json_object
+from acprof.failures import coverage_row_failures
 from acprof.host.run_state import utc_now
 from acprof.models.evidence import content_digest
 
@@ -144,14 +145,15 @@ class CoverageState:
             for index, row in sorted(self.rows.items()):
                 if verified(row, self.report["probe"]):
                     continue
-                failure = row.get("failure") or {}
-                stages = set(str(row.get("failed_stage", "")).split(",")) | {failure.get("stage", "")}
+                failures = coverage_row_failures(row)
+                stages = set(str(row.get("failed_stage", "")).split(","))
+                stages.update(failure.get("stage", "") for failure in failures)
                 if row.get("cleanup_status") == "incomplete":
                     stages.add("cleanup")
-                reason = failure.get("reason_code", row.get("reason_code", ""))
+                reasons = {failure.get("reason_code", row.get("reason_code")) for failure in failures or [{}]}
                 if retry_stages and not stages.intersection(retry_stages):
                     continue
-                if retry_reasons and reason not in retry_reasons:
+                if retry_reasons and not reasons.intersection(retry_reasons):
                     continue
                 indices.append(index)
             if not indices:
