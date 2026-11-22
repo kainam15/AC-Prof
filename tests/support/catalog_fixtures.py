@@ -43,9 +43,9 @@ class CatalogFixture:
         from acprof.results.layers import publish_result_rows
         publish_result_rows(
             ["cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale", "warmup",
-             "repeat_idx", "status"],
+             "repeat_idx", "status", "error"],
             [dict(cpu_cores="1", mem_cap_gb="4", gpu_mode="off", input_scale="2",
-                  warmup="0", repeat_idx="0", status="ok")],
+                  warmup="0", repeat_idx="0", status="ok", error="")],
             path,
         )
         return path

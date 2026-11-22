@@ -63,7 +63,7 @@ class TestExperimentCatalog(CatalogFixture):
         assert (set(report.records[0].aliases)) == ({original, copy})
         from acprof.results.layers import publish_result_rows, read_result_layers
         fields, rows = read_result_layers(copy)
-        rows[0]["status"] = "error"
+        rows[0].update(status="error", error="fixture request timed out")
         publish_result_rows(fields, rows, copy)
         report = scan_experiments([self.root])
         assert ('run_id_content_conflict') in (report.records[0].issues)
