@@ -52,6 +52,74 @@ class TestIndependentReport:
         assert ('1c/4G → 2c/8G') in (view.rows[0].cells[1])
         assert ('allowed_resource_dimensions') in (view.note)
 
+    @pytest.mark.parametrize("missing", ["left", "right"])
+    def test_scaling_import_keeps_the_missing_side_and_exact_present_side(self, missing):
+        from acprof.tui.ui.presentation import UNKNOWN
+
+        source, report = self.report(1)
+        report.update(purpose="resource-scaling", coordinate_identity="recorded_decimal_v1")
+        group = report["groups"][0]
+        cpu = {"cpu_cores": float(2**53), "mem_cap_gb": None, "exact_coordinates": {"cpu_cores": str(2**53 + 1)}}
+        group.update(**cpu, input_scale=None, resource_coordinates={side: None if side == missing else cpu
+                                                                    for side in ("left", "right")})
+        group["exact_coordinates"] = {**cpu["exact_coordinates"], "input_scale": "1E+400"}
+        group[missing].update(n_runs=0, runs=[], mean=None)
+        group.update(ratio=None, difference=None, difference_ci=None, ratio_ci=None)
+        source.write_text(json.dumps(report))
+
+        cells = read_report(source).rows[0].cells
+        present = "9007199254740993c/inheritedG"
+        expected = f"{UNKNOWN} → {present}" if missing == "left" else f"{present} → {UNKNOWN}"
+        assert cells[1] == f"{expected}/off/1E+400"
+
+    def test_scaling_import_validates_the_other_sides_exact_coordinates(self):
+        source, report = self.report(1)
+        report["purpose"] = "resource-scaling"
+        sides = report["groups"][0]["resource_coordinates"]
+        sides["right"]["exact_coordinates"] = {"cpu_cores": "2.0000000000000001"}
+        source.write_text(json.dumps(report))
+        with pytest.raises(ValueError, match="独立实验比较"):
+            read_report(source)
+
+    def test_unknown_coordinate_identity_is_rejected_even_on_an_empty_report(self):
+        source, report = self.report(1)
+        report.update(coordinate_identity="future", groups=[])
+        source.write_text(json.dumps(report))
+        with pytest.raises(ValueError, match="独立实验比较"):
+            read_report(source)
+
+    @pytest.mark.parametrize("purpose", ["same-hardware", "cross-hardware"])
+    def test_recorded_fixed_resource_group_rejects_a_different_right_quota(self, purpose):
+        source, report = self.report(1)
+        report["purpose"] = purpose
+        report["groups"][0]["resource_coordinates"]["right"]["cpu_cores"] = 2
+        source.write_text(json.dumps(report))
+        with pytest.raises(ValueError, match="独立实验比较"):
+            read_report(source)
+
+        del report["coordinate_identity"]
+        source.write_text(json.dumps(report))
+        assert read_report(source).rows[0].cells[1].startswith("1c/4G → 2c/4G/")
+
+    def test_a_versioned_group_must_identify_its_recorded_sides(self):
+        source, report = self.report(1)
+        del report["groups"][0]["resource_coordinates"]
+        source.write_text(json.dumps(report))
+        with pytest.raises(ValueError, match="对照|comparison|Comparison|比较"):
+            read_report(source)
+
+    def test_recorded_group_resources_must_match_the_reported_baseline(self):
+        source, report = self.report(1)
+        group = report["groups"][0]
+        group["cpu_cores"] = 2
+        source.write_text(json.dumps(report))
+        with pytest.raises(ValueError, match="对照|comparison|Comparison|比较"):
+            read_report(source)
+
+        del report["coordinate_identity"], group["resource_coordinates"]
+        source.write_text(json.dumps(report))
+        assert read_report(source).rows[0].cells[1].startswith("2c/4G/")
+
     def test_insufficient_independent_runs_is_the_first_visible_explanation(self):
         source, _ = self.report(1)
         assert ("insufficient_independent_runs") in (read_report(source).rows[0].cells[0])

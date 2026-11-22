@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Literal, overload
 
 from acprof.analysis.changes import metric_change
+from acprof.analysis.coordinates import COORDINATE_IDENTITY, RESOURCE_AXES, report_coordinate_labels
 from acprof.analysis.uncertainty import WINDOW_FILTER
 from acprof.messages import join_messages, message
 from acprof.tui.i18n import message_id
@@ -75,11 +76,8 @@ def _count(value) -> int:
     return value
 
 
-def _resource_label(record, name, suffix):
-    if name not in record:
-        raise ValueError(message_id('results.report.invalid_number'))
-    value = record[name]
-    return "inherited" + suffix if value is None else f"{_number(value):g}{suffix}"
+def _resource_label(axes: dict[str, str]) -> str:
+    return f"{axes['cpu_cores']}c/{axes['mem_cap_gb']}G"
 
 
 def _interval(row: dict, low_key: str, high_key: str) -> tuple[float | None, float | None]:
@@ -143,10 +141,11 @@ def _windows(source: Path, data: dict) -> ReportView:
         mode = group.get("gpu_mode")
         if mode not in {"on", "off"}:
             raise ValueError(message_id('results.report.invalid_device_configuration'))
-        config = "/".join((_resource_label(group, 'cpu_cores', 'c'),
-                           _resource_label(group, 'mem_cap_gb', 'G'),
-                           "GPU" if mode == "on" else "CPU",
-                           f"{_number(group.get('input_scale')):g}"))
+        try:
+            axes = report_coordinate_labels(group)
+        except ValueError as error:
+            raise ValueError(message_id('results.report.invalid_device_configuration')) from error
+        config = "/".join((_resource_label(axes), "GPU" if mode == "on" else "CPU", axes["input_scale"]))
         inapplicable = name == "gpu_energy_total_j" and mode == "off" and count == 0
         missing_value = NOT_APPLICABLE if inapplicable else UNKNOWN
         mean_text = missing_value if mean is None else f"{mean * multiplier:.6g} {display_unit}".strip()
@@ -210,10 +209,35 @@ def _comparisons(source: Path, data: dict) -> ReportView:
     return ReportView(source, title, ("对照", "配对轮数", "延迟变化", "95% 区间", "判断"), tuple(rows), note)
 
 
+def _comparison_config(group: dict, report: dict) -> str:
+    axes = report_coordinate_labels(group)
+    resources = _resource_label(axes)
+    if "resource_coordinates" in group or report.get("coordinate_identity") == COORDINATE_IDENTITY:
+        sides = group.get("resource_coordinates")
+        if not isinstance(sides, dict) or set(sides) != {"left", "right"}:
+            raise ValueError("invalid comparison resource coordinates")
+        side_labels = []
+        for side in ("left", "right"):
+            record = sides[side]
+            if record is not None and not isinstance(record, dict):
+                raise ValueError("invalid comparison resource coordinates")
+            side_labels.append(None if record is None else _resource_label(report_coordinate_labels(record, RESOURCE_AXES)))
+        left, right = side_labels
+        scaling = report.get("purpose") == "resource-scaling"
+        if report.get("coordinate_identity") == COORDINATE_IDENTITY and (
+            resources != (left or right) or (not scaling and right is not None and right != resources)
+        ):
+            raise ValueError("conflicting comparison resource coordinates")
+        if left != right and (scaling or (left and right)):
+            resources = join_messages(" → ", (left or UNKNOWN, right or UNKNOWN))
+    return join_messages("/", (resources, _text(group.get("gpu_mode")), axes["input_scale"]))
+
+
 def _independent_comparison(source: Path, data: dict) -> ReportView:
     confidence = _number(data.get("confidence"))
     if (not 0 < confidence < 1 or data.get("resampling_unit") != "independent_run_mean"
             or data.get("direction") != "right_minus_left_and_right_divided_by_left"
+            or ("coordinate_identity" in data and data["coordinate_identity"] != COORDINATE_IDENTITY)
             or data.get("status") not in {"compatible", "incompatible", "unknown"}):
         raise ValueError(message_id('results.comparison.invalid_contract'))
     rows = []
@@ -248,14 +272,10 @@ def _independent_comparison(source: Path, data: dict) -> ReportView:
         reason = _text(group.get("reason")) or _text(group.get("comparability"))
         qualities = "/".join(_text(side.get("quality_status"), "unknown") for side in (left, right))
         explanation = f"{reason} · quality={qualities}"
-        config = "/".join((_resource_label(group, 'cpu_cores', 'c'), _resource_label(group, 'mem_cap_gb', 'G'),
-                           _text(group.get("gpu_mode")), f"{_number(group.get('input_scale')):g}"))
-        coordinates = group.get("resource_coordinates", {})
-        if (isinstance(coordinates, dict) and coordinates.get("left") and coordinates.get("right")
-                and coordinates["left"] != coordinates["right"]):
-            config = " → ".join(_resource_label(coordinates[side], 'cpu_cores', 'c') + "/" +
-                                 _resource_label(coordinates[side], 'mem_cap_gb', 'G') for side in ("left", "right")) + "/" + "/".join((
-                                     _text(group.get("gpu_mode")), f"{_number(group.get('input_scale')):g}"))
+        try:
+            config = _comparison_config(group, data)
+        except ValueError as error:
+            raise ValueError(message_id('results.comparison.invalid_contract')) from error
         detail = json.dumps(group, ensure_ascii=False, indent=2)
         rows.append(ReportRow((explanation, config, message(_METRIC_LABELS.get(metric, metric)),
             value(left.get("mean")), value(right.get("mean")), UNKNOWN if percent is None else f"{percent:+.6g}%",

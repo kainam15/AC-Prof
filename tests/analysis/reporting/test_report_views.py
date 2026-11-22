@@ -34,6 +34,28 @@ class TestReportView:
         with pytest.raises(CancelledError):
             read_report(self.path, cancelled=lambda: True)
 
+    def test_imported_statistics_preserve_exact_and_legacy_resource_and_scale_labels(self):
+        groups = [
+            dict(self.group, input_scale=scale) for scale in (1.0000001, 1.0000002)
+        ]
+        groups.extend([
+            dict(self.group, cpu_cores=9007199254740993),
+            dict(self.group, cpu_cores=None, mem_cap_gb=None, input_scale=2.0,
+                 exact_coordinates={"mem_cap_gb": "1E+400", "input_scale": "2.0000000000000001"}),
+        ])
+        view = self.read({**self.window, "groups": groups})
+        assert [row.cells[0] for row in view.rows] == [
+            "2c/8G/CPU/1.0000001", "2c/8G/CPU/1.0000002", "9007199254740993c/8G/CPU/64",
+            "inheritedc/1E+400G/CPU/2.0000000000000001",
+        ]
+
+    @pytest.mark.parametrize("exact", [[], {"ignored_field": "2"}, {"input_scale": 64},
+                                       {"input_scale": "65.0000000000000001"}, {"cpu_cores": "Infinity"}])
+    def test_imported_statistics_reject_invalid_exact_coordinates(self, exact):
+        with pytest.raises(ValueError, match="无效设备配置") as caught:
+            self.read({**self.window, "groups": [dict(self.group, exact_coordinates=exact)]})
+        assert translate(caught.value.args[0], "en") == "Invalid device configuration in report"
+
     def test_window_units_confidence_level_zero_and_missing_values_are_explicit(self):
         data = deepcopy(self.window)
         data["confidence"] = 0.9
