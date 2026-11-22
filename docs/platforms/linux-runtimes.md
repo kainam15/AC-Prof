@@ -100,8 +100,13 @@ acprof load results/process-smoke --gpu off --requests 5 --warmup 1 \
 `gpu_device_uuid` 仍表示选定设备的身份：Docker 使用现有 device request 选择，Process 使用 CUDA 可见序号解析，
 具体来源保存在 `gpu_device` 元数据中；共享字段的登记来源为 `selected_device_identity`，数值与归属范围没有替换。
 
-数值矩阵优先使用当前 unit 内已有的可写 cgroup v2 委派子树，或启动前显式设置的
-`ACPROF_CGROUP_ROOT`。预检区分 v1/v2、所需控制器缺失、委派/写权限不足、可见父级配额不足
+数值矩阵从当前进程的 cgroup 往上查找，优先使用能把本次所需 controller 分给实验子组的最近委派目录。
+例如 systemd 的 `DelegateSubgroup=controller` 把服务进程放在叶组内时，CLI 和 TUI 可在同一
+service 的委派根创建实验子组。自动查找止于当前 service / scope 或可见挂载边界，跳过 systemd
+管理的 slice、user manager 和挂载根。设置 `ACPROF_CGROUP_ROOT` 时只检查指定目录。
+当前进程和选中父级的可见配额都约束数值请求。请求所需的可见限额若因权限无法读取，预检会报告权限错误。
+参见 [systemd 对 DelegateSubgroup 的定义](https://github.com/systemd/systemd/blob/main/man/systemd.resource-control.xml)。
+预检区分 v1/v2、所需控制器缺失、委派/写权限不足、可见父级配额不足
 和回读/进程归属验证失败。只请求 CPU 时不要求 Memory 控制器，反之亦然。
 
 安全修复只使用当前用户已有权限：在空的委派根启用本次需要的 controller，创建唯一实验子组，

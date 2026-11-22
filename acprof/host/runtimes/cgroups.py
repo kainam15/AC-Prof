@@ -120,40 +120,62 @@ def inspect(cpu: int | None, memory: int | None, current: Path | None) -> Resour
     if parent is None:
         return replace(result, code='unsupported')
     parents = tuple(ancestors(parent))
-    # Prefer existing delegation; never walk outside a configured root to repair it.
-    if not explicit:
-        candidates = []
-        for candidate in parents:
-            candidates.append(candidate)
-            # Do not cross into the systemd user manager's independently owned tree.
-            if candidate.name.endswith(('.service', '.scope')):
-                break
-        parent = next((p for p in candidates if delegated(p)), parent)
+    result = replace(result, parent=str(parent))
+    try:
+        supported = (parents[-1] / 'cgroup.controllers').read_text().split()
+    except OSError as exc:
+        return failure(result, exc).diagnostic
+    controllers_supported = set(required) <= set(supported)
+    if explicit:
+        return _inspect_parent(parent, result, controllers_supported=controllers_supported)
+
+    first_failure = None
+    for candidate in parents:
+        if (candidate == parents[-1] or candidate.name.endswith('.slice')
+                or candidate.name == 'init.scope' or re.fullmatch(r'user@\d+\.service', candidate.name)):
+            break
+        diagnostic = _inspect_parent(candidate, result, controllers_supported=controllers_supported)
+        if diagnostic.code in {'ready', 'controller_missing'}:
+            return diagnostic
+        # Prefer the closest writable delegation's specific failure to a leaf
+        # where we cannot create children at all.
+        if first_failure is None or (not first_failure.writable and diagnostic.writable):
+            first_failure = diagnostic
+        if candidate.name.endswith(('.service', '.scope')):
+            break
+    return first_failure or replace(result, code='permission_denied' if controllers_supported else 'controller_missing')
+
+
+def _inspect_parent(parent: Path, result: ResourceDiagnostic, *, controllers_supported: bool) -> ResourceDiagnostic:
     result = replace(result, parent=str(parent), writable=delegated(parent))
+    required = set(result.required)
     try:
         available = tuple((parent / 'cgroup.controllers').read_text().split())
         enabled = tuple((parent / 'cgroup.subtree_control').read_text().split())
+        result = replace(result, controllers=available, enabled=enabled)
+        if not controllers_supported:
+            return replace(result, code='controller_missing')
+        if not result.writable:
+            return replace(result, code='permission_denied')
+        if not required <= set(available):
+            return replace(result, code='delegation_missing')
+        if not required <= set(enabled):
+            members = (parent / 'cgroup.procs').read_text().split()
+            if members and not _can_move_self(parent, members):
+                detail = ('delegated parent contains other processes' if members != [str(os.getpid())]
+                          else 'occupied subgroup cannot enable controllers in place')
+                return replace(result, code='delegation_missing', detail=f'{detail}; no processes were moved')
     except OSError as exc:
         return failure(result, exc).diagnostic
-    result = replace(result, controllers=available, enabled=enabled)
-    supported = (tuple(ancestors(parent))[-1] / 'cgroup.controllers').read_text().split()
-    if not set(required) <= set(supported):
-        return replace(result, code='controller_missing')
-    if not result.writable:
-        return replace(result, code='permission_denied')
-    if not set(required) <= set(available):
-        return replace(result, code='delegation_missing')
-    if not set(required) <= set(enabled) and (parent / 'cgroup.procs').read_text().strip() and not _can_move_self(parent):
-        return replace(result, code='delegation_missing', detail='delegated parent contains other processes; no processes were moved')
     return result
 
 
-def _can_move_self(parent: Path) -> bool:
+def _can_move_self(parent: Path, members: list[str]) -> bool:
     # The unit owns eventual cleanup of this controller leaf. Never relocate a
     # shell, supervisor, another application or an entire login session.
     return (Path('/run/systemd/system').is_dir()
             and parent.name.endswith(('.service', '.scope')) and current_cgroup() == parent
-            and (parent / 'cgroup.procs').read_text().split() == [str(os.getpid())])
+            and members == [str(os.getpid())])
 
 
 def enable_controllers(diagnostic: ResourceDiagnostic) -> ResourceDiagnostic:
@@ -164,8 +186,9 @@ def enable_controllers(diagnostic: ResourceDiagnostic) -> ResourceDiagnostic:
     # Recheck immediately before repair; never disable controllers.
     if not delegated(parent):
         raise ProcessResourceError(replace(diagnostic, code='permission_denied'))
-    if (parent / 'cgroup.procs').read_text().strip():
-        if not _can_move_self(parent):
+    members = (parent / 'cgroup.procs').read_text().split()
+    if members:
+        if not _can_move_self(parent, members):
             raise ProcessResourceError(replace(diagnostic, code='delegation_missing'))
         controller = parent / f'acprof-controller-{os.getpid()}'
         controller.mkdir()  # Never take over an existing subgroup.

@@ -94,6 +94,13 @@ class ProcessLimits:
     def _check_parent_limits(self):
         from dataclasses import replace
         cpu, memory = self.cpu, self.memory
+        # The experiment may become a sibling of the caller. Its delegated
+        # parent cannot establish a limit that was unreadable on the caller.
+        for ancestor in self.inherited['visible_ancestor_limits']:
+            for axis in self.diagnostic.required:
+                limit = ancestor[f'{axis}.max']
+                if limit['status'] == 'permission_denied':
+                    raise ProcessResourceError(replace(self.diagnostic, code='permission_denied', detail=limit['error']))
         evidence = []
         failure = ''
         if cpu is not None and self.affinity:

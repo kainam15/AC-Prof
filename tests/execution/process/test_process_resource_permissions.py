@@ -36,12 +36,12 @@ def test_failed_verification_cannot_leave_previous_verified_evidence(monkeypatch
 
 
 @pytest.fixture
-def hierarchy(tmp_path, monkeypatch):
+def hierarchy(tmp_path, monkeypatch, request):
     """A synthetic kernel hierarchy: mkdir creates virtual files; rmdir removes them."""
     from acprof.host.runtimes import cgroups
     root = tmp_path / 'cgroup'
     root.mkdir()
-    parent = root / 'delegated'
+    parent = root / getattr(request, 'param', 'delegated')
     parent.mkdir()
     current = parent / 'controller'
     current.mkdir()
@@ -50,7 +50,7 @@ def hierarchy(tmp_path, monkeypatch):
                            'cgroup.procs': '', 'cpu.max': 'max 100000', 'memory.max': 'max'}.items():
             (path / name).write_text(text)
     proc = tmp_path / 'proc-cgroup'
-    proc.write_text('0::/delegated/controller\n')
+    proc.write_text(f'0::/{parent.name}/controller\n')
     mountinfo = tmp_path / 'mountinfo'
     mountinfo.write_text(f'37 28 0:31 / {root} rw - cgroup2 cgroup2 rw\n')
     monkeypatch.setattr(cgroups, 'CGROUP_ROOT', root)
@@ -180,6 +180,111 @@ def test_find_existing_delegated_ancestor_without_changing_current_group(hierarc
     assert cgroups.current_cgroup() == current
     assert (current / 'cgroup.procs').read_text() == ''
     assert not list(parent.glob('acprof-*'))
+
+
+@pytest.mark.parametrize('hierarchy', ['app.service'], indirect=True)
+@pytest.mark.parametrize(('mode', 'status', 'code', 'picked'), [
+    ('automatic', 'ok', 'ready', 'app.service'),
+    ('already-has-workers', 'ok', 'ready', 'app.service'),
+    ('explicit-parent', 'ok', 'ready', 'app.service'),
+    ('explicit-leaf', 'fail', 'delegation_missing', 'controller'),
+    ('ancestor-capped', 'fail', 'parent_limit', 'app.service'),
+    ('leaf-capped', 'fail', 'parent_limit', 'app.service'),
+    ('leaf-limit-unreadable', 'fail', 'permission_denied', 'app.service'),
+])
+def test_process_preflight_chooses_a_usable_parent_for_a_populated_leaf(
+    hierarchy, monkeypatch, mode, status, code, picked,
+):
+    from dataclasses import replace
+
+    from acprof.experiments.configuration import RunConfig
+    from acprof.host.runtimes import cgroups
+    from acprof.tui.run.diagnostics import quick_preflight
+
+    root, parent, current = hierarchy
+    monkeypatch.delenv('ACPROF_CGROUP_ROOT')
+    if mode in {'explicit-parent', 'explicit-leaf'}:
+        monkeypatch.setenv('ACPROF_CGROUP_ROOT', str(parent if mode == 'explicit-parent' else current))
+    if mode in {'ancestor-capped', 'leaf-capped'}:
+        capped = parent if mode == 'ancestor-capped' else current
+        (capped / 'memory.max').write_text(str(512 * 1024**2))
+    elif mode == 'leaf-limit-unreadable':
+        read = Path.read_text
+
+        def read_limit(path, *args, **kwargs):
+            if path == current / 'memory.max':
+                raise PermissionError(13, 'fixture caller quota unreadable', str(path))
+            return read(path, *args, **kwargs)
+
+        monkeypatch.setattr(Path, 'read_text', read_limit)
+    members = str(cgroups.os.getpid()) + ('\n99999' if mode == 'already-has-workers' else '')
+    (current / 'cgroup.procs').write_text(members)
+    (current / 'cgroup.subtree_control').write_text('')
+    monkeypatch.setattr('acprof.host.runtimes.process_control.require_process_supervision', lambda: None)
+    monkeypatch.setattr('acprof.host.runtimes.capabilities.probe_collection_plan', lambda *a, **kw: {'probes': {}})
+    monkeypatch.setattr(cgroups, 'with_guidance', lambda diagnostic: diagnostic)
+    config = replace(RunConfig.smoke('fixture/model'), runtime='process', profiling_mode='basic',
+                     cpus='2', mems='1', gpus='off')
+    row, = (row for row in quick_preflight(config, project_dir=root) if row.check_id == 'process_resources')
+    assert row.status == status
+    assert row.resource_diagnostic.code == code
+    assert Path(row.resource_diagnostic.parent).name == picked
+    assert (current / 'cgroup.procs').read_text() == members
+    assert (current / 'cgroup.subtree_control').read_text() == ''
+    assert not list(root.rglob('acprof-*'))
+    if mode == 'explicit-leaf':
+        assert 'other processes' not in row.resource_diagnostic.detail
+    if mode == 'leaf-limit-unreadable':
+        assert str(current / 'memory.max') in row.resource_diagnostic.detail
+
+
+@pytest.mark.parametrize('hierarchy', ['app.service'], indirect=True)
+def test_missing_controller_on_leaf_can_use_empty_delegation_root(hierarchy, monkeypatch):
+    from acprof.host.runtimes import cgroups
+    _, parent, current = hierarchy
+    monkeypatch.delenv('ACPROF_CGROUP_ROOT')
+    (parent / 'cgroup.subtree_control').write_text('memory')
+    (current / 'cgroup.controllers').write_text('memory')
+    (current / 'cgroup.subtree_control').write_text('')
+    (current / 'cgroup.procs').write_text(str(cgroups.os.getpid()))
+    diagnostic = resources.preflight_resources([1], [None], '')
+    assert diagnostic.parent == str(parent)
+    assert diagnostic.repaired
+    assert set((parent / 'cgroup.subtree_control').read_text().split()) == {'cpu', 'memory'}
+
+
+def test_unreadable_caller_memory_limit_does_not_block_cpu_only(hierarchy, monkeypatch):
+    from acprof.host.runtimes import cgroups
+    _, parent, current = hierarchy
+    monkeypatch.delenv('ACPROF_CGROUP_ROOT')
+    (current / 'cgroup.subtree_control').write_text('')
+    (current / 'cgroup.procs').write_text(str(cgroups.os.getpid()))
+    read = Path.read_text
+
+    def read_cpu_only(path, *args, **kwargs):
+        if path == current / 'memory.max':
+            raise PermissionError(13, 'fixture unreadable memory limit', str(path))
+        return read(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, 'read_text', read_cpu_only)
+    diagnostic = resources.preflight_resources([1], [None], '')
+    assert diagnostic.code == 'ready'
+    assert diagnostic.parent == str(parent)
+
+
+@pytest.mark.parametrize('hierarchy', ['user@1000.service', 'system.slice', 'init.scope'], indirect=True)
+def test_automatic_discovery_excludes_manager_owned_ancestors(hierarchy, monkeypatch):
+    from acprof.host.runtimes import cgroups
+    root, manager, current = hierarchy
+    monkeypatch.delenv('ACPROF_CGROUP_ROOT')
+    access = cgroups.os.access
+    monkeypatch.setattr(cgroups.os, 'access', lambda path, mode:
+                        not Path(path).is_relative_to(current) and access(path, mode))
+    diagnostic = cgroups.inspect(1, 1, current)
+    assert diagnostic.code == 'permission_denied'
+    assert diagnostic.parent == str(current)
+    assert not list(root.rglob('acprof-*'))
+    assert (manager / 'cgroup.procs').read_text() == ''
 
 
 def test_inherited_mode_needs_no_controllers_or_repair(monkeypatch):
