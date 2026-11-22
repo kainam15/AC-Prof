@@ -20,6 +20,7 @@ from acprof.tui.run.progress import ProgressSnapshot
 from acprof.tui.ui.dialogs import ConfirmActionScreen
 from acprof.tui.ui.input import BarCursorInput
 from tests.support.tui_fixtures import AcprofTui
+from tests.support.tui_waits import wait_for_condition
 
 
 class RecordingDriver(Driver):
@@ -101,6 +102,18 @@ class TestTuiInput:
                 for field in app.query(Input)
             ))
             field = app.query_one("#model", Input)
+
+            async def assert_visible_caret(column):
+                # A form relayout can resize the input before its queued horizontal scroll runs.
+                await wait_for_condition(
+                    pilot, lambda: 0 <= column - field.scroll_offset.x < field.content_region.width,
+                    description=f"input viewport to reveal column {column}", timeout=5,
+                    diagnostics=lambda: f"region={field.content_region}, scroll={field.scroll_offset}",
+                )
+                expected = field.content_region.offset + Offset(column - field.scroll_offset.x, 0)
+                assert field.content_region.contains(*expected)
+                assert app._input_cursor_offset() == expected
+
             for value, position in (
                 ("", 0), ("abc", 0), ("abc", 1), ("abc", 3),
                 ("模型abc", 2), ("模型abc", 5), ("abcdef" * 20, 120),
@@ -108,18 +121,12 @@ class TestTuiInput:
                 field.value = value
                 field.cursor_position = position
                 await pilot.pause()
-                expected = field.content_region.offset + Offset(
-                    cell_len(value[:position]) - field.scroll_offset.x, 0,
-                )
-                assert (app._input_cursor_offset()) == (expected)
-                assert (field.content_region.contains(*expected))
+                await assert_visible_caret(cell_len(value[:position]))
                 assert (field.value) == (value)
 
             await pilot.resize_terminal(80, 24)
             await pilot.pause()
-            expected = field.content_region.offset + Offset(cell_len(field.value) - field.scroll_offset.x, 0)
-            assert field.content_region.contains(*expected)
-            assert app._input_cursor_offset() == expected
+            await assert_visible_caret(cell_len(field.value))
 
             field.value = "abcd"
             await pilot.click("#model", offset=(3, 1))
