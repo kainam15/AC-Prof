@@ -55,7 +55,9 @@ def parse_input_scale(token: str) -> float:
 
 
 def format_input_scale(value: float) -> str:
-    """Serialize the runtime decimal coordinate, keeping historical integer labels."""
+    """Preserve recorded integers and the decimal coordinate of runtime floats."""
+    if isinstance(value, int):
+        return str(int(value))
     number = float(value)
     text = str(number)
     return str(int(Decimal(text))) if number.is_integer() else text

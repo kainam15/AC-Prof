@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from acprof.config import SCALING_DIMENSIONS
 from acprof.experiments.configuration import ConfigIssue, RunConfig
+from acprof.experiments.constraints import format_input_scale, parse_input_scale
 from acprof.extensions import CATALOG
 from acprof.gpu_mode import normalize_gpu_mode
 from acprof.messages import join_messages
@@ -69,7 +70,7 @@ def estimate_run(config: RunConfig, planned: dict | None = None) -> RunEstimate:
     cpus, mems, gpus = resource_matrix(config.to_namespace())
     cases = len(cpus) * len(mems) * len(gpus)
     scales = len(planned["scales"]) if planned and planned.get("scales") else (
-        len({float(value) for value in config.input_scales.split(",")}) if config.input_scales else
+        len({parse_input_scale(value) for value in config.input_scales.split(",")}) if config.input_scales else
         1 if config.input_scale_policy == "minimal" else None)
     if scales is None:
         return RunEstimate(cases, None, None, None, None)
@@ -131,7 +132,7 @@ def _plan_details(
     config: RunConfig, planned: dict | None, estimate: RunEstimate, *,
     download_budget: str, model_store: str,
 ) -> tuple[FactRow, ...]:
-    scales = (", ".join(f"{value:g}" for value in planned["scales"])
+    scales = (", ".join(map(format_input_scale, planned["scales"]))
               if planned and planned.get("scales") else config.input_scales)
     assumption = (message_id("run.plan.assumed_request_duration") if config.repeat_in_window
                   else message_id("run.plan.assumed_window_duration", config.repeat_window_seconds))

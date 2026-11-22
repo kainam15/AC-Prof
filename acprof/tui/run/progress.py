@@ -10,6 +10,7 @@ from typing import Any
 
 from acprof.events.preparation import parse_event as parse_preparation_event
 from acprof.events.progress import parse_event
+from acprof.experiments.constraints import format_input_scale
 from acprof.messages import message
 from acprof.tui.i18n import message_id
 from acprof.tui.run.stages import Stage
@@ -158,7 +159,7 @@ class RunProgressTracker:
             self._case_id = case_id
             candidates = event["memory_candidates"]
             updates.update(stage=Stage.PREPARING_MEMORY_PROBE,
-                detail=message_id('run.probe.memory_candidates', ",".join(map(str, candidates)), f'{event["input_scale"]:g}'),
+                detail=message_id('run.probe.memory_candidates', ",".join(map(str, candidates)), format_input_scale(event["input_scale"])),
                 current_case=0, completed_cases=0, total_cases=len(candidates),
                 cpu=str(event["cpu"]), mem="-", gpu=event["gpu"], measurement_active=False)
         elif case_id == self._case_id:
@@ -176,7 +177,7 @@ class RunProgressTracker:
                 self._case_id = ""
             elif name == "probe_memory_started":
                 updates.update(stage=Stage.SCANNING_MEMORY,
-                    detail=message_id('run.probe.trying_memory', event["mem"], f'{event["input_scale"]:g}'),
+                    detail=message_id('run.probe.trying_memory', event["mem"], format_input_scale(event["input_scale"])),
                     current_case=event["current"], total_cases=event["total"],
                     completed_cases=max(state.completed_cases, event["current"] - 1),
                     cpu=str(event["cpu"]), mem=str(event["mem"]), gpu=event["gpu"], measurement_active=False)
@@ -195,7 +196,7 @@ class RunProgressTracker:
                     completed_cases=max(state.completed_cases, state.current_case), measurement_active=False)
             elif name == "probe_finished":
                 status = event["status"]
-                detail = (message_id('run.probe.success_summary', event["mem"], f'{event["input_scale"]:g}',
+                detail = (message_id('run.probe.success_summary', event["mem"], format_input_scale(event["input_scale"]),
                     _format_probe_duration(event.get("request_s")),
                     _format_probe_duration(event.get("cold_start_s")),
                     _format_probe_duration(event.get("ready_plus_request_s"))) if status == "ok" else

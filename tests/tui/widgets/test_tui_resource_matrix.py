@@ -143,3 +143,18 @@ async def test_probe_recovers_after_editing_inherited_profiler_reference(tmp_pat
             pilot, lambda: app.experiments.pending_launch is None, description="probe confirmation dismissed", timeout=3,
         )
         assert app.preflight.preparation_screen is None
+
+
+async def test_probe_confirmation_shows_the_exact_manual_maximum(tmp_path):
+    maximum = "1.2345678901234567"
+    config = replace(RunConfig.smoke("fixture/model", runtime="docker"), input_scales=f"1,{maximum}")
+    app = AcprofTui(config, settings_path=tmp_path / "settings.json")
+    async with app.run_test(size=(120, 30)) as pilot:
+        app.experiments.request_probe()
+        await wait_for_condition(pilot, lambda: isinstance(app.screen, ConfirmActionScreen),
+                                 description="manual probe scale confirmation", timeout=3)
+        summary = str(app.screen.message).split("\n\n", 1)[0]
+        assert maximum in summary
+        pending = app.experiments.pending_launch
+        assert pending.command[pending.command.index("--input-scales") + 1] == f"1,{maximum}"
+        app.screen.dismiss(False)

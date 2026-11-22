@@ -11,6 +11,7 @@ from textual.widgets import Static
 
 from acprof import platform
 from acprof.experiments.configuration import RunConfigError, build_run_command
+from acprof.experiments.constraints import format_input_scale, parse_input_scale
 from acprof.messages import join_messages
 from acprof.platform import collection_policy_error
 from acprof.tui.commands import PendingLaunch, build_probe_command, format_command
@@ -78,7 +79,8 @@ class ExperimentController:
         if config.inference_review_requested:
             scale_text = message_id("run.probe.reviewed_maximum")
         elif config.input_scales:
-            scale_text = f"{max(float(value) for value in config.input_scales.split(',')):g}"
+            maximum = max(parse_input_scale(value) for value in config.input_scales.split(","))
+            scale_text = format_input_scale(maximum)
         else:
             scale_text = message_id("run.probe.automatic_maximum")
         memory_text = ",".join(

@@ -22,6 +22,7 @@ from acprof.experiments.configuration import (
     RunConfigError,
     build_run_command,
 )
+from acprof.experiments.constraints import format_input_scale
 from acprof.messages import join_messages, message
 from acprof.tui.commands import format_command
 from acprof.tui.i18n import error_message, message_id
@@ -345,7 +346,7 @@ class ConfigurationController:
         else:
             gpu_label = message_id("run.resources.cpu_only")
         if planned and planned.get("scales"):
-            scales_label: str = ",".join(f"{value:g}" for value in planned["scales"])
+            scales_label: str = ",".join(map(format_input_scale, planned["scales"]))
         elif config.input_scales:
             scales_label = config.input_scales
         else:
@@ -639,7 +640,7 @@ class ConfigurationController:
         unit = run_planning.input_unit(config, planned)
         self.app.localization.set_text(self.app.query_one("#input-scales-label", Label), message_id('run.inputs.scales_with_unit', unit))
         if planned and planned.get("scales"):
-            placeholder = ",".join(f"{value:g}" for value in planned["scales"]) + f" {unit}"
+            placeholder = ",".join(map(format_input_scale, planned["scales"])) + f" {unit}"
         else:
             placeholder = message_id('run.inputs.blank_plan', message("最小单一尺度" if config.input_scale_policy == "minimal" else "自动范围"), unit)
         self.app.localization.set_text(self.app.query_one("#input-scales", Input), placeholder, "placeholder")

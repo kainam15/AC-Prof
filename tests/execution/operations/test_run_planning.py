@@ -74,3 +74,10 @@ def test_input_plan_identity_changes_with_model_revision_but_not_repeat_count():
 
     assert input_identity(revision) != input_identity(base)
     assert input_identity(repeated) == input_identity(base)
+
+
+def test_manual_estimate_rejects_scales_that_would_lose_a_window():
+    from acprof.tui.run.planning import estimate_run
+
+    with pytest.raises(ValueError, match="2.0000000000000001"):
+        estimate_run(replace(RunConfig.smoke(), input_scales="2,2.0000000000000001"))

@@ -170,10 +170,12 @@ def test_progress_tracker_marks_measurement_and_completion():
     assert (complete.stage) is Stage.VERIFYING_ARTIFACT
 
 def test_progress_tracker_reports_largest_scale_probe_timings():
+    scale = 1.2345678901234567
     tracker = RunProgressTracker()
     starting = tracker.feed(
-        encode_event('probe_started', 'largest_scale_probe', cpu=1, gpu='off', memory_candidates=[2], input_scale=512.0)
+        encode_event('probe_started', 'largest_scale_probe', cpu=1, gpu='off', memory_candidates=[2], input_scale=scale)
     )
+    assert str(scale) in starting.detail
     assert (starting.stage) is Stage.PREPARING_MEMORY_PROBE
     assert ((starting.cpu, starting.mem, starting.gpu)) == (("1", "-", "off"))
     measuring = tracker.feed(
@@ -183,13 +185,14 @@ def test_progress_tracker_reports_largest_scale_probe_timings():
 
     tracker.feed(encode_event("probe_request_stopped", "largest_scale_probe"))
     complete = tracker.feed(
-        encode_event('probe_finished', 'largest_scale_probe', cpu=1, mem=2, gpu='off', input_scale=512.0, status='ok', request_s=4.321, cold_start_s=12.5, ready_plus_request_s=16.821)
+        encode_event('probe_finished', 'largest_scale_probe', cpu=1, mem=2, gpu='off', input_scale=scale, status='ok', request_s=4.321, cold_start_s=12.5, ready_plus_request_s=16.821)
     )
     complete = tracker.feed(
         encode_event('probe_summary', path='/tmp/probes/largest_scale_probe.json')
     )
 
     assert not (complete.measurement_active)
+    assert str(scale) in complete.detail
     assert (complete.stage) is Stage.PROBE_COMPLETED
     assert (complete.completed_cases) == (1)
     assert ("单次请求 4.321s") in (complete.detail)

@@ -198,3 +198,11 @@ def test_invalid_plan_replaces_stale_facts_and_preserves_every_raw_issue():
     assert view.callout.actions == ()
     assert translate(view.callout.problem, "en") == "Request timeout must be finite and greater than 0"
     assert translate(view.callout.next_step, "en") == "Review and correct the relevant fields."
+
+
+def test_prepared_plan_detail_preserves_native_integer_event_coordinates():
+    maximum = 2**53 + 1
+    planned = {"scales": [maximum - 1, maximum], "scale_type": "seq_length"}
+    view = run_plan_view(RunConfig.smoke("fixture/model"), planned)
+    values = fact(view, "run.plan.scale_values_label", detail=True)
+    assert values.value == values.detail == f"{maximum - 1}, {maximum}"

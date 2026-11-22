@@ -231,6 +231,25 @@ async def test_invalid_draft_clears_previous_plan_facts_and_recovers(tmp_path, f
         assert scales.placeholder == "8,16 tokens"
 
 
+async def test_prepared_scale_values_are_distinct_across_form_and_plan_details(tmp_path):
+    scales = "2,2.0000000000000004"
+    config = replace(RunConfig.smoke("fixture/model"), input_scales=scales)
+    app = AcprofTui(config, settings_path=tmp_path / "settings.json")
+    async with app.run_test(size=(120, 30)) as pilot:
+        app.execution.session.config = app.configuration.collect_config()
+        app.preflight.preparation_event({
+            "stage": "input", "status": "passed",
+            "input_plan": {"scales": [2.0, 2.0000000000000004], "scale_type": "duration_s"},
+        })
+        await pilot.pause()
+        assert scales in app.query_one("#resource-matrix", Collapsible).title
+        assert app.query_one("#input-scales", Input).placeholder == f"{scales} s"
+        grid = app.query_one("#run-plan-facts", FactGrid)
+        value = next(item for item in grid.query(FactValue)
+                     if item.row.label == message_id("run.plan.scale_values_label"))
+        assert value.render().plain == "2, 2.0000000000000004"
+
+
 async def test_busy_preparation_updates_plan_then_measurement_freezes_projection(tmp_path):
     config = replace(RunConfig.smoke("fixture/model"), input_scale_policy="auto", repeat=3)
     app = AcprofTui(config, settings_path=tmp_path / "settings.json")
