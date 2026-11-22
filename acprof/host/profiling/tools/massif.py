@@ -4,9 +4,10 @@ from __future__ import annotations
 import math
 import os
 from collections.abc import Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
+from uuid import uuid4
 
-from acprof.artifacts import read_json_object
+from acprof.artifacts import read_json_object, replace_file_durably
 from acprof.host.detect import TaskInfo
 from acprof.host.profiling.commands import run_profiler_command
 from acprof.host.profiling.support import (
@@ -26,6 +27,9 @@ from acprof.host.profiling.tools.execution_parsers import (
     parse_massif_output,
 )
 from acprof.host.runtimes.contracts import RuntimeCleanupError
+
+if TYPE_CHECKING:
+    from acprof.host.profiling.execution_plan import ExecutionProfileResolver
 
 MASSIF_TOOL = "massif"
 
@@ -207,6 +211,7 @@ def _resume_massif_entry(
     output_dir: str,
     entry: Mapping[str, Any],
     repeat: int,
+    previous_plan: ExecutionProfileResolver | None,
 ) -> dict[str, Any] | None:
     input_scale = float(entry["input_scale"])
     scale_label = format_scale_value(input_scale)
@@ -258,6 +263,12 @@ def _resume_massif_entry(
             return resumed
 
     if checkpoint is None and os.path.isfile(host_report):
+        if previous_plan is not None:
+            recorded = previous_plan.resolve(cpu, mem, "off", input_scale)
+            if recorded.get("compute_profile_error_massif") or not _massif_entry_complete(recorded):
+                print(f"[execution-profile][massif][resume] scale={scale_label}: "
+                      "earlier plan does not confirm this report; recollecting")
+                return None
         resumed = _massif_entry_from_report(
             entry=entry,
             host_report=host_report,
@@ -306,8 +317,8 @@ def _collect_massif_entry(
         mem=mem,
         input_scale=input_scale,
     )
-    filename = os.path.basename(host_report)
-    relative_report = relative_artifact(host_report, output_dir)
+    attempt_report = f"{host_report}.{uuid4().hex}.partial"
+    filename = os.path.basename(attempt_report)
     with profiler_container_command(
         task_info=task_info,
         image_tag=derived_image,
@@ -333,14 +344,18 @@ def _collect_massif_entry(
         return error_entry(
             entry,
             f"massif_failed:{command_detail(result)}",
-            report=relative_report if os.path.isfile(host_report) else None,
+            report=relative_artifact(attempt_report, output_dir) if os.path.isfile(attempt_report) else None,
         )
     profiled = _massif_entry_from_report(
         entry=entry,
-        host_report=host_report,
+        host_report=attempt_report,
         output_dir=output_dir,
     )
     if _massif_entry_complete(profiled):
+        # A crash during the two-file publication must not pair a new report with an old checkpoint.
+        write_profile_json(checkpoint_path, {"status": "publishing"})
+        replace_file_durably(attempt_report, host_report)
+        profiled["report"] = relative_artifact(host_report, output_dir)
         _write_massif_checkpoint(
             checkpoint_path=checkpoint_path,
             task_info=task_info,
@@ -368,6 +383,7 @@ def profile(
     output_dir: str,
     repeat: int,
     resume_existing: bool = False,
+    previous_plan: ExecutionProfileResolver | None = None,
 ) -> dict[str, Any]:
     if global_error or not derived_image:
         error = global_error or "massif_not_found"
@@ -390,6 +406,7 @@ def profile(
                         output_dir=output_dir,
                         entry=entry,
                         repeat=repeat,
+                        previous_plan=previous_plan,
                     )
                 if profiled is None:
                     profiled = _collect_massif_entry(

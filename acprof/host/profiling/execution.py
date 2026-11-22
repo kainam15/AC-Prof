@@ -23,6 +23,10 @@ from acprof.experiments.profiler_resources import (
 from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host.detect import TaskInfo
 from acprof.host.profiling.cleanup import discard_profile_artifacts
+from acprof.host.profiling.execution_plan import (
+    ExecutionProfileResolver,
+    load_execution_profile_plan,
+)
 from acprof.host.profiling.progress import (
     ProfilerProgressCallback,
     report_profiler_completion,
@@ -409,12 +413,15 @@ def _collect_massif(
 ) -> dict[tuple[str, int, int], dict[str, Any]]:
     profiles: dict[tuple[str, int, int], dict[str, Any]] = {}
     started = perf_counter()
+    previous_plan = None
+    if resume and plan.enabled and os.path.isfile(workspace.plan_path):
+        previous_plan = ExecutionProfileResolver(load_execution_profile_plan(workspace.plan_path))
     for cpu, mem in plan.sources:
         profiles[(MASSIF_TOOL, cpu, mem)] = massif.profile(
             entries=workspace.entries, global_error=runtime.error,
             task_info=request.task_info, derived_image=runtime.image, cpu=cpu, mem=mem,
             payload_file=request.input_scale_plan_file, profile_root=workspace.profile_root,
-            output_dir=workspace.output_dir, repeat=plan.repeat, resume_existing=resume,
+            output_dir=workspace.output_dir, repeat=plan.repeat, resume_existing=resume, previous_plan=previous_plan,
         )
     if plan.enabled:
         report_profiler_completion(
