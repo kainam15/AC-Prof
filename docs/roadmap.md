@@ -41,13 +41,13 @@ BERT 后处理：Torch CPU/GPU **4/4**、NCU **2/2**、Nsys **2/2**，Massif **0
 
 ### 模型识别与冻结推理配置
 
-静态发现、类型化参数协议、CLI / TUI Auto 与手动审阅、预设选择、输入计划 SHA 冻结及恢复身份检查已接入；`static_meta.json.inference_configuration` 保留配置与来源证据。句向量、Whisper、Chronos、多模态和 Diffusers 等有定向离线覆盖，**不代表所有新 checkpoint 均可实测运行**。历史实验复用保留模型来源、已解析的仓库 ID 与固定 commit，严格续跑仍核对冻结请求；coverage 的参数预算保留有效但未命名 dtype 的数量，中断后重试先核验未提交模型行的原清理状态（当前证据为离线回归）。Top 100 目前只有用户提供的 **41 / 25 / 25 / 4 / 4 / 1** 汇总，缺少可逐项复核的原始名单及固定 revision，不能计算真实通过率。[参数协议](models/inference-configuration.md) · [静态元数据](profiling/metadata.md) · [Kokoro 边界](models/adaptation.md#kokoro-原生适配)。
+静态发现、类型化参数协议、CLI / TUI Auto 与手动审阅、预设选择、输入计划 SHA 冻结及恢复身份检查已接入；`static_meta.json.inference_configuration` 保留配置与来源证据。句向量、Whisper、Chronos、VitPose / SuperPoint 单图关键点检测、多模态和 Diffusers 等有定向离线覆盖，**不代表所有新 checkpoint 均可实测运行**。历史实验复用保留模型来源、已解析的仓库 ID 与固定 commit，严格续跑仍核对冻结请求；coverage 的参数预算保留有效但未命名 dtype 的数量，中断后重试先核验未提交模型行的原清理状态（当前证据为离线回归）。Top 100 目前只有用户提供的 **41 / 25 / 25 / 4 / 4 / 1** 汇总，缺少可逐项复核的原始名单及固定 revision，不能计算真实通过率。[参数协议](models/inference-configuration.md) · [静态元数据](profiling/metadata.md) · [Kokoro 边界](models/adaptation.md#kokoro-原生适配)。
 
 ### 结果质量、恢复与服务口径
 
-Docker / Process 的报告、审计、比较和离线 HTML 统一按**来源身份、精确窗口坐标、采样条件和指标质量**判断可比性；冻结计划及提交／恢复前核对原始证据，失效或缺失保留 `unknown` 或诊断，不静默改写。已有事务、取消、崩溃及兼容性恢复的离线回归；真实测量中断、Docker daemon / Model Store 恢复仍待现场证据。[结果字段](results/fields.md) · [实验产物与恢复](profiling/artifacts.md) · [实验比较](results/comparisons.md)。
+Docker / Process 的报告、审计、比较和离线 HTML 统一按**来源身份、精确窗口坐标、采样条件和指标质量**判断可比性；冻结计划及提交／恢复前核对原始证据，失效或缺失保留 `unknown` 或诊断，不静默改写。HTML 配置按 CPU / GPU 归属质量检查，历史 CSV 审计按表头统计未记录的指标。已有事务、取消、崩溃及兼容性恢复的离线回归；真实测量中断、Docker daemon / Model Store 恢复仍待现场证据。[结果字段](results/fields.md) · [实验产物与恢复](profiling/artifacts.md) · [实验比较](results/comparisons.md)。
 
-流式基础已覆盖 OpenAI Chat / Completions SSE、TTFT、TPOT、ITL、E2E、成功率和 SLO Goodput，包含 Qwen3-0.6B + vLLM 对照；并发负载、sweep、vLLM / SGLang exporter 与阶段直方图有离线或本地 HTTP 验证。**共享直方图不是逐请求精确计时，共享 GPU 能耗不能直接解释为每请求的精确 Token 能耗。**[服务画像](profiling/streaming.md)。
+流式基础已覆盖 OpenAI Chat / Completions SSE、TTFT、TPOT、ITL、E2E、成功率和 SLO Goodput，包含 Qwen3-0.6B + vLLM 对照；并发负载、sweep 逐点请求错误统计、vLLM / SGLang exporter 与阶段直方图有离线或本地 HTTP 验证。**共享直方图不是逐请求精确计时，共享 GPU 能耗不能直接解释为每请求的精确 Token 能耗。**[服务画像](profiling/streaming.md)。
 
 ## 文档维护
 
