@@ -5,7 +5,11 @@ import hashlib
 from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
 
-from acprof.artifacts import JsonObjectSnapshot, read_json_object_snapshot, recorded_artifact_present
+from acprof.artifacts import (
+    JsonObjectSnapshot,
+    read_json_object_snapshot,
+    recorded_artifact_present,
+)
 from acprof.cancellation import cancellable, check_cancelled
 from acprof.hardware_conditions import decode_hardware_conditions
 from acprof.results.layout import ArtifactLayout, resolve_result_file
