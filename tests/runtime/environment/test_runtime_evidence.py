@@ -100,11 +100,11 @@ def test_recorded_result_report_preserves_warnings_and_legacy_unknown():
         assert (before) == ({path: path.read_bytes() for path in before})
 
 @pytest.mark.parametrize('content', [
-    '{',
-    '[]',
-    '{"full_profile_complete": NaN}',
-    '{"full_profile_complete": 1e999}',
-    json.dumps({"padding": "x" * (4 * 1024 * 1024)}),
+    pytest.param('{', id="malformed-json"),
+    pytest.param('[]', id="top-level-array"),
+    pytest.param('{"full_profile_complete": NaN}', id="nan-literal"),
+    pytest.param('{"full_profile_complete": 1e999}', id="overflowing-float"),
+    pytest.param(json.dumps({"padding": "x" * (4 * 1024 * 1024)}), id="oversized-object"),
 ])
 def test_recorded_result_report_marks_invalid_artifact_inconclusive(tmp_path, content):
     from acprof.analysis.compatibility import report_results, result_status
