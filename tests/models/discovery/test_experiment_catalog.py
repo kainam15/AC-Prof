@@ -37,6 +37,66 @@ class TestExperimentCatalog(CatalogFixture):
         assert any(str(bad) in warning and 'invalid_experiment' in warning
                    for warning in report.warnings)
 
+    def test_catalog_uses_the_terminal_device_failure(self):
+        from acprof.failures import Failure
+        from acprof.tui.experiments.catalog import scan_experiments
+
+        directory = self.record("mixed", run_id="mixed-probe", status="failed")
+        cpu = Failure("runtime_validation", "resource_limit", "CPU memory limit", device="off").to_dict()
+        gpu = Failure("predict", "inference_failed", "GPU request stopped", device="on").to_dict()
+        evidence = {"status": "error", "devices": {
+            "off": {"status": "resource_limit", "failure": cpu},
+            "on": {"status": "error", "failure": gpu},
+        }}
+        (directory / "runtime_validation.json").write_text(json.dumps(evidence))
+        record, = scan_experiments([self.root]).records
+        assert record.failures[:2] == (gpu, cpu)
+
+        formal = Failure("measurement", "request_timeout", "formal window deadline").to_dict()
+        (directory / "runtime_failures.json").write_text(json.dumps({"failures": [formal]}))
+        record, = scan_experiments([self.root]).records
+        assert record.failures[:3] == (formal, gpu, cpu)
+
+    @pytest.mark.parametrize("standalone", ["missing", "empty-object", "malformed", "read-error"])
+    def test_catalog_uses_embedded_validation_only_when_the_file_is_missing(self, standalone, monkeypatch):
+        from acprof.failures import Failure
+        from acprof.tui.experiments import catalog
+
+        directory = self.record("old", run_id="embedded", status="failed")
+        failure = Failure("predict", "inference_failed", "historical probe failed", device="on").to_dict()
+        embedded = {"status": "error", "devices": {"on": {"status": "error", "failure": failure}}}
+        meta = directory / "static_meta.json"
+        meta.write_text(json.dumps({**json.loads(meta.read_text()), "runtime_validation": embedded}))
+        path = directory / "runtime_validation.json"
+        if standalone != "missing":
+            path.write_text("{" if standalone == "malformed" else "{}")
+        if standalone == "read-error":
+            original_read = catalog.read_artifact
+
+            def fail_read(target, **kwargs):
+                if target == path:
+                    raise PermissionError("denied for fixture")
+                return original_read(target, **kwargs)
+            monkeypatch.setattr(catalog, "read_artifact", fail_read)
+
+        record = catalog.read_experiment_record(directory)
+        assert record.validation == (embedded if standalone == "missing" else {})
+        assert record.failures == ((failure,) if standalone == "missing" else ())
+        if standalone in {"malformed", "read-error"}:
+            assert any("runtime_validation.json" in issue for issue in record.issues)
+
+    def test_invalid_embedded_probe_devices_do_not_hide_other_experiments(self):
+        from acprof.tui.experiments.catalog import scan_experiments
+
+        source = self.record("invalid", run_id="bad")
+        self.record("healthy", run_id="good")
+        meta = source / "static_meta.json"
+        meta.write_text(json.dumps({**json.loads(meta.read_text()), "runtime_validation": {"status": "ok", "devices": []}}))
+        report = scan_experiments([self.root])
+        assert {item.run_id for item in report.records} == {"bad", "good"}
+        assert next(item for item in report.records if item.run_id == "bad").validation == {}
+        assert any("static_meta.json" in warning and "devices" in warning for warning in report.warnings)
+
     def test_search_many_records_by_model_date_device_status_and_keep_run_identity(self):
         from acprof.tui.experiments.catalog import scan_experiments
         for i in range(25):

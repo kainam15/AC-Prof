@@ -30,6 +30,7 @@ class ModelCandidate:
     history_status: str = ""
     record: ExperimentRecord | None = None
     model_source: str = "huggingface"
+    reason_code: str = ""
 
     @property
     def search_text(self) -> str:
@@ -157,15 +158,15 @@ def candidate_from_record(record: ExperimentRecord, current: dict) -> ModelCandi
     reasons = list(changed_conditions(conditions, current))
     if record.model_source != current.get('model_source', 'huggingface'):
         reasons.append('model_source: changed')
-    codes = {failure.get('reason_code') for failure in record.failures}
-    if 'access_denied' in codes:
+    primary_code = str(record.failures[0].get('reason_code') or 'unknown') if record.failures else ''
+    if primary_code == 'access_denied':
         status, reason = 'access_required', 'access_denied'
-    elif 'resource_limit' in codes:
+    elif primary_code == 'resource_limit':
         status, reason = 'resource_limited', 'resource_limit'
     elif record.issues:
         status, reason = 'revalidate', ', '.join(record.issues)
     elif record.failures:
-        status, reason = 'previous_failure', ', '.join(sorted(str(code) for code in codes))
+        status, reason = 'previous_failure', primary_code
     elif (record.validation.get('status') == 'ok'
           and record.validation.get('scope') == 'isolated_minimum_scale_predict_and_postprocess_before_measurement'):
         status, reason = 'verified_current', 'minimum input predict/postprocess passed under recorded conditions'
@@ -179,7 +180,8 @@ def candidate_from_record(record: ExperimentRecord, current: dict) -> ModelCandi
         'run_id': record.run_id, 'aliases': [str(path) for path in record.aliases],
         'validation': record.validation, 'failures': record.failures, 'status': record.status}, ensure_ascii=False, indent=2)
     return ModelCandidate(record.model_id, record.revision, status, reason, conditions, detail, record.directory,
-                          history_status=history_status, record=record, model_source=record.model_source)
+                          history_status=history_status, record=record, model_source=record.model_source,
+                          reason_code=primary_code)
 
 
 def cached_candidates(root: Path, *, cancelled: Callable[[], bool] = lambda: False,
@@ -243,17 +245,18 @@ def coverage_candidates(path: Path) -> tuple[ModelCandidate, ...]:
             'gpus': 'on' if gpu else 'off' if gpu is False else None, 'batch_size': 1 if config.get('probe') == 'full' else None,
             'source_sha256': host.get('source_sha256')}
         failure = row.get('failure') or {}
+        code = str(failure.get('reason_code') or '')
         reason = 'runtime environment and current conditions require revalidation'
         if failure:
-            reason = str(failure.get('reason_code') or 'previous failure') + '; ' + reason
-        history_status = {'access_denied': 'access_required', 'resource_limit': 'resource_limited'}.get(str(failure.get('reason_code') or ''),
+            reason = (code or 'previous failure') + '; ' + reason
+        history_status = {'access_denied': 'access_required', 'resource_limit': 'resource_limited'}.get(code,
             'previous_failure' if failure else 'revalidate')
         detail = json.dumps({'row': row, 'attempt_configuration': config, 'conditions': conditions,
                              'source': str(path)}, ensure_ascii=False, indent=2)
         source = row.get('source', 'huggingface')
         values.append(ModelCandidate(str(row['model_id']), str(row.get('revision') or 'unknown'), 'revalidate',
                                      reason, conditions, detail, report=path, history_status=history_status,
-                                     model_source=source if source in MODEL_SOURCES else 'unknown'))
+                                     model_source=source if source in MODEL_SOURCES else 'unknown', reason_code=code))
     return tuple(values)
 
 
@@ -362,9 +365,7 @@ def _candidate_views(candidate: ModelCandidate, status_message: Any) -> tuple[An
     callout: CalloutContent | None = None
     reason_key = candidate.history_status or candidate.status
     if reason_key in {'access_required', 'resource_limited', 'previous_failure'}:
-        code = {'access_required': 'access_denied', 'resource_limited': 'resource_limit'}.get(reason_key, 'unknown')
-        if reason_key == 'previous_failure' and candidate.record and candidate.record.failures:
-            code = str(candidate.record.failures[0].get('reason_code') or 'unknown')
+        code = candidate.reason_code or {'access_required': 'access_denied', 'resource_limited': 'resource_limit'}.get(reason_key, 'unknown')
         callout = reason_presentation(code, candidate.reason + '\n' + candidate.detail)
     rows = (
         FactRow(message_id('models.source.label'), candidate.model_source),

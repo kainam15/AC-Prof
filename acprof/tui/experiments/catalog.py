@@ -19,6 +19,7 @@ from acprof.artifacts import read_json_object
 from acprof.cancellation import check_cancelled
 from acprof.experiments.arguments import flatten_run_options
 from acprof.experiments.configuration import RunConfig
+from acprof.failures import ordered_validation_failures
 from acprof.installation import cli_command
 from acprof.results.layout import (
     ArtifactLayout,
@@ -76,6 +77,24 @@ def read_artifact(path: Path, *, cancelled: Callable[[], bool] | None = None) ->
     if not path.is_file():
         return {}
     return read_json_object(path, cancelled=cancelled)
+
+
+def _read_validation(path: Path, metadata: dict, cancelled: Callable[[], bool] | None) -> dict:
+    try:
+        if "runtime_validation" in metadata:
+            path.lstat()
+    except FileNotFoundError:
+        origin = "static_meta.json runtime_validation"
+        record = metadata["runtime_validation"]
+    else:
+        origin = path.name
+        record = read_artifact(path, cancelled=cancelled)
+    if not isinstance(record, dict):
+        raise ValueError(f"{origin}: expected an object")
+    devices = record.get("devices", {})
+    if not isinstance(devices, dict) or not all(isinstance(item, dict) for item in devices.values()):
+        raise ValueError(f"{origin}: devices must be an object of device records")
+    return record
 
 
 def format_experiment_created_at(value: str) -> str | None:
@@ -162,14 +181,17 @@ def experiment_source_title(source: Path) -> tuple[str, str | None]:
 def _record(layout: ArtifactLayout, warnings: list[str], *,
             cancelled: Callable[[], bool] | None) -> ExperimentRecord:
     directory = layout.root
-    values = {}
+    values: dict[str, dict] = {}
     issues: list[str] = []
     for name in ('run_state.json', 'static_meta.json', 'runtime_validation.json', 'runtime_failures.json', 'model_resolution.json'):
         path = layout.path(name)
         try:
             if not path.resolve().is_relative_to(directory):
                 raise ValueError(f'{name}: artifact_outside_experiment')
-            values[name] = read_artifact(path, cancelled=cancelled)
+            if name == "runtime_validation.json":
+                values[name] = _read_validation(path, values["static_meta.json"], cancelled)
+            else:
+                values[name] = read_artifact(path, cancelled=cancelled)
         except (OSError, ValueError) as exc:
             detail = f'{directory}: {name}: {exc}'
             warnings.append(detail)
@@ -185,7 +207,10 @@ def _record(layout: ArtifactLayout, warnings: list[str], *,
     if not isinstance(options, dict):
         options = {}
     failures = list(values['runtime_failures.json'].get('failures', []))
-    failures.extend(value.get('failure') for value in validation.get('devices', {}).values() if isinstance(value, dict))
+    failures.extend(ordered_validation_failures(validation, [
+        (device, device["failure"]) for device in validation.get("devices", {}).values()
+        if isinstance(device, dict) and isinstance(device.get("failure"), dict)
+    ]))
     failures.append(resolution.get('failure'))
     failures = [value for value in failures if isinstance(value, dict)]
     gpu = metadata.get('gpu_device') or {}

@@ -88,6 +88,28 @@ class TestModelCandidate(ModelCandidateFixture):
         assert (limited.conditions['mems']) == ('8')
         assert ('use') in (model_choice(limited).actions)
 
+    @pytest.mark.parametrize(("code", "title", "level"), [
+        ("inference_failed", "inference", "error"),
+        ("request_timeout", "timeout", "warning"),
+        (None, "unknown", "warning"),
+    ])
+    def test_archived_failure_callout_uses_recorded_code(self, code, title, level):
+        from acprof.tui.i18n import message_id
+        from acprof.tui.models.candidates import coverage_candidates, model_choice
+
+        path = self.fixture.root / "coverage.json"
+        failure = {"detail": "request_timeout mentioned in raw text"}
+        if code:
+            failure["reason_code"] = code
+        path.write_text(json.dumps({"schema_version": 1, "scope": "recorded_results; no_reexecution",
+            "rows": [{"model_id": "fixture/archived", "failure": failure}, {"model_id": "fixture/legacy"}]}))
+        failed, legacy = coverage_candidates(path)
+        callout = model_choice(failed).callout
+        assert callout.problem == message_id(f"structured.reason.{title}.problem")
+        assert callout.level == level
+        assert callout.detail.splitlines()[0] == (code or "unknown")
+        assert model_choice(legacy).callout is None
+
     @pytest.mark.parametrize('key_case', range(7), ids=["('revision', 'b' * 40)", "('runtime_environment', 'env-b')", "('device', 'GPU-other')", "('mems', '8')", "('host_id', 'host-b')", "('execution_options', {'cpuset_cpus': '0-1'})", "('execution_options', {'input_scales': '128'})"])
     def test_success_is_bound_to_revision_runtime_device_and_resources(self, key_case):
         from acprof.tui.models.candidates import candidate_from_record, record_conditions
@@ -117,6 +139,32 @@ class TestModelCandidate(ModelCandidateFixture):
         assert ('memory_gb') in (candidate.detail)
         access = replace(record, failures=({'reason_code': 'access_denied', 'detail': 'gated'},))
         assert (candidate_from_record(access, record_conditions(access)).status) == ('access_required')
+
+    @pytest.mark.parametrize(("primary", "secondary", "expected"), [
+        ("inference_failed", "resource_limit", "previous_failure"),
+        ("request_timeout", "access_denied", "previous_failure"),
+        ("resource_limit", "access_denied", "resource_limited"),
+        ("access_denied", "resource_limit", "access_required"),
+    ])
+    def test_candidate_uses_primary_diagnosis_and_keeps_secondary_detail(self, primary, secondary, expected):
+        from acprof.tui.models.candidates import (
+            candidate_from_record,
+            model_choice,
+            record_conditions,
+        )
+
+        failures = ({"reason_code": primary, "detail": "terminal failure"},
+                    {"reason_code": secondary, "detail": "another observed failure"})
+        record = replace(self.recorded(), failures=failures)
+        current = record_conditions(record)
+        candidate = candidate_from_record(record, current)
+        assert candidate.status == expected
+        assert candidate.reason == primary
+        assert json.loads(candidate.detail)["failures"] == list(failures)
+        assert model_choice(candidate).callout.detail.splitlines()[0] == primary
+        changed = candidate_from_record(record, {**current, "mems": "16"})
+        assert changed.status == "revalidate"
+        assert changed.history_status == expected
 
     def test_cache_is_not_inference_evidence_and_missing_blobs_are_not_cached(self):
         from types import SimpleNamespace

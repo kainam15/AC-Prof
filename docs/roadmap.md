@@ -17,7 +17,7 @@ Process 在 Native Linux 按条件使用 RAPL/DRAM、整卡 NVML、PID PMU 与�
 PMU 事件预检已加入分组计数、组合冲突分辨与有界回退；短时 Native Linux `perf` 已验证 7 个事件可计数，正式模型窗口的运行比例、重复性及 Docker/Process 配对结果仍待用户主导验收。
 [手动输入尺度](usage/cli-run.md#输入规模与音频清单)已在配置、逐任务覆盖和探测前检查十进制精度，错误行与 Profiler 命令沿用同一执行坐标。
 同一计划中显示标签重名的输入规模可独立提交[测量窗口](profiling/measurement.md#窗口原始证据与提交记录)，中断恢复保留各规模的预热记录。
-[兼容性报告](usage/cli-discovery.md)分别保留独立探测、能力快照和主实验收尾状态。历史 full 实验恢复后若冻结失败，报告会展示失败或中断。
+[兼容性报告](usage/cli-discovery.md)分别保留独立探测、能力快照和主实验收尾状态。历史 full 实验恢复后若冻结失败，报告会展示失败或中断。多设备探测中，一台设备先遇到资源限制后，兼容性报告和实验目录会展示后续终止探测的设备和原因。
 同版本 Docker/Process 配对开销、真实硬件和 WSL2 实机验收仍待独立执行。
 Process 深度 Profiler 和 CPU 时间份额能耗归因见[接入边界](profiling/collector-capabilities.md)。
 
