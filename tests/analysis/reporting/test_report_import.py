@@ -1306,7 +1306,10 @@ def test_import_derived_energy_matches_python_windows_and_comparisons(page, ener
       const context = ACProfViews.comparisonContext({...baseline, experiment_id:"python"}, "within-experiment", {}, registry);
       const changes = [11, 12].map(cpu => names.map(name => context.delta(byCpu[cpu], name)));
       const legacy = ACProfImport.clone(bundle);
-      for (const c of legacy.configs) for (const name of names) delete c.metric_observations[name];
+      for (const c of legacy.configs) {
+        delete c.comparison_observation_indices;
+        for (const name of names) delete c.metric_observations[name];
+      }
       const old = ACProfImport.validate(legacy, registry).configs.find(c => c.cpu === 12);
       const legacyDeltas = names.map(name => context.delta({...old, experiment_id:"legacy"}, name));
       return {configs:bundle.configs, changes, legacyDeltas};
