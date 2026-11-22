@@ -24,6 +24,7 @@ _SERVICE_SHARED_FILES = {
     "experiments/__init__.py",
     "experiments/constraints.py",
     "results/__init__.py",
+    "results/measurement_plan.py",
     "results/metrics.py",
     "runtime/__init__.py",
     "runtime/dependency_locks.py",

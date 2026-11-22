@@ -38,7 +38,7 @@ Dockerfile 和安装脚本；环境镜像再计对应配方及不可变平台 im
 
 服务源码由 `acprof/source_identity.py` 统一选择，供 Docker 服务层、隔离接口检查与 Process
 环境暂存使用，并参与各自的源码身份。除推理包外，清单还包含推理实际依赖的共享约束、
-指标定义、runtime 设置与依赖声明模块及其包初始化文件。移动这些模块时应同步维护清单，
+指标定义、制品解析用的精确测量坐标（`results/measurement_plan.py`）、runtime 设置与依赖声明模块及其包初始化文件。移动这些模块时应同步维护清单，
 并运行 `tests/runtime/containers/test_service_source_imports.py`：它从暂存目录在禁用
 checkout、`PYTHONPATH` 和 editable 安装路径的独立进程中导入服务入口。
 
