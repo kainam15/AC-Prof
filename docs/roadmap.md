@@ -11,9 +11,9 @@
 | M0 · 能力盘点 | 已完成 | [逐字段覆盖矩阵](results/runtime-coverage.md)区分声明、实现、运行条件与硬件证据；新增能力沿用相同口径。 |
 | M1 · 采集闭环 | 已完成既有范围 | Docker / Process 从预检、准备、测量到审计已贯通；既有 Process CPU/GPU basic、符合条件的 Native Docker full 有实测。新实验统一 Best-effort，额外硬件覆盖仍需独立验收。 |
 | M2 · 通用适配 | 已完成既有范围 | 六类真实 checkpoint 的 CPU/GPU full、Structured CPU full 已验收；其他模型、任务和后端须分别提供兼容与运行证据。 |
-| M3 · Runtime / Profiler | 进行中 | [统一画像语义](results/runtime-profile.md)、Process 条件性 cgroup / RAPL / DRAM / NVML / PMU / PCAP 和生命周期诊断已接入。同一委派单元内选择资源组及复核继承配额已有模拟 cgroup 验证。Torch、NCU、Nsys 的代表性后处理已验证，Massif、配对开销及真实资源限制仍待验收。 |
+| M3 · Runtime / Profiler | 进行中 | [统一画像语义](results/runtime-profile.md)、Process 条件性 cgroup / RAPL / DRAM / NVML / PMU / PCAP 和生命周期诊断已接入。同一委派单元内选择资源组及复核继承配额已有模拟 cgroup 验证。Torch、NCU、Nsys 的代表性后处理已验证。Massif 已离线验证失败报告隔离与断点恢复，真实双尺度采集、配对开销及资源限制仍待验收。 |
 | M4 · TUI 体验 | 进行中 | 四阶段界面、状态中心、自动预检（Docker 和 Process 的 GPU 选择均已与各自的 CLI 对照）、配置折叠、结果工作台（含报告导入取消）、运行环境修复引导及版本管理已通过定向离线／视觉检查。Linux `uv tool` 的 wheel 筛选、实际升级与版本不匹配回滚已有本地索引验证。用户终端和线上更新仍待验收。 |
-| M5 · 科研结果 | 进行中 | 窗口身份和冻结输入、结果恢复、逐指标质量审计、统计、精确坐标比较、离线 HTML 与流式 P0 已贯通。安装包绘图已在两个受支持的 Pandas 版本验证历史空标记和文本运行身份。PNG 窗口均值与统计命令共用字段质量证据及 GPU 能耗方法名判定，推断占位行从性能图和拟合输入中排除。能耗稳定性、重复性、真实服务画像仍需补证。 |
+| M5 · 科研结果 | 进行中 | 窗口身份和冻结输入、结果恢复、逐指标质量审计、统计、精确坐标比较、离线 HTML 与流式 P0 已贯通。安装包绘图已在两个受支持的 Pandas 版本验证历史空标记和文本运行身份。PNG 窗口均值、尾延迟、延迟／能量 Pareto 图及延迟拟合已按字段质量和采样条件筛选实测窗口。能耗稳定性、重复性、真实服务画像仍需补证。 |
 | M6 · 交付使用 | 既有交付完成 | wheel、uv tool、standalone 及安装后 smoke 已验收，双语入口已对齐；预览版发布不等同于当前提交的完整 CI、硬件或正式版验收。 |
 
 ## 下一步（按优先级）
@@ -41,7 +41,7 @@ BERT 后处理：Torch CPU/GPU **4/4**、NCU **2/2**、Nsys **2/2**，Massif **0
 
 ### 模型识别与冻结推理配置
 
-静态发现区分固定版本元数据读取失败与文件内容损坏；离线缓存缺少仓库索引时仍能指出配置文件的结构错误。静态报告保留固定配置中的权重精度及顶层或解码器量化声明。确认只有 GGUF 或 Core ML 且缺少兼容加载器时，检查会直接给出制品证据。类型化参数协议、CLI / TUI Auto 与手动审阅、预设选择、输入计划 SHA 冻结及恢复身份检查已接入；`static_meta.json.inference_configuration` 保留配置与来源证据。句向量、Whisper、Chronos、VitPose / SuperPoint 单图关键点检测、多模态和 Diffusers 等有定向离线覆盖，**不代表所有新 checkpoint 均可实测运行**。历史实验复用保留模型来源、已解析的仓库 ID 与固定 commit，严格续跑仍核对冻结请求；coverage 的参数预算保留有效但未命名 dtype 的数量。新一轮 GPU 预检失败后可修正配置并使用原路径重试。中断续跑仍先核验未提交模型行的原清理状态。上述行为已有离线回归。Top 100 目前只有用户提供的 **41 / 25 / 25 / 4 / 4 / 1** 汇总，缺少可逐项复核的原始名单及固定 revision，不能计算真实通过率。[参数协议](models/inference-configuration.md) · [静态元数据](profiling/metadata.md) · [Kokoro 边界](models/adaptation.md#kokoro-原生适配)。
+静态发现区分固定版本元数据读取失败与文件内容损坏；离线缓存缺少仓库索引时仍保留配置内容及来源，能区分配置结构错误、待选择任务与运行时未支持。静态报告保留固定配置中的权重精度及顶层或解码器量化声明。确认只有 GGUF 或 Core ML 且缺少兼容加载器时，检查会直接给出制品证据。类型化参数协议、CLI / TUI Auto 与手动审阅、预设选择、输入计划 SHA 冻结及恢复身份检查已接入；`static_meta.json.inference_configuration` 保留配置与来源证据。句向量、Whisper、Chronos、VitPose / SuperPoint 单图关键点检测、多模态和 Diffusers 等有定向离线覆盖，**不代表所有新 checkpoint 均可实测运行**。历史实验复用保留模型来源、已解析的仓库 ID 与固定 commit，严格续跑仍核对冻结请求；coverage 的参数预算保留有效但未命名 dtype 的数量。新一轮 GPU 预检失败后可修正配置并重试。Process 负载重放按保存的物理 GPU UUID 复核原设备，已覆盖默认和序号选择。中断续跑仍先核验未提交模型行的原清理状态。上述行为已有离线回归。Top 100 目前只有用户提供的 **41 / 25 / 25 / 4 / 4 / 1** 汇总，缺少可逐项复核的原始名单及固定 revision，不能计算真实通过率。[参数协议](models/inference-configuration.md) · [静态元数据](profiling/metadata.md) · [Kokoro 边界](models/adaptation.md#kokoro-原生适配)。
 
 ### 结果质量、恢复与服务口径
 
